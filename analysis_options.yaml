@@ -11,6 +11,10 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    - .runtime/**
+    - .tools/**
+    - ai_service/**
+    - backend/**
     - build/**
     - android/**
     - ios/**

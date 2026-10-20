@@ -52,8 +52,15 @@ dependencies:
   # State management
   provider: ^6.1.1
   url_launcher: ^6.3.3
+  image_picker: ^1.2.4
+  camera: ^0.12.1
+  flutter_tts: ^4.2.3
+  speech_to_text: ^7.5.0
+  web_socket_channel: ^3.0.3
+  web: ^1.1.1
 
 dev_dependencies:
+  speech_to_text_platform_interface: ^2.5.0
   flutter_test:
     sdk: flutter
 

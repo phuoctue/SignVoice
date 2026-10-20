@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>SignVoice dùng camera để nhận diện ký hiệu tay và chuyển thành lời nói.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SignVoice dùng microphone khi bạn chọn chuyển lời nói thành văn bản.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>SignVoice nhận dạng lời nói tiếng Việt khi bạn chọn chuyển giọng nói thành văn bản.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Kết nối service nhận diện ký hiệu trong mạng của bạn.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

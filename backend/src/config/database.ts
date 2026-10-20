@@ -1,5 +1,13 @@
+import dns from 'node:dns';
 import mongoose from 'mongoose';
 import { env } from './env';
+
+// Ensure DNS resolution succeeds for mongodb+srv
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch {
+  // Ignore fallback
+}
 
 /**
  * Connect to MongoDB using Mongoose

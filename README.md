@@ -1,5 +1,27 @@
 # SignVoice
 
+Flutter Web/Android gửi dữ liệu camera tới **service AI Python riêng cổng 8001**, tách khỏi backend Node.js cổng 3000. Service dùng OpenCV và bộ model Colab 181 từ: kết hợp `embedding_model_v2.keras` với `word_temporal.keras`. **Không cần LM Studio để nhận diện camera**; LM chỉ là tùy chọn xử lý câu. Phát giọng nói dùng TTS trên trình duyệt/thiết bị.
+
+## Cài trên máy khác
+
+Hướng dẫn đầy đủ: **[SETUP_AI.md](docs/SETUP_AI.md)**. Cần Git, Python **3.11 x64**, Flutter stable và Node.js **20+**. Model được tải từ GitHub Release và kiểm tra SHA256; không cần tải dataset TRAIN 46 GB.
+
+```powershell
+git clone --branch dev https://github.com/phuoctue/SignVoice.git
+cd SignVoice
+.\scripts\setup-ai-service.ps1
+.\scripts\start-ai-service.ps1
+```
+
+Giữ cửa sổ service mở; kiểm tra `http://localhost:8001/health` có `ready: true`, `word_classes: 181`, `word_engine: probability_ensemble`. Mở terminal khác để cấu hình backend theo hướng dẫn, rồi chạy:
+
+```powershell
+flutter pub get
+.\scripts\run-ai-web.ps1
+```
+
+Bản này giữ model 181 từ đang dùng trên máy phát triển, **không tự thay bằng kết quả train mới chưa đạt yêu cầu**. Cài được cùng model không có nghĩa webcam mọi người đạt cùng FPS/độ chính xác: chế độ từ vẫn còn hạn chế trên video kiểm thử thực tế. Xem [báo cáo train gần nhất](docs/TRAIN_RESULT_REVIEW_20261020.md). Các báo cáo camera cũ bên dưới mô tả từng thời điểm; cách cài hiện hành nằm trong SETUP_AI.
+
 **SignVoice** là ứng dụng hỗ trợ giao tiếp ngôn ngữ ký hiệu Việt Nam, bao gồm Flutter Frontend (Android + Web) và Node.js Backend.
 
 ## 📚 API Documentation (Swagger)
@@ -28,7 +50,7 @@ http://localhost:3000/api-docs/openapi.json
 
 ```powershell
 # 1. Dùng MongoDB Atlas hoặc replica set local
-# Xem backend/docs/LOCAL_MONGODB.md trước khi khởi động database local.
+# Xem docs/SETUP_AI.md trước khi khởi động database local.
 
 # 2. Khởi động Backend
 cd backend

@@ -1,0 +1,11 @@
+# Tested on CPython 3.11, Windows x64; CPU inference needs no CUDA.
+-c requirements-lock.txt
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+numpy==2.1.3
+# MediaPipe requires contrib; install only one provider of the cv2 namespace.
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.32
+tensorflow==2.21.0
+keras==3.13.2

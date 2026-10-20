@@ -1,0 +1,16 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.sh text eol=lf
+*.py text eol=lf
+*.dart text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.wasm binary
+*.task binary
+*.tflite binary

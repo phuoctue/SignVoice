@@ -1,0 +1,1 @@
+"""SignVoice camera inference service."""

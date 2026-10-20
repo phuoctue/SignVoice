@@ -38,6 +38,7 @@ const screenNames = <String, String>{
   'SS04': 'Error',
   'SS05': 'Offline',
   'SS06': 'Quyền bị từ chối',
+  'ai_vision': 'Camera ký hiệu',
 };
 
 void openScreen(BuildContext context, String id, {bool replace = false}) {

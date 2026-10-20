@@ -1,71 +1,69 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/device_permission_page.dart';
+import '../../services/sign_ai/speech_output.dart';
+import '../../services/sign_ai/speech_input.dart';
+import 'live_camera_screen.dart';
 
-class PermissionScreen extends StatelessWidget {
-  const PermissionScreen({super.key, required this.camera});
+class PermissionScreen extends StatefulWidget {
+  const PermissionScreen({super.key, required this.camera, this.input});
   final bool camera;
+  final SpeechInput? input;
+  @override
+  State<PermissionScreen> createState() => _PermissionScreenState();
+}
+
+class _PermissionScreenState extends State<PermissionScreen> {
+  bool _busy = false;
+  String? _error;
+  SpeechInput get _input => widget.input ?? DeviceSpeechInput.instance;
+  Future<void> _request() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _input.start();
+      if (!mounted) {
+        await _input.cancel();
+        return;
+      }
+      final state = AppScope.of(context);
+      state.update(() => state.microphoneAllowed = _input.permissionGranted);
+      if (_input.permissionGranted) {
+        _busy = false;
+        openScreen(context, 'S16', replace: true);
+      } else {
+        setState(
+          () => _error = _input.error ?? 'Chưa được cấp quyền microphone.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_busy) unawaited(_input.cancel());
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final color = camera ? AppColors.blue : AppColors.teal;
-    final device = camera ? 'camera' : 'microphone';
-    return AppPage(
-      title: camera ? 'Nhận diện ký hiệu' : 'Giọng nói → Văn bản',
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          PulseOrb(
-            icon: camera ? Icons.camera_alt_outlined : Icons.mic_none,
-            color: color,
-          ),
-          Heading('Cho phép sử dụng $device', center: true),
-          const SizedBox(height: 16),
-          BodyText(
-            camera ? 'SignVoice cần camera để nhận diện ký hiệu tay.' : 'SignVoice cần microphone để chuyển lời nói tiếng Việt thành văn bản.',
-            center: true,
-          ),
-          const SizedBox(height: 24),
-          Notice(
-            'Bản FE đang mô phỏng quyền truy cập. '
-            'Chưa mở camera hoặc ghi âm từ thiết bị.',
-            color: color,
-            icon: Icons.shield_outlined,
-          ),
-          const SizedBox(height: 24),
-          AppButton(
-            'Cho phép $device',
-            color: color,
-            onPressed: () {
-              state.update(() {
-                if (camera) {
-                  state.cameraAllowed = true;
-                } else {
-                  state.microphoneAllowed = true;
-                }
-              });
-              openScreen(context, camera ? 'S10' : 'S16', replace: true);
-            },
-          ),
-          const SizedBox(height: 10),
-          AppButton(
-            'Từ chối',
-            color: AppColors.red,
-            secondary: true,
-            onPressed: () {
-              state.update(() => state.permissionCamera = camera);
-              openScreen(context, 'SS06');
-            },
-          ),
-          TextButton(
-            onPressed: () => backOrHome(context),
-            child: const Text('Để sau'),
-          ),
-        ],
-      ),
+    if (widget.camera) return const LiveCameraScreen();
+    return DevicePermissionPage(
+      camera: false,
+      onAllow: _request,
+      busy: _busy,
+      error: _error,
     );
   }
 }
@@ -475,7 +473,41 @@ class VoicePlaybackScreen extends StatefulWidget {
 }
 
 class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
-  bool playing = true;
+  bool playing = false;
+  final speech = SpeechOutput();
+  String? speechError;
+  Future<void> play() async {
+    final state = AppScope.of(context);
+    if (state.sentenceText.isEmpty) {
+      return;
+    }
+    setState(() {
+      playing = true;
+      speechError = null;
+    });
+    try {
+      await speech.speak(
+        state.sentenceText,
+        speed: state.speechSpeed,
+        pitch: state.speechPitch,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => speechError = '$error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => playing = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    speech.stop();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -513,12 +545,14 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
             animate: playing,
           ),
           BodyText(
-            playing ? 'Đang mô phỏng phát giọng nói...' : 'Đã tạm dừng',
+            playing ? 'Đang đọc tiếng Việt...' : 'Bấm Phát để đọc văn bản',
             center: true,
           ),
           const SizedBox(height: 18),
           Heading(
-            state.sentenceText.isEmpty ? 'Xin chào.' : state.sentenceText,
+            state.sentenceText.isEmpty
+                ? 'Chưa có nội dung để đọc.'
+                : state.sentenceText,
             size: 28,
             center: true,
           ),
@@ -529,21 +563,32 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
               IconButton.filled(
                 tooltip: playing ? 'Tạm dừng' : 'Phát',
                 iconSize: 32,
-                onPressed: () => setState(() => playing = !playing),
+                onPressed: state.sentence.isEmpty
+                    ? null
+                    : () async {
+                        if (playing) {
+                          await speech.stop();
+                          if (mounted) {
+                            setState(() => playing = false);
+                          }
+                        } else {
+                          await play();
+                        }
+                      },
                 icon: Icon(playing ? Icons.pause : Icons.play_arrow),
               ),
               const SizedBox(width: 16),
               IconButton.outlined(
                 tooltip: 'Phát lại',
                 iconSize: 30,
-                onPressed: () => setState(() => playing = true),
+                onPressed: state.sentence.isEmpty ? null : play,
                 icon: const Icon(Icons.replay),
               ),
             ],
           ),
           const SizedBox(height: 28),
-          const Notice(
-            'Hiệu ứng phát là mô phỏng. Chưa tích hợp bộ đọc văn bản TTS.',
+          Notice(
+            speechError ?? 'Sử dụng giọng tiếng Việt được cài trên thiết bị.',
           ),
         ],
       ),

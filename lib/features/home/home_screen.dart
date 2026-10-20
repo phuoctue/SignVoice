@@ -58,8 +58,7 @@ class HomeScreen extends StatelessWidget {
             label: 'Bắt đầu nhận diện',
             color: AppColors.blue,
             icon: Icons.back_hand_outlined,
-            onTap: () =>
-                openScreen(context, state.cameraAllowed ? 'S10' : 'S09'),
+            onTap: () => openScreen(context, 'S10'),
           ),
           const SizedBox(height: 14),
           _FeatureCard(
@@ -68,8 +67,7 @@ class HomeScreen extends StatelessWidget {
             label: 'Bắt đầu ghi âm',
             color: AppColors.teal,
             icon: Icons.mic_none,
-            onTap: () =>
-                openScreen(context, state.microphoneAllowed ? 'S16' : 'S15'),
+            onTap: () => openScreen(context, 'S15'),
           ),
           const SizedBox(height: 24),
           _SectionTitle('Khám phá từ điển', () => openRoot(context, 'S22')),

@@ -1,3 +1,12 @@
+import dns from 'node:dns';
+
+// Fix querySrv ECONNREFUSED on local/restricted Wi-Fi networks
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch {
+  // Fallback to system default if setting custom servers fails
+}
+
 import { createApp } from './app';
 import { env, validateEnv } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
@@ -30,6 +39,7 @@ async function startServer(): Promise<void> {
       console.log('✅ Server is running');
       console.log('');
     });
+    app.locals.attachAiUpgrade?.(server);
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {

@@ -9,31 +9,45 @@ import { errorHandler, notFoundHandler } from './common/middlewares/errorHandler
 import { requestLogger, addRequestId } from './common/middlewares/requestLogger';
 import { isDatabaseReady, getDatabaseInfo } from './config/database';
 import { setupSwagger } from './config/swagger';
+import { attachAiPublicProxy } from './ai-public-proxy';
+import { serveDetectorAssets } from './detector-assets';
 
 /**
  * Create and configure Express application
  */
 export async function createApp(): Promise<Application> {
   const app = express();
+  // Inference runs in its own process. This only permits the browser connection.
+  const aiOrigin = new URL(process.env.AI_SERVICE_URL || 'http://localhost:8001').origin;
+  const aiSocketOrigin = aiOrigin.replace(/^http/, 'ws');
+  const publicSocketOrigin = env.PUBLIC_ORIGIN ? new URL(env.PUBLIC_ORIGIN).origin.replace(/^http/, 'ws') : '';
 
-  // Security middleware with Swagger UI exception
+  // Security middleware with Swagger UI and Flutter Web exception
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"], // Required for Swagger UI
-        scriptSrc: ["'self'", "'unsafe-inline'", ...(env.SERVE_WEB ? ["'wasm-unsafe-eval'"] : [])],
-        imgSrc: ["'self'", "data:", "https:"], // Required for Swagger UI
-        ...(env.SERVE_WEB ? {
-          workerSrc: ["'self'", 'blob:'],
-          fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
-          connectSrc: ["'self'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
-          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        } : {}),
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        scriptSrc: ["'self'", "'unsafe-inline'", ...(env.SERVE_WEB ? ["'wasm-unsafe-eval'", 'https://cdn.jsdelivr.net'] : [])],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: ["'self'", aiOrigin, aiSocketOrigin, publicSocketOrigin, 'http://127.0.0.1:8001', 'ws://127.0.0.1:8001', "blob:", "data:", "https:", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'].filter(Boolean),
+        workerSrc: ["'self'", "blob:"],
+        fontSrc: ["'self'", "data:", 'https://fonts.gstatic.com'],
+        mediaSrc: ["'self'", "blob:", "data:"],
         upgradeInsecureRequests: env.isProduction ? [] : null,
       },
     },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   }));
+
+  if (process.env.AI_PUBLIC_PROXY === 'true') {
+    const proxy = attachAiPublicProxy(app, {
+      target: process.env.AI_PROXY_TARGET || 'http://127.0.0.1:8001',
+      publicOrigin: env.PUBLIC_ORIGIN,
+      port: env.PORT,
+    });
+    app.locals.attachAiUpgrade = proxy.attach;
+  }
 
   // CORS configuration
   app.use(cors({
@@ -52,9 +66,9 @@ export async function createApp(): Promise<Application> {
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
 
-  // Body parsing middleware
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // Body parsing middleware (allow up to 50mb for high-res camera pictures)
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use(cookieParser());
 
   // Request tracking
@@ -124,6 +138,7 @@ export async function createApp(): Promise<Application> {
     if (!existsSync(path.join(webRoot, 'index.html'))) {
       throw new Error('Flutter web build is missing. Run flutter build web first.');
     }
+    serveDetectorAssets(app, webRoot);
     app.use(express.static(webRoot, {
       setHeaders: (res, filePath) => {
         if (/\.(html|js|json)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');

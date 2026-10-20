@@ -1,20 +1,16 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:7
     container_name: signvoice_mongodb
     restart: unless-stopped
     ports:
-      - '27017:27017'
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: signvoice
-      MONGO_INITDB_ROOT_PASSWORD: dev_password
-      MONGO_INITDB_DATABASE: signvoice
+      - '127.0.0.1:27017:27017'
+    # Local development only. Transactions require a replica set.
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'try { if (rs.status().myState !== 1) quit(1); } catch (e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]}); quit(1); }']
       interval: 10s
       timeout: 5s
       retries: 5

@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SignVoice USB - Profile" type="FlutterRunConfigurationType" factoryName="Flutter">
+    <option name="filePath" value="$PROJECT_DIR$/lib/main.dart" />
+    <option name="additionalArgs" value="--profile --dart-define=API_BASE_URL=http://127.0.0.1:3000/api/v1 --dart-define=AI_SERVICE_URL=http://127.0.0.1:8001" />
+    <method v="2" />
+  </configuration>
+</component>

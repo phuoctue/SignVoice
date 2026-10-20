@@ -20,6 +20,7 @@ import 'features/speech/speech_screens.dart';
 import 'features/library/library_screens.dart';
 import 'features/profile/profile_screens.dart';
 import 'features/system/system_screens.dart';
+import 'features/recognition/live_camera_screen.dart';
 
 class SignVoiceApp extends StatefulWidget {
   const SignVoiceApp({
@@ -293,10 +294,10 @@ Widget screenFor(String id) => switch (id) {
   'S06' => const AuthScreen(register: true),
   'S07' => const ForgotPasswordScreen(),
   'S08' => const HomeScreen(),
-  'S09' => const PermissionScreen(camera: true),
-  'S10' => const CameraScreen(),
-  'S11' => const CameraScreen(status: 1),
-  'S12' => const CameraScreen(status: 2),
+  'S09' => const LiveCameraScreen(),
+  'S10' => const LiveCameraScreen(),
+  'S11' => const LiveCameraScreen(),
+  'S12' => const LiveCameraScreen(),
   'S13' => const SentenceScreen(),
   'S14' => const VoicePlaybackScreen(),
   'S15' => const PermissionScreen(camera: false),
@@ -322,5 +323,6 @@ Widget screenFor(String id) => switch (id) {
   'SS04' ||
   'SS05' ||
   'SS06' => SystemScreen(id: id),
+  'ai_vision' => const LiveCameraScreen(),
   _ => const ScreenCatalog(),
 };

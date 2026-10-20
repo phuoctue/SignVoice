@@ -5,6 +5,8 @@ plugins {
 }
 
 android {
+    // Bundle exactly the same verified hand model as the web detector.
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("handModelAssets").get().asFile)
     namespace = "com.example.sign_voice"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
@@ -19,7 +21,7 @@ android {
         applicationId = "com.example.sign_voice"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(24, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -46,4 +48,15 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+val bundleHandModel by tasks.registering(Copy::class) {
+    from("../../web/mediapipe/hand_landmarker.task")
+    into(layout.buildDirectory.dir("handModelAssets"))
+}
+tasks.named("preBuild").configure { dependsOn(bundleHandModel) }
+
+dependencies {
+    implementation("com.google.mediapipe:tasks-vision:0.10.32")
+    testImplementation("junit:junit:4.13.2")
 }

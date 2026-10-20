@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "directory": "runtime_181_camera640",
+  "url": "https://github.com/phuoctue/SignVoice/releases/download/models-181-camera640-v1/SignVoice_Runtime_181_camera640.zip",
+  "sha256": "6858cae5dcc6e4a531837305380016dbfa1fbe3f75abb8bee473858af798cc8b",
+  "bytes": 71118814,
+  "manifest_sha256": "af23aa8892a736db57dedf4ac0e688cdc22da1fbe160dfbcd937e05da2f8609b",
+  "word_classes": 181,
+  "feature_pipeline": "stable_two_hand_v6_camera640",
+  "files": {
+    "embedding_model_v2.keras": {
+      "bytes": 219321,
+      "sha256": "6a342cddc45e7f60be821ab1273860cb040587ad7a8ca812e63a79a3a90da630"
+    },
+    "face_detector.tflite": {
+      "bytes": 229746,
+      "sha256": "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f"
+    },
+    "hand_landmarker.task": {
+      "bytes": 7819105,
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+    },
+    "prototypes_v2.json": {
+      "bytes": 272012,
+      "sha256": "c0084f6cea900d23ae665cc1f4f0157f331cea3f84ed1ff900a56315eab9c27b"
+    },
+    "recognizer_config.json": {
+      "bytes": 5262893,
+      "sha256": "af23aa8892a736db57dedf4ac0e688cdc22da1fbe160dfbcd937e05da2f8609b"
+    },
+    "recognizer_v5.npz": {
+      "bytes": 61191775,
+      "sha256": "0e3c4a6d7a64d22f6bda4b40af96a45a1f44cbb936e8a3f1d47292db6a586a20"
+    },
+    "train_mean.npy": {
+      "bytes": 632,
+      "sha256": "9a0961da9516f938574eb4eded41017ca64177a96927b25707d577421b1e3165"
+    },
+    "train_std.npy": {
+      "bytes": 632,
+      "sha256": "1208df67cf13abbb59188d59ddc2a0746c855d296c975f469f3da2b9178182f0"
+    },
+    "word_temporal.keras": {
+      "bytes": 2367130,
+      "sha256": "09b1bb7a6459e4cf1d6df2dc48860df1a57b41ec87927ac439af46d033a2343b"
+    },
+    "word_temporal_config.json": {
+      "bytes": 321014,
+      "sha256": "70058516add71afc99c580eadaf700fb6b9455547ffe093f689965d23f88bf10"
+    }
+  }
+}

@@ -110,7 +110,7 @@ class AppState extends ChangeNotifier {
     ),
   ];
   String detectedSign = 'Xin chào';
-  String transcript = 'Xin chào, tôi có thể giúp gì cho bạn?';
+  String transcript = '';
   String? selectedHistoryId;
   SignEntry selectedSign = signs.first;
   ThemeMode themeMode = ThemeMode.light;
