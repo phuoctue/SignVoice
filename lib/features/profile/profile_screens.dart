@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../services/user/user_service.dart';
+import '../../services/api/api_config.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
@@ -569,15 +572,33 @@ class PrivacyScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          IconTile(
+            icon: Icons.policy_outlined,
+            title: 'Chính sách quyền riêng tư',
+            onTap: () => launchUrl(
+              Uri.base.resolve(ApiConfig.baseUrl).resolve('/privacy'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 12),
+          IconTile(
+            icon: Icons.help_outline,
+            title: 'Hướng dẫn xóa dữ liệu',
+            onTap: () => launchUrl(
+              Uri.base.resolve(ApiConfig.baseUrl).resolve('/data-deletion'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 18),
           const Notice(
-            'Bản FE không mở camera/microphone và không lưu ảnh, video hoặc âm thanh. '
-            'Lịch sử demo chỉ được thêm khi bạn nhấn lưu.',
+            'Camera và microphone chỉ được yêu cầu khi bạn dùng chức năng tương ứng. '
+            'Camera được xử lý bởi dịch vụ AI; nhận dạng giọng nói có thể dùng dịch vụ của trình duyệt.',
             icon: Icons.shield_outlined,
           ),
           const SizedBox(height: 18),
           IconTile(
             icon: Icons.camera_alt_outlined,
-            title: 'Quyền camera demo',
+            title: 'Quyền camera',
             trailing: SignVoiceBadge(
               state.cameraAllowed ? 'Đã cho phép' : 'Chưa cấp',
               color: state.cameraAllowed ? AppColors.green : AppColors.muted,
@@ -635,14 +656,20 @@ class PrivacyScreen extends StatelessWidget {
           const SizedBox(height: 10),
           IconTile(
             icon: Icons.person_remove_outlined,
-            title: 'Xóa tài khoản demo',
+            title: 'Xóa tài khoản',
             color: AppColors.red,
             onTap: () async {
               if (await confirm(
                 context,
-                title: 'Xóa tài khoản demo?',
-                message: 'Thông tin hồ sơ và dữ liệu demo sẽ được đặt lại.',
+                title: 'Xóa tài khoản vĩnh viễn?',
+                message: 'Tài khoản, hồ sơ, lịch sử, mục yêu thích và cài đặt trên server sẽ bị xóa. Bạn không thể hoàn tác thao tác này.',
               )) {
+                try {
+                  await UserService.instance.deleteAccount();
+                } catch (_) {
+                  if (context.mounted) toast(context, 'Chưa xóa được tài khoản. Vui lòng thử lại.');
+                  return;
+                }
                 state.clearLocalData();
                 if (!context.mounted) return;
                 await context.read<AuthProvider>().logout();

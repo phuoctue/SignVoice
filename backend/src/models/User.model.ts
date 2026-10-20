@@ -200,7 +200,8 @@ const UserSchema = new Schema<IUser>(
 // ============================================================================
 
 // Unique sparse index for email (allows multiple nulls for guests)
-UserSchema.index({ email: 1 }, { unique: true, sparse: true });
+// Use a distinct name so legacy nonunique email_1 indexes can coexist.
+UserSchema.index({ email: 1 }, { name: 'oauth_email_unique', unique: true, sparse: true });
 UserSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
 
 // OAuth provider IDs

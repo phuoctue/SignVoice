@@ -16,6 +16,11 @@ class UserService {
   }
 
   /// Get current user profile
+  Future<void> deleteAccount() async {
+    await _apiClient.delete('/users/account');
+  }
+
+  /// Get current user profile
   Future<UserModel> getProfile() async {
     try {
       final response = await _apiClient.get('/users/profile');

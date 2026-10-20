@@ -4,11 +4,22 @@ import { UserSettings } from '../models/UserSettings.model';
 import { requireAuth } from '../common/middlewares/auth.middleware';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
+import { deleteOwnAccount } from '../services/account-deletion.service';
 
 const router = Router();
 
 // All user routes require authentication
 router.use(requireAuth);
+
+router.delete('/account', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
+    await deleteOwnAccount(req.user.id);
+    res.clearCookie('signvoice_refresh', { path: '/api/v1/auth' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, data: { message: 'Đã xóa tài khoản và dữ liệu cá nhân trên hệ thống đang hoạt động.' } });
+  } catch (error) { next(error); }
+});
 
 /**
  * @route GET /api/v1/users/profile

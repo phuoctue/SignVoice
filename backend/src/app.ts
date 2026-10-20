@@ -11,6 +11,7 @@ import { isDatabaseReady, getDatabaseInfo } from './config/database';
 import { setupSwagger } from './config/swagger';
 import { attachAiPublicProxy } from './ai-public-proxy';
 import { serveDetectorAssets } from './detector-assets';
+import { servePublicInformation } from './public-information';
 
 /**
  * Create and configure Express application
@@ -121,6 +122,7 @@ export async function createApp(): Promise<Application> {
   });
 
   // API routes
+  servePublicInformation(app);
   app.use('/api/v1/auth', (await import('./routes/auth.routes')).default);
   app.use('/api/v1/dictionary', (await import('./routes/dictionary.routes')).default);
   app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);

@@ -49,7 +49,9 @@ function Wait-Health([string]$Uri, [int]$Seconds, [int]$WatchProcessId=0) {
 $serverProcess = $null; $newAiWrapper = $null; $newTunnel = $null; $newTunnelWrapper = $null
 $managedAi = $null; $managedAiWrapper = $null; $managedTunnel = $null; $managedTunnelWrapper = $null
 $savedEnvironment = @{}
-foreach ($key in @('PORT','NODE_ENV','SERVE_WEB','PUBLIC_ORIGIN','AI_PUBLIC_PROXY','AI_PROXY_TARGET','LOG_LEVEL')) {
+foreach ($key in @('PORT','NODE_ENV','SERVE_WEB','PUBLIC_ORIGIN','AI_PUBLIC_PROXY','AI_PROXY_TARGET','LOG_LEVEL',
+    'WEB_ORIGIN','CORS_ALLOWED_ORIGINS','OAUTH_BACKEND_ORIGIN','OAUTH_FRONTEND_ORIGIN',
+    'GOOGLE_CALLBACK_URL','FACEBOOK_CALLBACK_URL','PASSWORD_RESET_ORIGIN')) {
     $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
 }
 Push-Location $workspaceRoot
@@ -116,7 +118,7 @@ try {
             Write-Host 'Reusing existing Conveyor tunnel.'
         } else {
             Write-Host 'Starting Conveyor tunnel...'
-            & $aiPython -c 'import winpty' 2>$null
+            & $aiPython -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('winpty') else 1)"
             if ($LASTEXITCODE) {
                 Write-Host 'Installing Windows PTY helper for Conveyor...'
                 & $aiPython -m pip install -r (Join-Path $PSScriptRoot 'requirements-public.txt') --disable-pip-version-check
@@ -150,8 +152,16 @@ try {
         }
     }
     if (-not $PublicOrigin) { $PublicOrigin = "http://localhost:$Port" }
-    $env:PORT = "$Port"; $env:NODE_ENV = 'production'; $env:SERVE_WEB = 'true'
+    $env:PORT = "$Port"
+    $env:NODE_ENV = if ($NoTunnel) { 'development' } else { 'production' }
+    $env:SERVE_WEB = 'true'
     $env:PUBLIC_ORIGIN = $PublicOrigin; $env:LOG_LEVEL = 'info'
+    # OAuth and refresh cookies must use this launch's origin, not a stale localhost/tunnel in .env.
+    $env:WEB_ORIGIN = $PublicOrigin; $env:CORS_ALLOWED_ORIGINS = $PublicOrigin
+    $env:OAUTH_BACKEND_ORIGIN = $PublicOrigin; $env:OAUTH_FRONTEND_ORIGIN = $PublicOrigin
+    $env:GOOGLE_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/google/callback"
+    $env:FACEBOOK_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/facebook/callback"
+    $env:PASSWORD_RESET_ORIGIN = $PublicOrigin
     $env:AI_PUBLIC_PROXY = 'true'; $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
     $serverProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList 'dist/server.js' `
         -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru `
