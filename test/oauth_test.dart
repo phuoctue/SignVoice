@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:sign_voice/features/auth/oauth_complete_screen.dart';
+import 'package:sign_voice/features/auth/auth_screens.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/services/api/api_client.dart';
 import 'package:sign_voice/services/auth/auth_service.dart';
@@ -13,6 +14,48 @@ import 'package:sign_voice/services/auth/auth_service.dart';
 import 'auth_fixtures.dart';
 
 void main() {
+  for (final register in [false, true]) {
+    testWidgets(
+      'social providers are available on ${register ? 'registration' : 'login'}',
+      (tester) async {
+        final store = MemoryTokenStore();
+        var providerRequests = 0;
+        final api = ApiClient(
+          tokenStorage: store,
+          client: MockClient((request) async {
+            expect(request.url.path, '/api/v1/auth/oauth/providers');
+            providerRequests++;
+            return http.Response(
+              '{"success":true,"data":{"google":true,"facebook":false}}',
+              200,
+            );
+          }),
+        );
+        final auth = AuthProvider(
+          authService: AuthService(apiClient: api, tokenStorage: store),
+        );
+        await tester.pumpWidget(
+          ChangeNotifierProvider.value(
+            value: auth,
+            child: MaterialApp(home: AuthScreen(register: register)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(providerRequests, 1);
+        expect(find.text('Tiếp tục với Google'), findsOneWidget);
+        expect(find.text('Tiếp tục với Facebook'), findsOneWidget);
+        expect(
+          find.text(
+            'Một số nhà cung cấp chưa được cấu hình. Đăng nhập email và dùng thử vẫn hoạt động.',
+          ),
+          findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        auth.dispose();
+        api.dispose();
+      },
+    );
+  }
   test(
     'wrong current password preserves real client session and allows retry',
     () async {

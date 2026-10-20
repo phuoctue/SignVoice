@@ -263,7 +263,7 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
-    if (!widget.register) loadOAuth();
+    loadOAuth();
   }
 
   Future<void> loadOAuth() async {
@@ -285,6 +285,11 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> socialLogin(String provider) async {
+    if (busy) return;
+    if (widget.register && !accepted) {
+      toast(context, 'Vui lòng đồng ý với điều khoản để tiếp tục.');
+      return;
+    }
     if (!kIsWeb) {
       toast(
         context,
@@ -299,7 +304,6 @@ class _AuthScreenState extends State<AuthScreen> {
       );
       return;
     }
-    if (busy) return;
     setState(() => busy = true);
     try {
       await context.read<AuthProvider>().startOAuth(provider);
@@ -502,7 +506,7 @@ class _AuthScreenState extends State<AuthScreen> {
           const Notice(
             'Đăng nhập bằng tài khoản SignVoice để sử dụng ứng dụng.',
           ),
-          if (!widget.register) ...[
+          ...[
             const SizedBox(height: 20),
             Row(
               children: [
@@ -534,6 +538,11 @@ class _AuthScreenState extends State<AuthScreen> {
               onPressed: busy ? null : () => socialLogin('facebook'),
             ),
             const SizedBox(height: 10),
+            const BodyText(
+              'Lần đầu tiếp tục bằng Google hoặc Facebook sẽ tạo tài khoản SignVoice mới.',
+              center: true,
+            ),
+            const SizedBox(height: 10),
             if (oauthError != null) ...[
               Notice(oauthError!),
               TextButton(
@@ -549,6 +558,8 @@ class _AuthScreenState extends State<AuthScreen> {
               const Notice(
                 'Google/Facebook hiện hỗ trợ phiên bản web; ứng dụng dùng đăng nhập email.',
               ),
+          ],
+          if (!widget.register) ...[
             const SizedBox(height: 18),
             TextButton(
               onPressed: () => openScreen(context, 'S06'),

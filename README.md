@@ -135,7 +135,8 @@ Các phiên từ phiên bản JWT cũ cần đăng nhập lại.
 - Đồng bộ tải lại dữ liệu thật; quyền riêng tư hỗ trợ xuất JSON, xóa dữ liệu, quản lý phiên và xóa tài khoản có xác nhận.
 - 6 trạng thái hệ thống, có thể mở riêng để kiểm tra.
 
-Google/Facebook dùng OAuth web với cấu hình server qua biến môi trường. Xem
+Đăng nhập và đăng ký bằng Google/Facebook dùng chung luồng OAuth web; lần xác thực
+đầu tiên tự tạo tài khoản SignVoice. Cấu hình server qua biến môi trường. Xem
 [hướng dẫn cấu hình và kiểm thử](docs/OAUTH_SETUP.md). Chưa có credentials thì các
 phương thức email và khách vẫn hoạt động. Đăng nhập thật với nhà cung cấp cần bạn
 đăng ký ứng dụng và callback; các kiểm thử mô phỏng không thay thế bước đó.
@@ -148,7 +149,7 @@ Trên Chrome màn hình rộng, app hiển thị trong khung điện thoại. Tr
 
 ## 3. Phạm vi FE và dữ liệu demo
 
-- Đăng nhập JWT, đăng ký, guest và phân quyền đã tích hợp backend. AI, camera thực, microphone thực, TTS, OAuth Google và cloud sync vẫn là demo.
+- Đăng nhập JWT, đăng ký, guest, OAuth Google/Facebook trên web và phân quyền đã tích hợp backend. OAuth cần khóa ứng dụng của nhà cung cấp trong `backend/.env`.
 - Đăng nhập kiểm tra tài khoản và mật khẩu trên backend; dữ liệu sai không mở trang chủ.
 - Quên mật khẩu không gửi email thật.
 - State hội thoại demo nằm trong bộ nhớ qua `ChangeNotifier` + `InheritedNotifier` và được xóa khi đổi tài khoản/đăng xuất. Phiên JWT có thể khôi phục khi mở lại ứng dụng.
