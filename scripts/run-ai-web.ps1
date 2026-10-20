@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ApiBaseUrl = 'http://localhost:3000/api/v1',
   [string]$AiServiceUrl = 'http://localhost:8001',
   [int]$WebPort = 8080,
