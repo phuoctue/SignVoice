@@ -70,6 +70,30 @@ class FakeSpeech extends SpeechInput {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('manual text can reach signs without requesting microphone', (
+    tester,
+  ) async {
+    final state = AppState();
+    final input = FakeSpeech();
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: MaterialApp(
+          home: PermissionScreen(camera: false, input: input),
+          routes: {'S18': (_) => const Text('Text signs result')},
+        ),
+      ),
+    );
+    await tester.tap(find.text('Nhập văn bản để xem ký hiệu'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Xin chào, tôi là An');
+    await tester.tap(find.widgetWithText(FilledButton, 'Lưu'));
+    await tester.pumpAndSettle();
+    expect(state.transcript, 'Xin chào, tôi là An');
+    expect(find.text('Text signs result'), findsOneWidget);
+    expect(input.requests, 0);
+    expect(state.microphoneAllowed, isFalse);
+  });
   testWidgets(
     'cached grants do not bypass the consent page; defer opens no device',
     (tester) async {

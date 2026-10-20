@@ -10,11 +10,11 @@ if ($Port -eq $AiPort) { throw 'Public and AI service ports must be different.' 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $workspaceRoot 'backend'
 $runtimeRoot = Join-Path $workspaceRoot '.runtime'
-$stateFile = Join-Path $runtimeRoot 'public-server.json'
+$stateFile = Join-Path $runtimeRoot $(if ($NoTunnel) { 'local-server.json' } else { 'public-server.json' })
 $settingsFile = Join-Path $runtimeRoot 'public-settings.json'
 New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
 $oldState = if (Test-Path -LiteralPath $stateFile) { Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json } else { $null }
-if (-not $PublicOrigin -and (Test-Path -LiteralPath $settingsFile)) {
+if (-not $NoTunnel -and -not $PublicOrigin -and (Test-Path -LiteralPath $settingsFile)) {
     $PublicOrigin = (Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json).publicOrigin
 }
 if ($PublicOrigin) {
@@ -25,6 +25,7 @@ if ($PublicOrigin) {
     }
     $PublicOrigin = $publicUri.GetLeftPart([UriPartial]::Authority)
 }
+if ($NoTunnel -and $PublicOrigin) { throw 'Local mode does not use PublicOrigin. Omit it when using -NoTunnel.' }
 function Process-Record([int]$ProcessId) {
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if ($process) { return @{ processId=$ProcessId; startedUtc=$process.StartTime.ToUniversalTime().ToString('o') } }
@@ -169,7 +170,8 @@ try {
     }
     Write-Host "SignVoice UI + API + AI: $PublicOrigin"
     Write-Host "AI health: $PublicOrigin/sign-ai/health"
-    Write-Host 'Stop with: .\scripts\stop-public-server.ps1'
+    if ($NoTunnel) { Write-Host 'Stop with: .\scripts\stop-public-server.ps1 -Local' }
+    else { Write-Host 'Stop with: .\scripts\stop-public-server.ps1' }
 } catch {
     if ($serverProcess -and -not $serverProcess.HasExited) { Stop-Process -Id $serverProcess.Id -ErrorAction SilentlyContinue }
     if ($newTunnel -and -not $newTunnel.HasExited) { Stop-Process -Id $newTunnel.Id -ErrorAction SilentlyContinue }

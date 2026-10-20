@@ -33,7 +33,7 @@ export async function createApp(): Promise<Application> {
         connectSrc: ["'self'", aiOrigin, aiSocketOrigin, publicSocketOrigin, 'http://127.0.0.1:8001', 'ws://127.0.0.1:8001', "blob:", "data:", "https:", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'].filter(Boolean),
         workerSrc: ["'self'", "blob:"],
         fontSrc: ["'self'", "data:", 'https://fonts.gstatic.com'],
-        mediaSrc: ["'self'", "blob:", "data:"],
+        mediaSrc: ["'self'", "blob:", "data:", "https:", ...(!env.isProduction ? ['http:'] : [])],
         upgradeInsecureRequests: env.isProduction ? [] : null,
       },
     },
@@ -123,6 +123,8 @@ export async function createApp(): Promise<Application> {
   // API routes
   app.use('/api/v1/auth', (await import('./routes/auth.routes')).default);
   app.use('/api/v1/dictionary', (await import('./routes/dictionary.routes')).default);
+  app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);
+  app.use('/sign-media', (await import('./routes/sign-media.routes')).default);
   app.use('/api/v1/categories', (await import('./routes/category.routes')).default);
   app.use('/api/v1/favorites', (await import('./routes/favorites.routes')).default);
   app.use('/api/v1/history', (await import('./routes/history.routes')).default);

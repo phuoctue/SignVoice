@@ -9,6 +9,7 @@ import '../../core/theme.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/device_permission_page.dart';
 import '../../services/sign_ai/speech_input.dart';
+import 'sign_sequence_panel.dart';
 
 class SpeechCaptureScreen extends StatefulWidget {
   const SpeechCaptureScreen({super.key, this.listening = false, this.input});
@@ -63,6 +64,18 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
     openScreen(context, 'S18', replace: true);
   }
 
+  Future<void> _typeText() async {
+    final state = AppScope.of(context);
+    final text = await editText(
+      context,
+      title: 'Nhập văn bản để xem ký hiệu',
+      initial: state.transcript,
+    );
+    if (!mounted || text == null || text.trim().isEmpty) return;
+    state.update(() => state.transcript = text.trim());
+    openScreen(context, 'S18', replace: true);
+  }
+
   @override
   void dispose() {
     _input.removeListener(_changed);
@@ -73,7 +86,15 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
 
   @override
   Widget build(BuildContext context) => !_consent
-      ? DevicePermissionPage(camera: false, onAllow: _start)
+      ? DevicePermissionPage(
+          camera: false,
+          onAllow: _start,
+          alternativeAction: TextButton.icon(
+            onPressed: _typeText,
+            icon: const Icon(Icons.keyboard_outlined),
+            label: const Text('Nhập văn bản để xem ký hiệu'),
+          ),
+        )
       : AppPage(
           title: 'Giọng nói → Văn bản',
           child: Column(
@@ -239,7 +260,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
       );
     }
     return AppPage(
-      title: 'Kết quả văn bản',
+      title: 'Văn bản và ký hiệu',
       actions: [
         IconButton(
           tooltip: 'Giảm cỡ chữ',
@@ -311,6 +332,8 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
               }
             },
           ),
+          const SizedBox(height: 12),
+          SignSequencePanel(text: text),
           const SizedBox(height: 10),
           AppButton(
             'Sao chép',

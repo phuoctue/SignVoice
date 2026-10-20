@@ -6,6 +6,10 @@ class ApiConfig {
     defaultValue: 'http://localhost:3000/api/v1',
   );
 
+  /// Media imported from our dataset follows the configured API, not an old tunnel.
+  static String mediaUrl(String value) =>
+      signMediaUrl(value, Uri.base.resolve(baseUrl));
+
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 30);
@@ -25,4 +29,16 @@ class ApiConfig {
   static const String usersEndpoint = '/users';
   static const String staffEndpoint = '/staff';
   static const String adminEndpoint = '/admin';
+}
+
+String signMediaUrl(String value, Uri apiBase) {
+  final media = Uri.tryParse(value);
+  if (media == null ||
+      media.hasQuery ||
+      media.hasFragment ||
+      !RegExp(r'^/sign-media/[a-f0-9]{64}(?:-[1-5])?\.(?:mp4|jpg)$')
+          .hasMatch(media.path)) {
+    return value;
+  }
+  return apiBase.resolve(media.path).toString();
 }

@@ -153,8 +153,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addWord(String word) => update(() => sentence.add(word));
-  String get sentenceText => sentence.isEmpty ? '' : '${sentence.join(', ')}.';
+  void addWord(String word) {
+    final text = word.trim();
+    if (text.isNotEmpty) update(() => sentence.add(text));
+  }
+
+  String get sentenceText {
+    final text = sentence.join(' ').trim();
+    if (text.isEmpty) return '';
+    return RegExp(r'[.!?…]$').hasMatch(text) ? text : '$text.';
+  }
+
   void toggleSign(String word) => update(() {
     if (!favorites.add(word)) favorites.remove(word);
   });

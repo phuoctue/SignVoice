@@ -1,8 +1,8 @@
-param([switch]$KeepServices)
+param([switch]$KeepServices, [switch]$Local)
 $ErrorActionPreference = 'Stop'
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
-$stateFile = Join-Path $workspaceRoot '.runtime/public-server.json'
-if (-not (Test-Path -LiteralPath $stateFile)) { Write-Host 'No public server state found.'; return }
+$stateFile = Join-Path $workspaceRoot $(if ($Local) { '.runtime/local-server.json' } else { '.runtime/public-server.json' })
+if (-not (Test-Path -LiteralPath $stateFile)) { Write-Host 'No managed server state found for this mode.'; return }
 $serverState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
 $serverProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($serverState.processId)" -ErrorAction SilentlyContinue
 if ($serverProcess) {
@@ -25,11 +25,12 @@ function Stop-Managed($Record, [string]$ExpectedName, [string]$Pattern) {
     }
     Stop-Process -Id $managed.ProcessId
 }
-if (-not $KeepServices) {
+if (-not $KeepServices -and -not $Local) {
     Stop-Managed $serverState.managedTunnel 'conveyorcli.exe' ('(?:-p|--ports)\s+' + [regex]::Escape("$($serverState.port)i") + '(?:\s|$)')
     Stop-Managed $serverState.managedTunnelWrapper 'python.exe' 'conveyor-tunnel.py'
     Stop-Managed $serverState.managedAi 'python.exe' 'uvicorn.*ai_service.server'
     Stop-Managed $serverState.managedAiWrapper 'powershell.exe' 'start-ai-service.ps1'
 }
 Remove-Item -LiteralPath $stateFile
-Write-Host 'SignVoice public server stopped.'
+if ($Local) { Write-Host 'SignVoice local server stopped; shared AI kept running.' }
+else { Write-Host 'SignVoice public server stopped.' }

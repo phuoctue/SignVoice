@@ -64,6 +64,25 @@ class _PermissionScreenState extends State<PermissionScreen> {
       onAllow: _request,
       busy: _busy,
       error: _error,
+      alternativeAction: TextButton.icon(
+        icon: const Icon(Icons.keyboard_outlined),
+        label: const Text('Nhập văn bản để xem ký hiệu'),
+        onPressed: _busy
+            ? null
+            : () async {
+                final state = AppScope.of(context);
+                final text = await editText(
+                  context,
+                  title: 'Nhập văn bản để xem ký hiệu',
+                  initial: state.transcript,
+                );
+                if (!context.mounted || text == null || text.trim().isEmpty) {
+                  return;
+                }
+                state.update(() => state.transcript = text.trim());
+                openScreen(context, 'S18', replace: true);
+              },
+      ),
     );
   }
 }
@@ -418,6 +437,20 @@ class SentenceScreen extends StatelessWidget {
             'Thêm từ',
             icon: Icons.add,
             outlined: true,
+            onPressed: () async {
+              final word = await editText(
+                context,
+                title: 'Thêm từ vào câu',
+                initial: '',
+              );
+              if (!context.mounted || word == null) return;
+              state.addWord(word);
+            },
+          ),
+          const SizedBox(height: 6),
+          TextButton.icon(
+            icon: const Icon(Icons.videocam_outlined),
+            label: const Text('Nhận diện tiếp'),
             onPressed: () => openScreen(context, 'S10'),
           ),
           const SizedBox(height: 10),
@@ -438,9 +471,9 @@ class SentenceScreen extends StatelessWidget {
               final text = await editText(
                 context,
                 title: 'Chỉnh sửa câu',
-                initial: state.sentence.join(', '),
+                initial: state.sentence.join(' '),
               );
-              if (text != null) {
+              if (context.mounted && text != null) {
                 state.update(() {
                   state.sentence.clear();
                   if (text.isNotEmpty) {

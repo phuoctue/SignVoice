@@ -58,6 +58,7 @@ dependencies:
   speech_to_text: ^7.5.0
   web_socket_channel: ^3.0.3
   web: ^1.1.1
+  video_player: ^2.14.1
 
 dev_dependencies:
   speech_to_text_platform_interface: ^2.5.0
@@ -74,6 +75,7 @@ dev_dependencies:
   # Code generation for JSON
   build_runner: ^2.4.8
   json_serializable: ^6.7.1
+  video_player_platform_interface: ^6.9.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

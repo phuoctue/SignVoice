@@ -63,7 +63,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 14),
           _FeatureCard(
             title: 'Giọng nói → Văn bản',
-            description: 'Chuyển lời nói thành chữ lớn, dễ đọc.',
+            description: 'Chuyển lời nói thành văn bản và xem ký hiệu tương ứng.',
             label: 'Bắt đầu ghi âm',
             color: AppColors.teal,
             icon: Icons.mic_none,

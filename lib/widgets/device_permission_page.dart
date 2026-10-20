@@ -14,12 +14,14 @@ class DevicePermissionPage extends StatelessWidget {
     this.onSettings,
     this.busy = false,
     this.error,
+    this.alternativeAction,
   });
 
   final bool camera, busy;
   final VoidCallback onAllow;
   final VoidCallback? onSettings;
   final String? error;
+  final Widget? alternativeAction;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +50,7 @@ class DevicePermissionPage extends StatelessWidget {
               onPressed: onAllow,
             ),
           const SizedBox(height: 12),
+          ?alternativeAction,
           TextButton(
             onPressed: busy ? null : () => backOrHome(context),
             child: const Text('Để sau'),

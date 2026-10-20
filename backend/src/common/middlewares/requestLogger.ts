@@ -20,7 +20,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
       ip: req.ip,
       userAgent: req.get('user-agent'),
       query: req.path.includes('/auth/oauth/') ? '[OAuth query redacted]' : sanitizeBody(req.query),
-      body: sanitizeBody(req.body),
+      body: req.path === '/api/v1/sign-sequence' ? '[Transcript redacted]' : sanitizeBody(req.body),
     });
   } else {
     console.log(`→ ${req.method} ${req.path} [${req.id}]`);
