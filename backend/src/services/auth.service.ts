@@ -65,7 +65,7 @@ export async function registerUser(
 ): Promise<IAuthResponse> {
   // Check if email already exists
   const existing = await User.findOne({ email: data.email.toLowerCase() });
-  
+
   if (existing) {
     throw new AppError(
       'Email already registered',
@@ -73,10 +73,10 @@ export async function registerUser(
       ErrorCodes.AUTH_EMAIL_ALREADY_EXISTS
     );
   }
-  
+
   // Hash password
   const passwordHash = await hashPassword(data.password);
-  
+
   // Create user
   const user = await User.create({
     email: data.email.toLowerCase(),
@@ -88,17 +88,17 @@ export async function registerUser(
     lastLoginAt: new Date(),
     lastLoginIp: meta.ipAddress,
   });
-  
+
   // Create default settings
   await UserSettings.create({ userId: user._id });
-  
+
   // Generate tokens
   const tokens = generateTokenPair(user._id, user.role);
-  
+
   // Create auth session
   await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
   await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
-  
+
   // Audit log
   await AuditLog.log({
     userId: user._id,
@@ -110,13 +110,14 @@ export async function registerUser(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return {
     user: {
       id: user._id.toString(),
       email: user.email,
       displayName: user.displayName,
-      avatarUrl: user.avatarUrl,      isGuest: user.isGuest,
+      avatarUrl: user.avatarUrl,
+      isGuest: user.isGuest,
       accountType: user.accountType,
       status: user.status,
       createdAt: user.createdAt,
@@ -136,7 +137,7 @@ export async function loginUser(
 ): Promise<IAuthResponse> {
   // Find user (include passwordHash)
   const user = await User.findOne({ email: data.email.toLowerCase() }).select('+passwordHash');
-  
+
   if (!user) {
     // Audit failed login attempt
     await AuditLog.log({
@@ -147,14 +148,14 @@ export async function loginUser(
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
-    
+
     throw new AppError(
       'Invalid credentials',
       401,
       ErrorCodes.AUTH_INVALID_CREDENTIALS
     );
   }
-  
+
   // Check if account is active
   if (!user.isActive()) {
     throw new AppError(
@@ -163,7 +164,7 @@ export async function loginUser(
       ErrorCodes.USER_DISABLED
     );
   }
-  
+
   // Verify password
   if (!user.passwordHash) {
     throw new AppError(
@@ -172,9 +173,9 @@ export async function loginUser(
       ErrorCodes.BAD_REQUEST
     );
   }
-  
+
   const isValidPassword = await verifyPassword(user.passwordHash, data.password);
-  
+
   if (!isValidPassword) {
     // Audit failed login
     await AuditLog.log({
@@ -187,26 +188,26 @@ export async function loginUser(
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
-    
+
     throw new AppError(
       'Invalid credentials',
       401,
       ErrorCodes.AUTH_INVALID_CREDENTIALS
     );
   }
-  
+
   // Update last login
   user.lastLoginAt = new Date();
   user.lastLoginIp = meta.ipAddress;
   await user.save();
-  
+
   // Generate tokens
   const tokens = generateTokenPair(user._id, user.role);
-  
+
   // Create auth sessions
   await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
   await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
-  
+
   // Audit successful login
   await AuditLog.log({
     userId: user._id,
@@ -216,13 +217,14 @@ export async function loginUser(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return {
     user: {
       id: user._id.toString(),
       email: user.email,
       displayName: user.displayName,
-      avatarUrl: user.avatarUrl,      isGuest: user.isGuest,
+      avatarUrl: user.avatarUrl,
+      isGuest: user.isGuest,
       accountType: user.accountType,
       status: user.status,
       createdAt: user.createdAt,
@@ -239,7 +241,7 @@ export async function loginUser(
 export async function createGuestAccount(meta: IRequestMeta = {}): Promise<IAuthResponse> {
   // Generate random display name
   const displayName = `Guest_${Date.now().toString(36)}`;
-  
+
   // Create guest user
   const user = await User.create({
     displayName,
@@ -249,17 +251,17 @@ export async function createGuestAccount(meta: IRequestMeta = {}): Promise<IAuth
     lastLoginAt: new Date(),
     lastLoginIp: meta.ipAddress,
   });
-  
+
   // Create default settings
   await UserSettings.create({ userId: user._id });
-  
+
   // Generate tokens
   const tokens = generateTokenPair(user._id, user.role);
-  
+
   // Create auth sessions
   await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
   await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
-  
+
   // Audit log
   await AuditLog.log({
     userId: user._id,
@@ -272,11 +274,12 @@ export async function createGuestAccount(meta: IRequestMeta = {}): Promise<IAuth
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return {
     user: {
       id: user._id.toString(),
-      displayName: user.displayName,      isGuest: true,
+      displayName: user.displayName,
+      isGuest: true,
       accountType: user.accountType,
       status: user.status,
       createdAt: user.createdAt,
@@ -297,11 +300,11 @@ export async function convertGuestToPermanent(
 ): Promise<IAuthResponse> {
   // Find guest user
   const user = await User.findById(userId);
-  
+
   if (!user) {
     throw new AppError('User not found', 404, ErrorCodes.USER_NOT_FOUND);
   }
-  
+
   if (!user.canConvertFromGuest()) {
     throw new AppError(
       'Account cannot be converted',
@@ -309,10 +312,10 @@ export async function convertGuestToPermanent(
       ErrorCodes.BAD_REQUEST
     );
   }
-  
+
   // Check if email already exists
   const existing = await User.findOne({ email: data.email.toLowerCase() });
-  
+
   if (existing) {
     throw new AppError(
       'Email already registered',
@@ -320,10 +323,10 @@ export async function convertGuestToPermanent(
       ErrorCodes.AUTH_EMAIL_ALREADY_EXISTS
     );
   }
-  
+
   // Hash password
   const passwordHash = await hashPassword(data.password);
-  
+
   // Update user
   user.email = data.email.toLowerCase();
   user.displayName = data.displayName;
@@ -332,17 +335,17 @@ export async function convertGuestToPermanent(
   user.isGuest = false;
   user.guestConvertedAt = new Date();
   await user.save();
-  
+
   // Generate new tokens
   const tokens = generateTokenPair(user._id, user.role);
-  
+
   // Revoke old sessions
   await AuthSession.revokeAllForUser(user._id);
-  
+
   // Create new sessions
   await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
   await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
-  
+
   // Audit log
   await AuditLog.log({
     userId: user._id,
@@ -354,13 +357,14 @@ export async function convertGuestToPermanent(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return {
     user: {
       id: user._id.toString(),
       email: user.email,
       displayName: user.displayName,
-      avatarUrl: user.avatarUrl,      isGuest: false,
+      avatarUrl: user.avatarUrl,
+      isGuest: false,
       accountType: user.accountType,
       status: user.status,
       createdAt: user.createdAt,
@@ -389,14 +393,14 @@ export async function refreshTokens(
       ErrorCodes.AUTH_REFRESH_TOKEN_INVALID
     );
   }
-  
+
   // Check if session exists
   const tokenHash = hashToken(refreshToken);
   const session = await AuthSession.findOne({
     tokenHash, sessionType: SessionType.REFRESH,
     userId: payload.userId, sessionFamily: payload.sid,
   });
-  
+
   if (!session || !session.isValid()) {
     throw new AppError(
       'Refresh session not found or expired',
@@ -404,10 +408,10 @@ export async function refreshTokens(
       ErrorCodes.AUTH_SESSION_INVALID
     );
   }
-  
+
   // Load user
   const user = await User.findById(payload.userId);
-  
+
   if (!user || !user.isActive()) {
     throw new AppError(
       'User not found or inactive',
@@ -418,7 +422,7 @@ export async function refreshTokens(
   if (session.passwordVersion !== user.passwordVersion) {
     throw new AppError('Password changed; sign in again', 401, ErrorCodes.AUTH_SESSION_INVALID);
   }
-  
+
   // Claim the refresh token once, including when requests arrive concurrently.
   const claimed = await AuthSession.findOneAndUpdate({
     _id: session._id, status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() },
@@ -432,11 +436,11 @@ export async function refreshTokens(
 
   // Generate new tokens
   const tokens = generateTokenPair(user._id, user.role);
-  
+
   // Create new sessions
   await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
   await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
-  
+
   // Audit log
   await AuditLog.log({
     userId: user._id,
@@ -446,7 +450,7 @@ export async function refreshTokens(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return tokens;
 }
 
@@ -459,7 +463,7 @@ export async function logoutUser(
   meta: IRequestMeta = {}
 ): Promise<void> {
   const session = await AuthSession.findById(sessionId);
-  
+
   if (session && session.userId.equals(userId)) {
     if (session.sessionFamily) {
       await AuthSession.updateMany({ userId, sessionFamily: session.sessionFamily }, {
@@ -469,7 +473,7 @@ export async function logoutUser(
       await session.revoke();
     }
   }
-  
+
   // Audit log
   await AuditLog.log({
     userId,
@@ -488,7 +492,7 @@ export async function logoutAllDevices(
   meta: IRequestMeta = {}
 ): Promise<number> {
   const count = await AuthSession.revokeAllForUser(userId);
-  
+
   // Audit log
   await AuditLog.log({
     userId,
@@ -498,7 +502,7 @@ export async function logoutAllDevices(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
-  
+
   return count;
 }
 
@@ -521,7 +525,7 @@ export async function createAuthSession(
     payload = verifyRefreshToken(token);
   }
   const sessionType = payload.sessionType;
-  
+
   await AuthSession.create({
     userId,
     sessionFamily: payload.sid,
