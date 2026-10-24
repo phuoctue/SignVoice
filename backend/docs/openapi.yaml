@@ -2182,6 +2182,143 @@ paths:
                   data:
                     $ref: '#/components/schemas/UserSettings'
 
+  /api/v1/learning/topics:
+    get:
+      tags: [Dictionary]
+      summary: Explore topics with published word counts and unique enrolled learners
+      operationId: exploreLearningTopics
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200': { description: Items and pagination, maximum 10 topics per page }
+        '401': { description: Authentication required }
+  /api/v1/learning/topics/{id}:
+    get:
+      tags: [Dictionary]
+      summary: Read ten topic words with images, videos and personal progress
+      operationId: getLearningTopic
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: stage, schema: { type: string, enum: [ALL, LEARNING, REMEMBERED, REVIEW] } }
+      responses:
+        '200': { description: Topic, enrolled flag, summary, items and pagination }
+        '404': { description: Topic unavailable }
+  /api/v1/learning/topics/{id}/start:
+    post:
+      tags: [Dictionary]
+      summary: Start a topic once per account
+      operationId: startLearningTopic
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Enrolled, including an already enrolled account }
+        '409': { description: Topic contains no published words }
+  /api/v1/learning/progress:
+    get:
+      tags: [Dictionary]
+      summary: Personal learning totals and ten enrolled topics per page
+      operationId: getLearningProgress
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: stage, schema: { type: string, enum: [ALL, LEARNING, REMEMBERED, REVIEW] } }
+      responses:
+        '200': { description: Summary of word stages, topic items and pagination }
+  /api/v1/learning/words/{id}/progress:
+    patch:
+      tags: [Dictionary]
+      summary: Explicit self assessment of a published word in an enrolled topic
+      operationId: rateLearningWord
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [stage]
+              properties:
+                stage: { type: string, enum: [LEARNING, REMEMBERED, REVIEW] }
+      responses:
+        '200': { description: Saved personal rating and next review time }
+        '409': { description: Topic must be started first }
+  /api/v1/learning/coach:
+    post:
+      tags: [Dictionary]
+      summary: Advisory review plan using LM Studio, with a labeled offline fallback
+      operationId: getLearningAdvice
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Source, advice and actual progress summary; never changes ratings }
+        '429': { description: Six advice requests per minute per IP }
+  /api/v1/learning/my-words:
+    get:
+      tags: [Dictionary]
+      summary: List private words created by the authenticated learner
+      operationId: getPersonalLearningWords
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200': { description: Maximum ten personal words and pagination }
+    post:
+      tags: [Dictionary]
+      summary: Create a private word with meaning, example and optional media
+      operationId: createPersonalLearningWord
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [word, definition]
+              additionalProperties: false
+              properties:
+                word: { type: string, minLength: 1, maxLength: 100 }
+                definition: { type: string, minLength: 1, maxLength: 2000 }
+                usageExample: { type: string, maxLength: 1000 }
+                notes: { type: string, maxLength: 2000 }
+                imageUrl: { type: string, maxLength: 1500000, description: HTTPS URL or base64 JPG/PNG/WebP }
+                videoUrl: { type: string, maxLength: 2000, description: HTTPS video URL }
+      responses:
+        '201': { description: Created private word }
+  /api/v1/learning/my-words/{id}:
+    patch:
+      tags: [Dictionary]
+      summary: Update only an owned personal word
+      operationId: updatePersonalLearningWord
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: Partial private word fields accepted by create }
+      responses:
+        '200': { description: Updated private word }
+        '404': { description: Word does not belong to this account or does not exist }
+    delete:
+      tags: [Dictionary]
+      summary: Delete only an owned personal word
+      operationId: deletePersonalLearningWord
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Word does not belong to this account or does not exist }
+
   # Staff
   /api/v1/staff/content:
     get:

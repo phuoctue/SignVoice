@@ -4,6 +4,7 @@ import 'package:sign_voice/app.dart';
 import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/core/navigation.dart';
 import 'package:sign_voice/features/home/home_screen.dart';
+import 'package:sign_voice/features/learning/learning_widgets.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 
 import 'auth_fixtures.dart';
@@ -51,6 +52,7 @@ void main() {
           initialScreen: id,
           auth: auth,
           adminService: DemoDictionaryService(),
+          learningService: DemoLearningService(),
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
@@ -72,6 +74,7 @@ void main() {
         initialScreen: 'S05',
         auth: auth,
         adminService: DemoDictionaryService(),
+        learningService: DemoLearningService(),
       ),
     );
     await tester.enterText(find.byType(TextFormField).at(0), 'sai-email');
@@ -96,6 +99,7 @@ void main() {
         initialScreen: 'S05',
         auth: auth,
         adminService: DemoDictionaryService(),
+        learningService: DemoLearningService(),
       ),
     );
     final guest = find.text('Dùng thử không cần tài khoản');
@@ -106,7 +110,8 @@ void main() {
     await tester.tap(find.text('Từ điển'));
     await tester.pumpAndSettle();
     expect(find.text('Từ điển ký hiệu'), findsOneWidget);
-    expect(find.text('Xin chào'), findsOneWidget);
+    expect(find.text('Khám phá'), findsOneWidget);
+    expect(find.text('Chào hỏi'), findsOneWidget);
   });
 
   testWidgets('mở đúng mục từ điển được chọn', (tester) async {
@@ -121,12 +126,21 @@ void main() {
         initialScreen: 'S22',
         auth: auth,
         adminService: DemoDictionaryService(),
+        learningService: DemoLearningService(),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Chào hỏi'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Cảm ơn'));
     await tester.pumpAndSettle();
-    expect(find.text('Cảm ơn'), findsOneWidget);
-    expect(find.text('Bày tỏ sự biết ơn.'), findsOneWidget);
+    expect(find.byType(LearningWordContent), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(LearningWordContent),
+        matching: find.text('Bày tỏ sự biết ơn.'),
+      ),
+      findsOneWidget,
+    );
   });
 }

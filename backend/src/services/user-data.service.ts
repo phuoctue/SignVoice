@@ -8,6 +8,7 @@ import { SearchHistory } from '../models/SearchHistory.model';
 import { authorizationFor } from './authorization.service';
 import { verifyPassword } from '../utils/password.util';
 import { AppError } from '../common/errors/AppError';
+import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.model';
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
 export async function safeUser(user: IUser) {
@@ -42,6 +43,9 @@ export async function clearOwnedData(userId: Types.ObjectId, session: ClientSess
   const conversations = await Conversation.deleteMany({userId}, {session});
   const history = await SearchHistory.deleteMany({userId}, {session});
   await UserSettings.deleteOne({userId}, {session});
+  for (const model of [TopicEnrollment, WordProgress, PersonalWord]) {
+    await model.collection.deleteMany({userId}, {session});
+  }
   return {favorites: removedFavorites.deletedCount, conversations: conversations.deletedCount, searchHistory: history.deletedCount};
 }
 export function conversationDto(item: any) {

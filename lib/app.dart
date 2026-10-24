@@ -26,6 +26,9 @@ import 'features/profile/profile_screens.dart';
 import 'features/system/system_screens.dart';
 import 'features/recognition/live_camera_screen.dart';
 import 'widgets/guest_access_gate.dart';
+import 'features/learning/learning_hub.dart';
+import 'features/learning/topic_learning_screen.dart';
+import 'services/learning/learning_service.dart';
 
 class SignVoiceApp extends StatefulWidget {
   const SignVoiceApp({
@@ -35,12 +38,14 @@ class SignVoiceApp extends StatefulWidget {
     this.auth,
     this.adminService,
     this.staffService,
+    this.learningService,
   });
   final String initialScreen;
   final AppState? state;
   final AuthProvider? auth;
   final AdminWorkspaceService? adminService;
   final StaffWorkspaceService? staffService;
+  final LearningService? learningService;
   @override
   State<SignVoiceApp> createState() => _SignVoiceAppState();
 }
@@ -51,6 +56,8 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
   late final AuthProvider auth = widget.auth ?? AuthProvider();
   late final AdminWorkspaceService adminService =
       widget.adminService ?? AdminWorkspaceService();
+  late final LearningService learningService =
+      widget.learningService ?? LearningService();
   String? _currentUserId;
 
   @override
@@ -101,6 +108,7 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
     providers: [
       ChangeNotifierProvider.value(value: auth),
       Provider.value(value: adminService),
+      Provider.value(value: learningService),
       Provider.value(value: widget.staffService ?? StaffWorkspaceService()),
     ],
     child: AppScope(
@@ -150,7 +158,8 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
                     initialRoute.startsWith('/admin/') ||
                     initialRoute.startsWith('/staff/') ||
                     initialRoute.startsWith('/dictionary/') ||
-                    initialRoute.startsWith('/conversations/')
+                    initialRoute.startsWith('/conversations/') ||
+                    initialRoute.startsWith('/learn')
                 ? initialRoute
                 : widget.initialScreen;
             return [
@@ -173,6 +182,13 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
           },
           onGenerateRoute: (settings) {
             final uri = Uri.tryParse(settings.name ?? '');
+            if (uri?.path == '/learn' ||
+                uri?.path.startsWith('/learn/topic/') == true) {
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => AccessGate(screenId: settings.name!),
+              );
+            }
             if (uri != null &&
                 (uri.path.startsWith('/staff/') ||
                     uri.path.startsWith('/dictionary/') ||
@@ -340,6 +356,21 @@ class AccessGate extends StatelessWidget {
     if (screenId.startsWith('/staff/')) {
       return StaffWorkspaceScreen(path: screenId);
     }
+    if (screenId.startsWith('/learn')) {
+      final uri = Uri.parse(screenId);
+      if (uri.pathSegments.length == 3 && uri.pathSegments[1] == 'topic') {
+        return TopicLearningScreen(
+          topicId: uri.pathSegments[2],
+          study: uri.queryParameters['study'] == '1',
+        );
+      }
+      return LearningHub(
+        initialTab: (int.tryParse(uri.queryParameters['tab'] ?? '') ?? 0).clamp(
+          0,
+          2,
+        ),
+      );
+    }
     if (screenId.startsWith('/dictionary/')) {
       return SignDetailScreen(
         entryId: Uri.decodeComponent(screenId.split('/').last),
@@ -400,7 +431,7 @@ Widget screenFor(String id) => switch (id) {
   'S19' => const TranscriptScreen(fullscreen: true),
   'S20' => const HistoryScreen(),
   'S21' => const HistoryDetailScreen(),
-  'S22' => const DictionaryScreen(),
+  'S22' => const LearningHub(),
   'S23' => const SignDetailScreen(),
   'S24' => const DictionaryScreen(favoritesOnly: true),
   'S25' => const ProfileScreen(),
