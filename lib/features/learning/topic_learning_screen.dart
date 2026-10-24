@@ -20,9 +20,9 @@ class TopicLearningScreen extends StatefulWidget {
 
 class _TopicLearningScreenState extends State<TopicLearningScreen> {
   LearningPage? data;
-  int page = 1, index = 0, request = 0;
-  bool loading = true, saving = false, reveal = false;
-  String stage = 'ALL';
+  int page = 1, request = 0;
+  bool loading = true, saving = false;
+  late String stage = widget.study ? 'LEARNING' : 'ALL';
   String? error;
   LearningService get service => context.read<LearningService>();
   @override
@@ -54,13 +54,11 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
       if (!mounted || current != request) return;
       if (page > result.pages) {
         page = result.pages;
-        index = 0;
         await load();
         return;
       }
       setState(() {
         data = result;
-        if (index >= result.items.length) index = 0;
       });
     } catch (e) {
       if (mounted && current == request) {
@@ -100,24 +98,33 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
     }
   }
 
-  Future<void> rate(String selectedStage) async {
-    if (data == null || data!.items.isEmpty) return;
-    final current = data!.items[index];
+  Future<void> openQuiz() async {
     setState(() => saving = true);
     try {
-      await service.rate('${current['_id']}', selectedStage);
+      final quiz = await service.startQuiz(widget.topicId);
       if (!mounted) return;
-      final previous = index;
-      final lastOnPage = index == data!.items.length - 1;
-      if (stage == 'ALL' && lastOnPage && page < data!.pages) {
-        page++;
-        index = 0;
-      } else if (stage == 'ALL' && !lastOnPage) {
-        index = previous + 1;
-      } else {
-        index = 0;
+      await Navigator.pushNamed(context, '/learn/quiz/${quiz['_id']}');
+      if (mounted) await load();
+    } catch (e) {
+      if (mounted) {
+        toast(
+          context,
+          e is ApiException
+              ? e.message
+              : 'Chưa mở được bài ôn tập. Hãy thử lại.',
+        );
       }
-      reveal = false;
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> rate(LearningRecord word, String selectedStage) async {
+    if (saving || word['stage'] != 'LEARNING') return;
+    setState(() => saving = true);
+    try {
+      await service.rate('${word['_id']}', selectedStage);
+      if (!mounted) return;
       await load();
       if (mounted) toast(context, 'Đã lưu: ${learningLabels[selectedStage]}');
     } catch (_) {
@@ -131,10 +138,85 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
 
   void changePage(int next) {
     page = next;
-    index = 0;
-    reveal = false;
     load();
   }
+
+  Widget wordCard(LearningRecord word, bool enrolled) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: AppCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () => showLearningWord(context, word),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SignPhoto(
+                  word['thumbnailUrl'] as String?,
+                  word: '${word['word']}',
+                  width: 90,
+                  height: 104,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${word['word']}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${word['definition']}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        enrolled
+                            ? learningLabels[word['stage']] ?? 'Đang học'
+                            : 'Xem ảnh & video →',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => showLearningWord(context, word),
+            icon: const Icon(Icons.visibility_outlined),
+            label: const Text('Xem ký hiệu & ví dụ'),
+          ),
+          if (enrolled && word['stage'] == 'LEARNING') ...[
+            const SizedBox(height: 8),
+            const Text('Bạn nhớ từ này đến đâu?'),
+            const SizedBox(height: 8),
+            for (final value in ['REMEMBERED', 'REVIEW'])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: AppButton(
+                  learningLabels[value]!,
+                  secondary: true,
+                  color: learningColors[value],
+                  icon: value == 'REMEMBERED'
+                      ? Icons.check_circle_outline
+                      : Icons.refresh,
+                  onPressed: saving ? null : () => rate(word, value),
+                ),
+              ),
+          ],
+        ],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +277,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Heading(
-                      'Lượt học · ${words.isEmpty ? 0 : (page - 1) * 10 + index + 1}/${result.total} từ',
+                      'Danh sách học · ${result.total} từ',
                       size: 18,
                     ),
                   ),
@@ -212,9 +294,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                     ? (_) {}
                     : (v) {
                         stage = v;
-                        index = 0;
                         page = 1;
-                        reveal = false;
                         load();
                       },
               ),
@@ -226,141 +306,20 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                 description: 'Chọn bộ lọc khác để tiếp tục học hoặc ôn tập.',
                 icon: Icons.check_circle_outline,
               ),
-            if (isStudy && words.isNotEmpty) ...[
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Heading('${words[index]['word']}', size: 26),
-                        ),
-                        SignVoiceBadge(
-                          learningLabels[words[index]['stage']] ?? 'Đang học',
-                          color:
-                              learningColors[words[index]['stage']] ??
-                              const Color(0xFF2563EB),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    LearningWordContent(
-                      words[index],
-                      key: ValueKey(words[index]['_id']),
-                      showMeaning: reveal,
-                    ),
-                    if (!reveal)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 14),
-                        child: AppButton(
-                          'Xem nghĩa & ví dụ',
-                          secondary: true,
-                          icon: Icons.visibility_outlined,
-                          onPressed: () => setState(() => reveal = true),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Heading('Bạn nhớ từ này đến đâu?', size: 17),
-              const SizedBox(height: 10),
-              const BodyText(
-                'Chọn theo cảm nhận của bạn. Đánh giá được lưu vào tài khoản.',
+            if (enrolled && stage == 'REVIEW' && words.isNotEmpty) ...[
+              const Notice(
+                'Ôn theo quiz, tối đa 10 câu mỗi lượt. LM Studio đánh giá nghĩa hoặc câu ví dụ; kết quả không chấm động tác ký hiệu.',
               ),
               const SizedBox(height: 12),
-              for (final entry in learningLabels.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: AppButton(
-                    entry.value,
-                    secondary: true,
-                    color: learningColors[entry.key],
-                    icon: entry.key == 'REMEMBERED'
-                        ? Icons.check_circle_outline
-                        : entry.key == 'REVIEW'
-                        ? Icons.refresh
-                        : Icons.menu_book_outlined,
-                    onPressed: saving ? null : () => rate(entry.key),
-                  ),
-                ),
-              if (saving) const LinearProgressIndicator(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  TextButton.icon(
-                    onPressed: saving || index == 0
-                        ? null
-                        : () => setState(() {
-                            index--;
-                            reveal = false;
-                          }),
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Từ trước'),
-                  ),
-                  TextButton.icon(
-                    onPressed: saving || index >= words.length - 1
-                        ? null
-                        : () => setState(() {
-                            index++;
-                            reveal = false;
-                          }),
-                    icon: const Icon(Icons.arrow_forward),
-                    label: const Text('Từ tiếp'),
-                  ),
-                ],
+              AppButton(
+                'Bắt đầu quiz ôn tập',
+                icon: Icons.quiz_outlined,
+                busy: saving,
+                onPressed: saving ? null : openQuiz,
               ),
-            ] else ...[
-              for (final word in words)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: AppCard(
-                    padding: const EdgeInsets.all(12),
-                    onTap: () => showLearningWord(context, word),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SignPhoto(
-                          word['thumbnailUrl'] as String?,
-                          word: '${word['word']}',
-                          width: 90,
-                          height: 104,
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${word['word']}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '${word['definition']}',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                enrolled
-                                    ? learningLabels[word['stage']] ??
-                                          'Đang học'
-                                    : 'Xem ảnh & video →',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              const SizedBox(height: 18),
             ],
+            for (final word in words) wordCard(word, enrolled),
             if (result.pages > 1)
               LearningPager(
                 page: page,

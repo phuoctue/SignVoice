@@ -86,7 +86,8 @@ describe('Dictionary learning', () => {
     expect(progress.body.data.summary).toMatchObject({ remembered: 0, review: 1 });
     const review = await request(app).get(`/api/v1/learning/topics/${topics[0]}?stage=REVIEW`).set('Authorization', a).expect(200);
     expect(review.body.data.items).toHaveLength(1);
-    await request(app).patch(`/api/v1/learning/words/${entries[0]}/progress`).set('Authorization', a).send({ stage: 'LEARNING' }).expect(200);
+    await request(app).patch(`/api/v1/learning/words/${entries[0]}/progress`).set('Authorization', a).send({ stage: 'REMEMBERED' }).expect(409);
+    await WordProgress.updateOne({ userId: userA, entryId: entries[0] }, { $set: { stage: 'LEARNING', nextReviewAt: null } });
     await request(app).patch(`/api/v1/learning/words/${entries[13]}/progress`).set('Authorization', a).send({ stage: 'REMEMBERED' }).expect(404);
   });
   it('paginates many enrolled topics and escapes search text', async () => {

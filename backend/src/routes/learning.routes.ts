@@ -8,6 +8,7 @@ import { PersonalWord, TopicEnrollment, WordProgress } from '../models/Learning.
 import { exploreTopics, enrolledTopics, objectId, pagination, regexLiteral, topicOrFail, topicWords, PAGE_SIZE } from '../services/learning.service';
 import { learningAdvice } from '../services/learning-coach.service';
 import { userTransaction } from '../services/user-data.service';
+import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz } from '../services/review-quiz.service';
 
 const router = Router();
 router.use(requireAuth);
@@ -53,11 +54,36 @@ router.patch('/words/:id/progress', wrap(async (req, res) => {
   if (!entry) throw new AppError('Từ không còn khả dụng.', 404, 'WORD_NOT_FOUND');
   const progress = await userTransaction(req.user!.id, async session => {
     if (!await TopicEnrollment.exists({ userId: req.user!.id, topicId: entry.categoryId }).session(session)) throw new AppError('Hãy bắt đầu học chủ đề trước.', 409, 'NOT_ENROLLED');
+    const previous = await WordProgress.findOne({ userId: req.user!.id, entryId: entry._id }).session(session);
+    const reviewing = previous && (previous.stage === 'REVIEW' ||
+      previous.stage === 'REMEMBERED' && previous.nextReviewAt && previous.nextReviewAt <= new Date());
+    if (reviewing && stage !== 'REVIEW') throw new AppError('Hãy hoàn tất quiz camera để cập nhật từ ôn tập.', 409, 'QUIZ_REQUIRED');
     return WordProgress.findOneAndUpdate({ userId: req.user!.id, entryId: entry._id }, {
       $set: { topicId: entry.categoryId, stage, reviewedAt: new Date(), nextReviewAt: stage === 'REMEMBERED' ? new Date(Date.now() + 3 * 86400000) : null },
     }, { upsert: true, new: true, runValidators: true, session });
   });
   return res.json({ success: true, data: progress });
+}));
+
+const quizLimit = rateLimit({ windowMs: 60000, limit: 15 });
+router.post('/topics/:id/quiz', quizLimit, wrap(async (req, res) => {
+  parse(z.object({}).strict(), req.body);
+  return res.json({ success: true, data: await startReviewQuiz(req.user!.id, objectId(req.params.id)) });
+}));
+router.get('/quizzes/:id', wrap(async (req, res) => {
+  return res.json({ success: true, data: await getReviewQuiz(req.user!.id, objectId(req.params.id)) });
+}));
+router.patch('/quizzes/:id/answers', wrap(async (req, res) => {
+  const { answers } = parse(z.object({ answers: z.array(z.string().trim().max(1000)).min(1).max(10) }).strict(), req.body);
+  return res.json({ success: true, data: await saveReviewAnswers(req.user!.id, objectId(req.params.id), answers) });
+}));
+router.patch('/quizzes/:id/captures', wrap(async (req, res) => {
+  const body = parse(z.object({ entryId: z.string().regex(/^[a-f0-9]{24}$/i), recognizedLabel: z.string().trim().max(200) }).strict(), req.body);
+  return res.json({ success: true, data: await saveReviewCapture(req.user!.id, objectId(req.params.id), body.entryId, body.recognizedLabel) });
+}));
+router.post('/quizzes/:id/submit', quizLimit, wrap(async (req, res) => {
+  parse(z.object({}).strict(), req.body);
+  return res.json({ success: true, data: await submitReviewQuiz(req.user!.id, objectId(req.params.id)) });
 }));
 
 router.post('/coach', rateLimit({ windowMs: 60000, limit: 6 }), wrap(async (req, res) => {

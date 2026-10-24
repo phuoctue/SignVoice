@@ -10,7 +10,7 @@ import '../../widgets/ui.dart';
 const learningLabels = {
   'LEARNING': 'Đang học',
   'REMEMBERED': 'Đã nhớ',
-  'REVIEW': 'Cần ôn tập',
+  'REVIEW': 'Ôn tập',
 };
 const learningColors = {
   'LEARNING': Color(0xFF2563EB),
@@ -153,7 +153,7 @@ class LearningSummary extends StatelessWidget {
       for (final entry in {
         'learning': 'Đang học',
         'remembered': 'Đã nhớ',
-        'review': 'Cần ôn tập',
+        'review': 'Ôn tập',
       }.entries)
         Expanded(
           child: Padding(

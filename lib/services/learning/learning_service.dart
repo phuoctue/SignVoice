@@ -59,6 +59,50 @@ class LearningService {
     await _client.patch('/learning/words/$id/progress', body: {'stage': stage});
   }
 
+  Future<LearningRecord> startQuiz(String topicId) async {
+    final response = await _client.post(
+      '/learning/topics/$topicId/quiz',
+      body: {},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> quiz(String id) async {
+    final response = await _client.get('/learning/quizzes/$id');
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> saveQuizAnswers(
+    String id,
+    List<String> answers,
+  ) async {
+    final response = await _client.patch(
+      '/learning/quizzes/$id/answers',
+      body: {'answers': answers},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> saveQuizCapture(
+    String id, {
+    required String entryId,
+    required String recognizedLabel,
+  }) async {
+    final response = await _client.patch(
+      '/learning/quizzes/$id/captures',
+      body: {'entryId': entryId, 'recognizedLabel': recognizedLabel},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> submitQuiz(String id) async {
+    final response = await _client.post(
+      '/learning/quizzes/$id/submit',
+      body: {},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
   Future<LearningRecord> coach() async {
     final response = await _client.post('/learning/coach', body: {});
     return LearningRecord.from(response['data'] as Map);

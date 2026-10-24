@@ -156,6 +156,7 @@ void main() {
           child: MaterialApp(
             home: LiveCameraScreen(
               cameraFactory: ({required front}) => camera,
+              ticketLoader: () async => 'test-ticket',
               channelFactory: (_) {
                 order.add('AI connection');
                 throw StateError('offline');

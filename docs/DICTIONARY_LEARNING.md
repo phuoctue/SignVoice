@@ -7,9 +7,9 @@ Mục Từ điển gồm Khám phá, Đang học và Từ của tôi.
   chủ đề, không phải số lượt xem. Bắt đầu lại không tăng số người học.
 - Chi tiết chủ đề có ảnh, chuỗi ảnh theo thời gian, video, ví dụ có trong nguồn
   và ghi chú/nguồn tham khảo. Mỗi trang tối đa 10 từ.
-- Sau khi Bắt đầu học, người học tự chọn Đang học, Đã nhớ hoặc Cần ôn tập.
+- Sau khi Bắt đầu học, từ chưa đánh giá nằm trong Đang học. Người học tự chọn Đã nhớ hoặc Ôn tập.
   Chỉ việc mở hoặc xem video không tự đánh dấu đã nhớ. Từ đã nhớ đến hẹn sau
-  3 ngày được tính vào Cần ôn tập; tự đánh giá lại sẽ đặt lịch mới.
+  3 ngày được tính vào Ôn tập; tự đánh giá lại sẽ đặt lịch mới.
 - Đang học có tổng số từ theo ba trạng thái, bộ lọc và phân trang 10 chủ đề.
 - Từ của tôi lưu theo tài khoản, hỗ trợ tạo/sửa/xóa, ý nghĩa, ví dụ, ghi chú,
   ảnh JPG/PNG/WebP dưới 1 MB và link video HTTPS. Mỗi trang 10 từ. Từ riêng
@@ -40,12 +40,14 @@ Không sửa AI camera, model nhận diện hoặc các file `ai_service`.
 
 ## Đường dẫn
 
-`S22` mở Khám phá. `/learn?tab=1` mở Đang học, `/learn?tab=2` mở Từ của tôi.
-`/learn/topic/:id` mở chủ đề; thêm `?study=1` để học. Các đường dẫn này hỗ trợ F5
-sau khi khôi phục đăng nhập. Media `/sign-media` được quy về origin API hiện tại,
-tránh các URL localhost hoặc Conveyor cũ trong dữ liệu nguồn.
+S22 mở Khám phá. /learn?tab=1 mở Đang học, /learn?tab=2 mở Từ của tôi. /learn/topic/:id mở chủ đề; thêm ?study=1 để học. Các đường dẫn hỗ trợ F5 sau khi khôi phục đăng nhập.
 
-Backend kiểm tra các tệp `/sign-media` cục bộ trước khi trả media cho màn học.
-Nếu thiếu tệp, app báo chưa có ảnh/video; không phát sinh loạt yêu cầu 404.
-Khôi phục đúng các tệp hash vào `.runtime/sign-library-media` sẽ tự làm ảnh/video
-xuất hiện lại sau khi làm mới, không cần đổi database hoặc model AI.
+Tiếp tục học chỉ đưa ra các từ chưa nhớ và các từ đến hạn ôn. Danh sách trong chủ đề phân trang 10 từ. Bộ lọc tiến độ hiển thị từng trạng thái; mục Ôn tập mở quiz camera.
+
+## Quiz ôn tập bằng camera
+
+Quiz tạo tối đa 10 câu từ cần ôn. Mỗi câu hiển thị từ đích, camera nhận diện ký hiệu và phần mở rộng để xem ảnh/video mẫu. Kết quả nhận diện được lưu theo tài khoản khi chuyển câu; bài nháp được khôi phục khi tải lại trang.
+
+Khi nộp bài, backend đối chiếu nhãn camera với từ và bí danh trong từ điển. Nhận diện khớp được 10 điểm và chuyển từ sang Đã nhớ, nhắc ôn lại sau 3 ngày. Câu chưa khớp giữ ở Ôn tập. Quiz không cần kết nối LM Studio. Các lượt quiz tiếp theo lấy nhóm từ kế tiếp trước khi quay lại từ chưa nhớ.
+
+Collection learning_review_quizzes lưu câu hỏi, nhãn camera và kết quả. Chỉ chủ tài khoản truy cập; xóa tài khoản cũng xóa quiz. Logger không ghi nội dung quiz. File AI camera/model/dataset không bị sửa.

@@ -17,7 +17,7 @@ class LearningHub extends StatefulWidget {
 class _LearningHubState extends State<LearningHub> {
   late int tab = widget.initialTab;
   int page = 1, request = 0;
-  String query = '', stage = 'ALL';
+  String query = '';
   String? error;
   bool loading = true, coaching = false;
   LearningPage? data;
@@ -48,7 +48,7 @@ class _LearningHubState extends State<LearningHub> {
     try {
       final result = switch (tab) {
         0 => await service.topics(page: page, search: query),
-        1 => await service.progress(page: page, stage: stage),
+        1 => await service.progress(page: page),
         _ => await service.myWords(page: page, search: query),
       };
       if (!mounted || current != request) return;
@@ -223,7 +223,7 @@ class _LearningHubState extends State<LearningHub> {
               children: [
                 SignVoiceBadge('${counts['learning'] ?? 0} đang học'),
                 SignVoiceBadge(
-                  '${counts['review'] ?? 0} cần ôn',
+                  '${counts['review'] ?? 0} ôn tập',
                   color: learningColors['REVIEW']!,
                 ),
               ],
@@ -444,15 +444,6 @@ class _LearningHubState extends State<LearningHub> {
                 ),
               ),
             ),
-          const SizedBox(height: 14),
-          StageFilters(
-            value: stage,
-            onChanged: (v) {
-              stage = v;
-              page = 1;
-              load();
-            },
-          ),
         ],
         const SizedBox(height: 20),
         if (loading)

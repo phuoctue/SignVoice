@@ -99,6 +99,7 @@ void main() {
             home: LiveCameraScreen(
               cameraFactory: ({required front}) => camera,
               channelFactory: (_) => channel,
+              ticketLoader: () async => 'test-ticket',
             ),
           ),
         );
@@ -176,6 +177,7 @@ void main() {
         home: LiveCameraScreen(
           cameraFactory: ({required front}) => camera,
           channelFactory: (_) => channel,
+          ticketLoader: () async => 'test-ticket',
         ),
       ),
     );
@@ -275,6 +277,7 @@ void main() {
         home: LiveCameraScreen(
           cameraFactory: ({required front}) => camera,
           channelFactory: (_) => channel,
+          ticketLoader: () async => 'test-ticket',
         ),
       ),
     );
@@ -323,6 +326,7 @@ void main() {
             home: LiveCameraScreen(
               cameraFactory: ({required front}) => FakeCamera(() async {}),
               channelFactory: (_) => channel,
+              ticketLoader: () async => 'test-ticket',
             ),
           ),
         );

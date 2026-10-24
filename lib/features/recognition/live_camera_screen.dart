@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
+import '../../services/api/sign_stream_connection.dart';
 import '../../services/sign_ai/camera_capture.dart';
 import '../../services/sign_ai/camera_diagnostic.dart';
 import '../../services/sign_ai/diagnostic_export.dart';
@@ -234,15 +235,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       state?.update(() => state.cameraAllowed = true);
       stage = 'service';
       if (state?.guest == true) _url = SignAiConfig.gatewayUrl;
-      var socketUri = SignAiConfig.socketUri(_url);
-      final gateway = Uri.parse(SignAiConfig.gatewayUrl);
-      if (socketUri.host == gateway.host &&
-          socketUri.port == gateway.port &&
-          socketUri.path == '/sign-ai/v1/stream') {
-        socketUri = socketUri.replace(
-          queryParameters: {'ticket': await widget.ticketLoader()},
-        );
-      }
+      final socketUri = await signStreamSocketUri(
+        serviceUrl: _url,
+        gatewayUrl: SignAiConfig.gatewayUrl,
+        ticketLoader: widget.ticketLoader,
+      );
       if (!mounted || generation != _generation) return;
       final channel = widget.channelFactory(socketUri);
       _channel = channel;

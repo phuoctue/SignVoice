@@ -2259,6 +2259,94 @@ paths:
       responses:
         '200': { description: Source, advice and actual progress summary; never changes ratings }
         '429': { description: Six advice requests per minute per IP }
+  /api/v1/learning/topics/{id}/quiz:
+    post:
+      tags: [Dictionary]
+      summary: Start or resume a private camera sign-recognition review quiz with up to ten due words
+      operationId: startReviewQuiz
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Quiz ID, camera prompts, sample media and saved capture labels }
+        '409': { description: Not enrolled or no words due for review }
+        '429': { description: Quiz request rate exceeded }
+  /api/v1/learning/quizzes/{id}:
+    get:
+      tags: [Dictionary]
+      summary: Restore an owned camera quiz draft or completed recognition result
+      operationId: getReviewQuiz
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Quiz questions, sample media, capture labels and persisted result }
+        '404': { description: Quiz not found or owned by another account }
+  /api/v1/learning/quizzes/{id}/answers:
+    patch:
+      tags: [Dictionary]
+      summary: Save quiz answers before moving between questions or submitting
+      operationId: saveReviewQuizAnswers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: { type: string, maxLength: 1000 }
+      responses:
+        '200': { description: Saved owned draft; answers must match the question count }
+        '400': { description: Invalid answer count or payload }
+        '404': { description: Quiz not found }
+        '409': { description: Quiz completed or currently being graded }
+  /api/v1/learning/quizzes/{id}/captures:
+    patch:
+      tags: [Dictionary]
+      summary: Save the sign label recognized by the camera for one quiz word
+      operationId: saveReviewQuizCapture
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [entryId, recognizedLabel]
+              properties:
+                entryId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+                recognizedLabel: { type: string, maxLength: 200 }
+      responses:
+        '200': { description: Saved recognized label for an owned draft quiz }
+        '400': { description: Invalid word ID or word does not belong to quiz }
+        '404': { description: Quiz not found }
+        '409': { description: Quiz already completed }
+  /api/v1/learning/quizzes/{id}/submit:
+    post:
+      tags: [Dictionary]
+      summary: Score saved camera recognition results and atomically update review progress
+      operationId: submitReviewQuiz
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Persisted camera recognition result; exact word matches become remembered unless progress changed meanwhile }
+        '400': { description: Missing camera captures or unexpected client fields }
+        '404': { description: Quiz not found }
+        '409': { description: Quiz already being graded }
+        '429': { description: Quiz request rate exceeded }
   /api/v1/learning/my-words:
     get:
       tags: [Dictionary]

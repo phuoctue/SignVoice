@@ -8,6 +8,7 @@ import { SearchHistory } from '../models/SearchHistory.model';
 import { authorizationFor } from './authorization.service';
 import { verifyPassword } from '../utils/password.util';
 import { AppError } from '../common/errors/AppError';
+import { ReviewQuiz } from '../models/ReviewQuiz.model';
 import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.model';
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
@@ -43,7 +44,7 @@ export async function clearOwnedData(userId: Types.ObjectId, session: ClientSess
   const conversations = await Conversation.deleteMany({userId}, {session});
   const history = await SearchHistory.deleteMany({userId}, {session});
   await UserSettings.deleteOne({userId}, {session});
-  for (const model of [TopicEnrollment, WordProgress, PersonalWord]) {
+  for (const model of [TopicEnrollment, WordProgress, PersonalWord, ReviewQuiz]) {
     await model.collection.deleteMany({userId}, {session});
   }
   return {favorites: removedFavorites.deletedCount, conversations: conversations.deletedCount, searchHistory: history.deletedCount};
