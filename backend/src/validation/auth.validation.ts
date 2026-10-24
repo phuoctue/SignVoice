@@ -1,4 +1,6 @@
 import { z } from 'zod';
+export const guestDeviceFields = z.object({deviceKey: z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict();
+export const guestSchema = z.object({body: guestDeviceFields.default({})});
 
 /**
  * Password validation schema

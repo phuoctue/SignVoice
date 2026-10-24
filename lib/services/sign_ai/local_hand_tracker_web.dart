@@ -16,6 +16,17 @@ extension type _TrackProcessor._(JSObject _) implements JSObject {
 class BrowserHandTracker {
   final _events = StreamController<LocalHandObservation>.broadcast();
   final _frames = StreamController<CapturedFrame>.broadcast();
+  final _diagnosticPixels = StreamController<CapturedFrame>.broadcast();
+  bool _pixelDiagnostic = false;
+  bool get pixelDiagnostic => _pixelDiagnostic;
+  set pixelDiagnostic(bool enabled) {
+    _pixelDiagnostic = enabled;
+    if (!enabled && _ready) {
+      _worker?.postMessage({'type': 'stop_diagnostic_pixels'}.jsify());
+    }
+  }
+
+  Stream<CapturedFrame> get diagnosticPixels => _diagnosticPixels.stream;
   web.Worker? _worker;
   bool _ready = false, _busy = false, _closed = false;
   double _lastVideoTime = -1;
@@ -71,7 +82,7 @@ class BrowserHandTracker {
     _timestamp = timestamp;
     try {
       final worker = web.Worker(
-        Uri.base.resolve('signvoice_hand_worker.js?v=8.6').toString().toJS,
+        Uri.base.resolve('signvoice_hand_worker.js?v=8.7').toString().toJS,
         web.WorkerOptions(type: 'classic'),
       );
       _worker = worker;
@@ -118,6 +129,33 @@ class BrowserHandTracker {
                   data['hand_observation'] as Map<String, dynamic>?,
             ),
           );
+        } else if (data['type'] == 'diagnostic_error') {
+          // A local diagnostic failure must not stop recognition.
+          _diagnosticPixels.add(
+            CapturedFrame({
+              'format': 'diagnostic_error',
+              'reason': data['reason']?.toString() ?? 'png_failed',
+            }, []),
+          );
+          return;
+        } else if (data['type'] == 'diagnostic_pixels') {
+          if (pixelDiagnostic) {
+            _diagnosticPixels.add(
+              CapturedFrame(
+                {
+                  for (final entry in data.entries)
+                    if (entry.value != null) entry.key: entry.value as Object,
+                },
+                [
+                  packet
+                      .getProperty<JSArrayBuffer>('jpeg'.toJS)
+                      .toDart
+                      .asUint8List(),
+                ],
+                timestampMs: data['timestamp_ms'] as int,
+              ),
+            );
+          }
         } else if (data['type'] == 'tracking') {
           _frames.add(
             CapturedFrame(
@@ -158,6 +196,7 @@ class BrowserHandTracker {
           'live_observations': true,
           'startup_progress': true,
           'enable_recovery': false,
+          'diagnostic_pixels': pixelDiagnostic,
         }.jsify(),
       );
       // A slow public download is different from a stalled frame. Keep local
@@ -252,5 +291,6 @@ class BrowserHandTracker {
     _disable();
     await _events.close();
     await _frames.close();
+    await _diagnosticPixels.close();
   }
 }

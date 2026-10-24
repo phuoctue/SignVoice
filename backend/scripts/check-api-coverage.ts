@@ -49,6 +49,7 @@ function getAllBackendRoutes(): Map<string, RouteInfo[]> {
     const filePath = path.join(routesDir, file);
     const routes = extractRoutesFromFile(filePath);
     const moduleName = file.replace('.routes.ts', '');
+    if (!modulePrefixMap[moduleName]) continue; // Files that are not mounted are not API endpoints.
     routesByModule.set(moduleName, routes);
   }
 
@@ -75,16 +76,10 @@ function getDocumentedEndpoints(): Set<string> {
 }
 
 // Map route module prefix to API path prefix
-const modulePrefixMap: Record<string, string> = {
-  'auth': '/api/v1/auth',
-  'dictionary': '/api/v1/dictionary',
-  'category': '/api/v1/categories',
-  'favorites': '/api/v1/favorites',
-  'history': '/api/v1/history',
-  'user': '/api/v1/users',
-  'staff': '/api/v1/staff',
-  'admin': '/api/v1/admin',
-};
+const modulePrefixMap: Record<string, string> = {};
+const appSource = fs.readFileSync(path.join(__dirname, '../src/app.ts'), 'utf8');
+const mounts = /app\.use\(\s*['"]([^'"]+)['"]\s*,\s*\(await import\(['"]\.\/routes\/([^'"]+)\.routes['"]\)\)\.default\s*\)/g;
+for (const match of appSource.matchAll(mounts)) modulePrefixMap[match[2]] = match[1];
 
 // Convert route path to full API path
 function toFullPath(moduleName: string, routePath: string): string {

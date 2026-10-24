@@ -21,7 +21,8 @@
     "db:create-admin": "tsx scripts/create-admin.ts",
     "db:create-test-accounts": "tsx scripts/create-test-accounts.ts",
     "docs:validate": "tsx scripts/validate-openapi.ts",
-    "docs:coverage": "tsx scripts/check-api-coverage.ts"
+    "docs:coverage": "tsx scripts/check-api-coverage.ts",
+    "db:indexes": "tsx scripts/repair-indexes.ts"
   },
   "keywords": [
     "signvoice",

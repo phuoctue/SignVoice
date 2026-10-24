@@ -17,7 +17,7 @@ class UserService {
 
   /// Get current user profile
   Future<void> deleteAccount() async {
-    await _apiClient.delete('/users/account');
+    await _apiClient.delete('/users/account', body: {'confirm': true});
   }
 
   /// Get current user profile
@@ -26,7 +26,7 @@ class UserService {
       final response = await _apiClient.get('/users/profile');
 
       if (response['success'] == true && response['data'] != null) {
-        return UserModel.fromJson(response['data']['user']);
+        return UserModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');
@@ -45,13 +45,10 @@ class UserService {
       if (displayName != null) body['displayName'] = displayName;
       if (avatarUrl != null) body['avatarUrl'] = avatarUrl;
 
-      final response = await _apiClient.patch(
-        '/users/profile',
-        body: body,
-      );
+      final response = await _apiClient.patch('/users/profile', body: body);
 
       if (response['success'] == true && response['data'] != null) {
-        return UserModel.fromJson(response['data']['user']);
+        return UserModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to update profile');
@@ -66,7 +63,7 @@ class UserService {
       final response = await _apiClient.get('/users/settings');
 
       if (response['success'] == true && response['data'] != null) {
-        return UserSettingsModel.fromJson(response['data']['settings']);
+        return UserSettingsModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');
@@ -83,17 +80,14 @@ class UserService {
   }) async {
     try {
       final body = <String, dynamic>{};
-      if (theme != null) body['theme'] = theme;
+      if (theme != null) body['theme'] = theme.toUpperCase();
       if (language != null) body['language'] = language;
-      if (notifications != null) body['notifications'] = notifications;
+      if (notifications != null) body['notificationsEnabled'] = notifications;
 
-      final response = await _apiClient.patch(
-        '/users/settings',
-        body: body,
-      );
+      final response = await _apiClient.patch('/users/settings', body: body);
 
       if (response['success'] == true && response['data'] != null) {
-        return UserSettingsModel.fromJson(response['data']['settings']);
+        return UserSettingsModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to update settings');

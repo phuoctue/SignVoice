@@ -41,15 +41,6 @@ export async function createApp(): Promise<Application> {
     crossOriginResourcePolicy: { policy: "cross-origin" },
   }));
 
-  if (process.env.AI_PUBLIC_PROXY === 'true') {
-    const proxy = attachAiPublicProxy(app, {
-      target: process.env.AI_PROXY_TARGET || 'http://127.0.0.1:8001',
-      publicOrigin: env.PUBLIC_ORIGIN,
-      port: env.PORT,
-    });
-    app.locals.attachAiUpgrade = proxy.attach;
-  }
-
   // CORS configuration
   app.use(cors({
     origin: (origin, callback) => {
@@ -66,6 +57,15 @@ export async function createApp(): Promise<Application> {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
+
+  if (process.env.AI_PUBLIC_PROXY !== 'false') {
+    const proxy = attachAiPublicProxy(app, {
+      target: process.env.AI_PROXY_TARGET || 'http://127.0.0.1:8001',
+      publicOrigin: env.PUBLIC_ORIGIN,
+      port: env.PORT,
+    });
+    app.locals.attachAiUpgrade = proxy.attach;
+  }
 
   // Body parsing middleware (allow up to 50mb for high-res camera pictures)
   app.use(express.json({ limit: '50mb' }));
@@ -124,12 +124,14 @@ export async function createApp(): Promise<Application> {
   // API routes
   servePublicInformation(app);
   app.use('/api/v1/auth', (await import('./routes/auth.routes')).default);
+  app.use('/api/v1/guest-trial', (await import('./routes/guest-trial.routes')).default);
   app.use('/api/v1/dictionary', (await import('./routes/dictionary.routes')).default);
   app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);
   app.use('/sign-media', (await import('./routes/sign-media.routes')).default);
   app.use('/api/v1/categories', (await import('./routes/category.routes')).default);
   app.use('/api/v1/favorites', (await import('./routes/favorites.routes')).default);
   app.use('/api/v1/history', (await import('./routes/history.routes')).default);
+  app.use('/api/v1/conversations', (await import('./routes/conversation.routes')).default);
   app.use('/api/v1/users', (await import('./routes/user.routes')).default);
   app.use('/api/v1/staff', (await import('./routes/staff.routes')).default);
   app.use('/api/v1/admin', (await import('./routes/admin.routes')).default);

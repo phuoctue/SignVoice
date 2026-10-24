@@ -23,7 +23,7 @@ class CategoryService {
       );
 
       if (response['success'] == true && response['data'] != null) {
-        final List<dynamic> items = response['data']['categories'] ?? [];
+        final List<dynamic> items = response['data'] as List;
         return items.map((json) => CategoryModel.fromJson(json)).toList();
       }
 
@@ -42,7 +42,7 @@ class CategoryService {
       );
 
       if (response['success'] == true && response['data'] != null) {
-        return CategoryModel.fromJson(response['data']['category']);
+        return CategoryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');
@@ -58,7 +58,7 @@ class CategoryService {
     String? description,
     String? icon,
     int? sortOrder,
-    String status = 'active',
+    String status = 'ACTIVE',
   }) async {
     try {
       final response = await _apiClient.post(
@@ -66,15 +66,15 @@ class CategoryService {
         body: {
           'name': name,
           'slug': slug,
-          if (description != null) 'description': description,
-          if (icon != null) 'icon': icon,
-          if (sortOrder != null) 'sortOrder': sortOrder,
+          'description': ?description,
+          'icon': ?icon,
+          'sortOrder': ?sortOrder,
           'status': status,
         },
       );
 
       if (response['success'] == true && response['data'] != null) {
-        return CategoryModel.fromJson(response['data']['category']);
+        return CategoryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to create category');

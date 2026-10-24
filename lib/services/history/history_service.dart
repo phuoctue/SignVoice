@@ -20,7 +20,7 @@ class HistoryService {
       final response = await _apiClient.get('/history');
 
       if (response['success'] == true && response['data'] != null) {
-        final List<dynamic> items = response['data']['history'] ?? [];
+        final List<dynamic> items = response['data'] as List;
         return items.map((json) => HistoryEntryModel.fromJson(json)).toList();
       }
 

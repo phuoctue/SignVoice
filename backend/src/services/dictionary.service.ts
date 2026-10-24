@@ -4,6 +4,7 @@ import { Category } from '../models/Category.model';
 import { SearchHistory } from '../models/SearchHistory.model';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
+import { userTransaction } from './user-data.service';
 
 /**
  * Get published dictionary entries with filters
@@ -12,13 +13,15 @@ export async function getPublishedEntries(options: {
   categoryId?: string;
   search?: string;
   difficulty?: string;
+  sort?: 'word_asc' | 'word_desc';
   limit?: number;
   skip?: number;
 }): Promise<{ entries: IDictionaryEntry[]; total: number }> {
-  const filter: any = { status: EntryStatus.PUBLISHED };
+  const activeCategories = await Category.find({status: 'ACTIVE'}).distinct('_id');
+  const filter: any = { status: EntryStatus.PUBLISHED, categoryId: {$in: activeCategories} };
   
   if (options.categoryId) {
-    filter.categoryId = options.categoryId;
+    filter.categoryId = {$in: activeCategories.filter(id => String(id) === options.categoryId)};
   }
   
   if (options.difficulty) {
@@ -28,42 +31,33 @@ export async function getPublishedEntries(options: {
   const limit = Math.min(options.limit || 20, 100);
   const skip = options.skip || 0;
   
-  let query;
-  
-  if (options.search) {
-    // Full-text search
-    const entries = await DictionaryEntry.find({
-      ...filter,
-      $text: { $search: options.search },
-    })
-      .select({ score: { $meta: 'textScore' } })
-      .sort({ score: { $meta: 'textScore' }, viewCount: -1 })
-      .limit(limit)
-      .skip(skip)
-      .populate('categoryId', 'name slug icon')
-      .exec();
-    
-    const total = await DictionaryEntry.countDocuments({
-      ...filter,
-      $text: { $search: options.search },
-    });
-    
-    return { entries, total };
-  } else {
-    // Regular listing
-    query = DictionaryEntry.find(filter)
-      .sort({ publishedAt: -1 })
-      .limit(limit)
-      .skip(skip)
-      .populate('categoryId', 'name slug icon');
-    
-    const [entries, total] = await Promise.all([
-      query.exec(),
-      DictionaryEntry.countDocuments(filter),
-    ]);
-    
-    return { entries, total };
+  if (options.search) filter.$text = {$search: options.search};
+  let listingFilter = filter;
+  let matchedTotal: number | undefined;
+  if (options.sort && options.search) {
+    // Mongo text indexes require simple collation. Resolve matches first, then
+    // order those same entries using Vietnamese collation before pagination.
+    const matches = await DictionaryEntry.find(filter).select('_id').lean();
+    listingFilter = {...filter, _id: {$in: matches.map(entry => entry._id)}};
+    delete listingFilter.$text;
+    matchedTotal = matches.length;
   }
+  const query = DictionaryEntry.find(listingFilter);
+  if (options.sort) {
+    const direction = options.sort === 'word_asc' ? 1 : -1;
+    query.collation({locale: 'vi', strength: 3, numericOrdering: true})
+      .sort({word: direction, _id: direction});
+  } else if (options.search) {
+    query.select({score: {$meta: 'textScore'}})
+      .sort({score: {$meta: 'textScore'}, viewCount: -1, _id: 1});
+  } else {
+    query.sort({publishedAt: -1, _id: -1});
+  }
+  const [entries, total] = await Promise.all([
+    query.limit(limit).skip(skip).populate('categoryId', 'name slug icon').exec(),
+    matchedTotal ?? DictionaryEntry.countDocuments(filter),
+  ]);
+  return {entries, total};
 }
 
 /**
@@ -78,7 +72,7 @@ export async function getEntryById(
   }
   
   const entry = await DictionaryEntry.findById(entryId)
-    .populate('categoryId', 'name slug icon')
+    .populate('categoryId', 'name slug icon status')
     .populate('createdBy', 'displayName')
     .exec();
   
@@ -89,17 +83,20 @@ export async function getEntryById(
   if (entry.status !== EntryStatus.PUBLISHED) {
     throw new AppError('Entry not available', 404, ErrorCodes.DICT_NOT_PUBLISHED);
   }
+  if (!entry.categoryId || (entry.categoryId as any).status !== 'ACTIVE') {
+    throw new AppError('Danh mục không còn hoạt động.', 404, ErrorCodes.DICT_NOT_PUBLISHED);
+  }
   
   // Increment view count asynchronously
   entry.incrementViewCount().catch(err => console.error('Failed to increment view count:', err));
   
   // Record search history if user is authenticated
   if (userId) {
-    SearchHistory.findOneAndUpdate(
+    await userTransaction(userId, session => SearchHistory.findOneAndUpdate(
       { userId, entryId: entry._id },
       { $set: { viewedAt: new Date() } },
-      { upsert: true }
-    ).catch((err: Error) => console.error('Failed to record search history:', err));
+      { upsert: true, session }
+    ).exec());
   }
   
   return entry;
@@ -109,7 +106,8 @@ export async function getEntryById(
  * Get popular entries
  */
 export async function getPopularEntries(limit: number = 10): Promise<IDictionaryEntry[]> {
-  return await DictionaryEntry.find({ status: EntryStatus.PUBLISHED })
+  const activeCategories = await Category.find({status: 'ACTIVE'}).distinct('_id');
+  return await DictionaryEntry.find({ status: EntryStatus.PUBLISHED, categoryId: {$in: activeCategories} })
     .sort({ viewCount: -1, publishedAt: -1 })
     .limit(Math.min(limit, 50))
     .populate('categoryId', 'name slug icon')

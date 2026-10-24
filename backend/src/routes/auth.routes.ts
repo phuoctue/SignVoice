@@ -12,6 +12,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  guestSchema,
 } from '../validation/auth.validation';
 
 const router = Router();
@@ -55,7 +56,7 @@ router.post('/login', validate(loginSchema), authController.login);
  * @desc Create guest account
  * @access Public
  */
-router.post('/guest', authController.createGuest);
+router.post('/guest', validate(guestSchema), authController.createGuest);
 
 /**
  * @route POST /api/v1/auth/convert-guest

@@ -20,7 +20,7 @@ class FavoritesService {
       final response = await _apiClient.get('/favorites');
 
       if (response['success'] == true && response['data'] != null) {
-        final List<dynamic> items = response['data']['favorites'] ?? [];
+        final List<dynamic> items = response['data'] as List;
         return items.map((json) => FavoriteModel.fromJson(json)).toList();
       }
 
@@ -39,7 +39,7 @@ class FavoritesService {
       );
 
       if (response['success'] == true && response['data'] != null) {
-        return FavoriteModel.fromJson(response['data']['favorite']);
+        return FavoriteModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to add favorite');

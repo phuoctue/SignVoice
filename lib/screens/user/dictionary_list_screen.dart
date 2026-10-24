@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/dictionary_provider.dart';
 import '../../providers/category_provider.dart';
 import '../../providers/favorites_provider.dart';
@@ -38,9 +39,9 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent * 0.9) {
       context.read<DictionaryProvider>().loadMore(
-            categoryId: _selectedCategory,
-            difficulty: _selectedDifficulty,
-          );
+        categoryId: _selectedCategory,
+        difficulty: _selectedDifficulty,
+      );
     }
   }
 
@@ -72,7 +73,10 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
               height: 60,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 children: [
                   _CategoryChip(
                     label: 'Tất cả',
@@ -83,20 +87,22 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
                     },
                   ),
                   const SizedBox(width: 8),
-                  ...categoryProvider.categories.map((category) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _CategoryChip(
-                          label: category.name,
-                          isSelected: _selectedCategory == category.id,
-                          onTap: () {
-                            setState(() => _selectedCategory = category.id);
-                            dictionaryProvider.loadEntries(
-                              categoryId: category.id,
-                              reset: true,
-                            );
-                          },
-                        ),
-                      )),
+                  ...categoryProvider.categories.map(
+                    (category) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _CategoryChip(
+                        label: category.name,
+                        isSelected: _selectedCategory == category.id,
+                        onTap: () {
+                          setState(() => _selectedCategory = category.id);
+                          dictionaryProvider.loadEntries(
+                            categoryId: category.id,
+                            reset: true,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -120,85 +126,85 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
                           ),
                           const SizedBox(height: 16),
                           ElevatedButton(
-                            onPressed: () => dictionaryProvider.loadEntries(
-                              reset: true,
-                            ),
+                            onPressed: () =>
+                                dictionaryProvider.loadEntries(reset: true),
                             child: const Text('Thử lại'),
                           ),
                         ],
                       ),
                     )
                   : dictionaryProvider.entries.isEmpty &&
-                          !dictionaryProvider.isLoading
-                      ? const Center(child: Text('Chưa có dữ liệu'))
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: dictionaryProvider.entries.length +
-                              (dictionaryProvider.isLoading ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if (index >= dictionaryProvider.entries.length) {
-                              return const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: CircularProgressIndicator(),
-                                ),
-                              );
-                            }
+                        !dictionaryProvider.isLoading
+                  ? const Center(child: Text('Chưa có dữ liệu'))
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount:
+                          dictionaryProvider.entries.length +
+                          (dictionaryProvider.isLoading ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index >= dictionaryProvider.entries.length) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
 
-                            final entry = dictionaryProvider.entries[index];
-                            final isFavorite =
-                                favoritesProvider.isFavorite(entry.id);
+                        final entry = dictionaryProvider.entries[index];
+                        final isFavorite = favoritesProvider.isFavorite(
+                          entry.id,
+                        );
 
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: ListTile(
-                                title: Text(entry.word),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      entry.definition,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            title: Text(entry.word),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  entry.definition,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                if (entry.difficulty != null)
+                                  Chip(
+                                    label: Text(
+                                      entry.difficultyLabel ?? '',
+                                      style: const TextStyle(fontSize: 10),
                                     ),
-                                    const SizedBox(height: 4),
-                                    if (entry.difficulty != null)
-                                      Chip(
-                                        label: Text(
-                                          entry.difficultyLabel ?? '',
-                                          style: const TextStyle(fontSize: 10),
-                                        ),
-                                        materialTapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                      ),
-                                  ],
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    isFavorite
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
+                                    color: isFavorite ? Colors.red : null,
+                                  ),
+                                  onPressed: () => favoritesProvider
+                                      .toggleFavorite(entry.id),
                                 ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(
-                                        isFavorite
-                                            ? Icons.favorite
-                                            : Icons.favorite_border,
-                                        color: isFavorite ? Colors.red : null,
-                                      ),
-                                      onPressed: () => favoritesProvider
-                                          .toggleFavorite(entry.id),
-                                    ),
-                                    const Icon(Icons.arrow_forward_ios,
-                                        size: 16),
-                                  ],
-                                ),
-                                onTap: () => Navigator.pushNamed(
-                                  context,
-                                  '/dictionary/${entry.id}',
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                                const Icon(Icons.arrow_forward_ios, size: 16),
+                              ],
+                            ),
+                            onTap: () => Navigator.pushNamed(
+                              context,
+                              '/dictionary/${entry.id}',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ),
         ],
@@ -207,70 +213,34 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
   }
 
   void _showFilterDialog() {
-    showDialog(
+    final provider = context.read<DictionaryProvider>();
+    showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Lọc theo độ khó'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String?>(
-              title: const Text('Tất cả'),
-              value: null,
-              groupValue: _selectedDifficulty,
-              onChanged: (value) {
-                setState(() => _selectedDifficulty = value);
-                Navigator.pop(context);
-                context.read<DictionaryProvider>().loadEntries(
-                      categoryId: _selectedCategory,
-                      difficulty: value,
-                      reset: true,
-                    );
-              },
-            ),
-            RadioListTile<String?>(
-              title: const Text('Dễ'),
-              value: 'easy',
-              groupValue: _selectedDifficulty,
-              onChanged: (value) {
-                setState(() => _selectedDifficulty = value);
-                Navigator.pop(context);
-                context.read<DictionaryProvider>().loadEntries(
-                      categoryId: _selectedCategory,
-                      difficulty: value,
-                      reset: true,
-                    );
-              },
-            ),
-            RadioListTile<String?>(
-              title: const Text('Trung bình'),
-              value: 'medium',
-              groupValue: _selectedDifficulty,
-              onChanged: (value) {
-                setState(() => _selectedDifficulty = value);
-                Navigator.pop(context);
-                context.read<DictionaryProvider>().loadEntries(
-                      categoryId: _selectedCategory,
-                      difficulty: value,
-                      reset: true,
-                    );
-              },
-            ),
-            RadioListTile<String?>(
-              title: const Text('Khó'),
-              value: 'hard',
-              groupValue: _selectedDifficulty,
-              onChanged: (value) {
-                setState(() => _selectedDifficulty = value);
-                Navigator.pop(context);
-                context.read<DictionaryProvider>().loadEntries(
-                      categoryId: _selectedCategory,
-                      difficulty: value,
-                      reset: true,
-                    );
-              },
-            ),
-          ],
+        content: RadioGroup<String?>(
+          groupValue: _selectedDifficulty,
+          onChanged: (value) {
+            setState(() => _selectedDifficulty = value);
+            Navigator.pop(dialogContext);
+            provider.loadEntries(
+              categoryId: _selectedCategory,
+              difficulty: value,
+              reset: true,
+            );
+          },
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String?>(title: Text('Tất cả'), value: null),
+              RadioListTile<String?>(title: Text('Dễ'), value: 'BEGINNER'),
+              RadioListTile<String?>(
+                title: Text('Trung bình'),
+                value: 'INTERMEDIATE',
+              ),
+              RadioListTile<String?>(title: Text('Khó'), value: 'ADVANCED'),
+            ],
+          ),
         ),
       ),
     );

@@ -40,10 +40,7 @@ class RelatedWord {
   final String entryId;
   final RelationshipType relationshipType;
 
-  RelatedWord({
-    required this.entryId,
-    required this.relationshipType,
-  });
+  RelatedWord({required this.entryId, required this.relationshipType});
 
   factory RelatedWord.fromJson(Map<String, dynamic> json) =>
       _$RelatedWordFromJson(json);
@@ -56,32 +53,32 @@ class RelatedWord {
 class DictionaryEntryModel {
   @JsonKey(name: '_id')
   final String id;
-  
+
   final String word;
   final String definition;
-  
+
   final String videoUrl;
   final String? thumbnailUrl;
   final List<String>? imageUrls;
-  
+
   final String categoryId;
   final List<String>? tags;
   final DifficultyLevel? difficulty;
-  
+
   final String? usageExample;
   final String? notes;
   final List<RelatedWord>? relatedWords;
-  
+
   final EntryStatus status;
   final String? rejectionReason;
-  
+
   final int viewCount;
   final int favoriteCount;
-  
+
   final String createdBy;
   final String? lastModifiedBy;
   final DateTime? publishedAt;
-  
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -110,7 +107,11 @@ class DictionaryEntryModel {
   });
 
   factory DictionaryEntryModel.fromJson(Map<String, dynamic> json) =>
-      _$DictionaryEntryModelFromJson(json);
+      _$DictionaryEntryModelFromJson({
+        ...json,
+        for (final key in ['categoryId', 'createdBy', 'lastModifiedBy'])
+          key: json[key] is Map ? json[key]['_id'] : json[key],
+      });
 
   Map<String, dynamic> toJson() => _$DictionaryEntryModelToJson(this);
 

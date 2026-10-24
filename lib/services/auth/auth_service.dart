@@ -4,6 +4,8 @@ import '../storage/secure_token_storage.dart';
 import '../../models/user_model.dart';
 import '../storage/token_store.dart';
 import '../api/api_exception.dart';
+import 'guest_device_identity.dart';
+import 'guest_trial_access.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,23 +55,24 @@ class AuthService {
   }
 
   Future<UserModel> completeOAuth() async {
+    final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '/auth/oauth/complete',
       requiresAuth: false,
     );
-    return _saveAuthResponse(response);
+    return _saveAuthResponse(response, epoch);
   }
 
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
   }) async {
+    final epoch = _apiClient.sessionEpoch;
     await _apiClient.post(
       '/auth/change-password',
       body: {'currentPassword': currentPassword, 'newPassword': newPassword},
     );
-    await _tokenStorage.clearAll();
-    _apiClient.sessionInvalidated.value++;
+    await _apiClient.clearSession(expectedEpoch: epoch);
   }
 
   Future<UserModel?> restoreSession() async {
@@ -89,16 +92,19 @@ class AuthService {
     return getCurrentUser();
   }
 
-  Future<UserModel> _saveAuthResponse(dynamic response) async {
+  Future<UserModel> _saveAuthResponse(dynamic response, int epoch) async {
+    _apiClient.checkSession(epoch);
     final data = response['data'];
     final user = UserModel.fromJson(Map<String, dynamic>.from(data['user']));
     final tokens = data['tokens'];
-    await _tokenStorage.saveTokens(
-      accessToken: tokens['accessToken'],
-      refreshToken: tokens['refreshToken'],
-    );
-    await _tokenStorage.saveUserInfo(userId: user.id, role: user.roleName);
-    _apiClient.sessionStarted();
+    await _apiClient.writeSession(epoch, () async {
+      await _tokenStorage.saveTokens(
+        accessToken: tokens['accessToken'],
+        refreshToken: tokens['refreshToken'],
+      );
+      await _tokenStorage.saveUserInfo(userId: user.id, role: user.roleName);
+    });
+    _apiClient.sessionStarted(expectedEpoch: epoch);
     return user;
   }
 
@@ -113,6 +119,7 @@ class AuthService {
     required String password,
     required String displayName,
   }) async {
+    final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/register',
       body: {'email': email, 'password': password, 'displayName': displayName},
@@ -120,7 +127,7 @@ class AuthService {
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response);
+      return _saveAuthResponse(response, epoch);
     }
 
     throw Exception('Registration failed');
@@ -131,6 +138,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/login',
       body: {'email': email, 'password': password},
@@ -138,7 +146,7 @@ class AuthService {
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response);
+      return _saveAuthResponse(response, epoch);
     }
 
     throw Exception('Login failed');
@@ -168,16 +176,31 @@ class AuthService {
 
   /// Login as guest
   Future<UserModel> loginAsGuest() async {
+    final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/guest',
+      body: {'deviceKey': await guestDeviceKey()},
       requiresAuth: false,
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response);
+      return _saveAuthResponse(response, epoch);
     }
 
     throw Exception('Guest login failed');
+  }
+
+  Future<GuestTrialAccess> guestTrial({bool start = false}) async {
+    final key = await guestDeviceKey();
+    final response = start
+        ? await _apiClient.post('/guest-trial/start', body: {'deviceKey': key})
+        : await _apiClient.get(
+            '/guest-trial/status',
+            queryParameters: {'deviceKey': key},
+          );
+    return GuestTrialAccess.fromJson(
+      Map<String, dynamic>.from(response['data'] as Map),
+    );
   }
 
   /// Convert guest to permanent account
@@ -186,6 +209,7 @@ class AuthService {
     required String password,
     required String displayName,
   }) async {
+    final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/convert-guest',
       body: {'email': email, 'password': password, 'displayName': displayName},
@@ -193,7 +217,7 @@ class AuthService {
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response);
+      return _saveAuthResponse(response, epoch);
     }
 
     throw Exception('Guest conversion failed');

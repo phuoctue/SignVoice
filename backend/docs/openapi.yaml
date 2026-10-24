@@ -25,10 +25,13 @@ info:
 
     Người dùng có thể tạo tài khoản guest tạm thời mà không cần email/password.
     Guest có thể chuyển đổi thành tài khoản vĩnh viễn sau này.
+    Khách được xem kho công khai và một phiên thử 10 phút, tính từ POST /api/v1/guest-trial/start.
+    Máy chủ giữ hạn dùng qua refresh token và các lần vào Khách trên cùng định danh bản cài đặt.
+    Lưu hội thoại/yêu thích và đồng bộ cá nhân yêu cầu tài khoản chính thức.
 
     ## Giới hạn
 
-    - **AI Recognition**: Chưa được tích hợp - các tính năng AI sẽ hiển thị thông báo "Tính năng AI chưa được tích hợp"
+    - **AI Recognition**: Gateway /sign-ai chuyển tiếp tới service AI riêng; inference yêu cầu xác thực và phiên thử còn hạn với khách. WebSocket dùng ticket ngắn hạn từ /api/v1/guest-trial/ai-ticket.
     - **OAuth**: Google/Facebook web authorization-code login; provider flags are disabled until server credentials/origins are configured. See docs/OAUTH_SETUP.md.
     - **Email**: Xác thực email chưa được kích hoạt
 
@@ -71,6 +74,29 @@ components:
       description: JWT access token nhận được từ endpoint đăng nhập
 
   schemas:
+    GuestTrialStatus:
+      type: object
+      required: [state, serverNow, durationSeconds, remainingSeconds]
+      properties:
+        state:
+          type: string
+          enum: [available, active, expired, unlimited]
+        serverNow:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        durationSeconds:
+          type: integer
+          enum: [600]
+        remainingSeconds:
+          type: integer
+          nullable: true
+          minimum: 0
     TokenPair:
       type: object
       required: [ accessToken, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt ]
@@ -90,7 +116,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/User'
         - type: object
-          required: [ id, displayName, role, accountType, status, isGuest, createdAt, updatedAt ]
+          required:
+            [
+              id,
+              displayName,
+              role,
+              accountType,
+              status,
+              isGuest,
+              createdAt,
+              updatedAt
+            ]
           properties:
             id:
               type: string
@@ -327,27 +363,49 @@ components:
           type: string
         theme:
           type: string
-          enum: [ LIGHT, DARK, SYSTEM ]
-          example: "SYSTEM"
+          enum:
+            - LIGHT
+            - DARK
+            - SYSTEM
         language:
           type: string
-          example: "vi"
-        notifications:
+          enum:
+            - vi
+            - en
+        fontSize:
+          type: number
+          minimum: 12
+          maximum: 24
+        highContrast:
+          type: boolean
+        speechSpeed:
+          type: number
+          minimum: 0.5
+          maximum: 2
+        speechPitch:
+          type: number
+          minimum: 0.5
+          maximum: 2
+        autoSpeak:
+          type: boolean
+        avatarColor:
+          type: integer
+          minimum: 0
+          maximum: 3
+        notificationsEnabled:
+          type: boolean
+        shareUsageData:
+          type: boolean
+        notificationPreferences:
           type: object
+          additionalProperties: false
           properties:
-            email:
+            newWords:
               type: boolean
-            push:
+            favorites:
               type: boolean
-            newContent:
+            updates:
               type: boolean
-        videoAutoplay:
-          type: boolean
-        videoQuality:
-          type: string
-          enum: [ AUTO, LOW, MEDIUM, HIGH ]
-        offlineMode:
-          type: boolean
 
     SuccessResponse:
       type: object
@@ -719,11 +777,36 @@ components:
             - ACTIVE
             - ARCHIVED
       minProperties: 1
+    Conversation:
+      type: object
+      properties:
+        _id:
+          type: string
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        direction:
+          type: string
+          enum:
+            - TEXT
+            - SIGN_TO_SPEECH
+            - SPEECH_TO_TEXT
+          default: TEXT
+        favorite:
+          type: boolean
+          default: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
 paths:
   /api/v1/auth/oauth/providers:
     get:
-      tags: [Authentication]
+      tags: [ Authentication ]
       summary: Public provider availability only (no credentials)
       responses:
         '200':
@@ -736,39 +819,50 @@ paths:
                   success: { type: boolean }
                   data:
                     type: object
-                    required: [google, facebook]
+                    required: [ google, facebook ]
                     additionalProperties: false
                     properties:
                       google: { type: boolean }
                       facebook: { type: boolean }
   /api/v1/auth/oauth/{provider}/start:
     get:
-      tags: [Authentication]
-      summary: Begin browser authorization-code login with HttpOnly SameSite=Lax state cookie
+      tags: [ Authentication ]
+      summary: Begin browser authorization-code login with HttpOnly SameSite=Lax state
+        cookie
       parameters:
         - name: provider
           in: path
           required: true
-          schema: { type: string, enum: [google, facebook] }
+          schema: { type: string, enum: [ google, facebook ] }
       responses:
-        '302': { description: Redirect to configured provider; Google includes nonce and PKCE S256 }
+        '302':
+          {
+            description: Redirect to configured provider; Google includes nonce and PKCE
+              S256
+          }
         '404': { description: Unknown provider }
         '429': { description: Too many requests }
-        '503': { description: OAUTH_DISABLED or OAUTH_CONFIGURATION_INVALID; email and guest unaffected }
+        '503':
+          {
+            description: OAUTH_DISABLED or OAUTH_CONFIGURATION_INVALID; email and guest
+              unaffected
+          }
   /api/v1/auth/oauth/{provider}/callback:
     get:
-      tags: [Authentication]
-      summary: Fixed Google/Facebook callback; atomically consume browser-bound state and verify identity server-side
+      tags: [ Authentication ]
+      summary: Fixed Google/Facebook callback; atomically consume browser-bound state
+        and verify identity server-side
       description: >-
         Concrete registered callbacks are /api/v1/auth/oauth/google/callback and
-        /api/v1/auth/oauth/facebook/callback. Creates normal persisted JWT sessions,
-        sets HttpOnly refresh cookie, and redirects only to configured frontend /#/oauth-complete.
-        Redirects carry no tokens, only an allowlisted error code on failure.
+        /api/v1/auth/oauth/facebook/callback. Creates normal persisted JWT
+        sessions, sets HttpOnly refresh cookie, and redirects only to configured
+        frontend /#/oauth-complete. Redirects carry no tokens, only an
+        allowlisted error code on failure.
       parameters:
         - name: provider
           in: path
           required: true
-          schema: { type: string, enum: [google, facebook] }
+          schema: { type: string, enum: [ google, facebook ] }
         - name: state
           in: query
           schema: { type: string }
@@ -783,17 +877,20 @@ paths:
         '503': { description: Provider configuration unavailable }
   /api/v1/auth/oauth/complete:
     post:
-      tags: [Authentication]
-      summary: Bootstrap browser session from HttpOnly cookie after callback without prior local login metadata
-      description: Requires exact configured frontend Origin and CORS allowlist; rotates and consumes the refresh session. Response uses normal user and tokens DTO; browser stores access only in memory and metadata locally.
+      tags: [ Authentication ]
+      summary: Bootstrap browser session from HttpOnly cookie after callback without
+        prior local login metadata
+      description: Requires exact configured frontend Origin and CORS allowlist;
+        rotates and consumes the refresh session. Response uses normal user and
+        tokens DTO; browser stores access only in memory and metadata locally.
       responses:
         '200': { description: Standard authentication response containing user and tokens }
         '401': { description: Missing, expired, revoked or replayed session }
         '403': { description: Untrusted or missing Origin }
   /api/v1/auth/change-password:
     post:
-      tags: [Authentication]
-      security: [{ bearerAuth: [] }]
+      tags: [ Authentication ]
+      security: [ { bearerAuth: [] } ]
       summary: Change local password and revoke all sessions
       requestBody:
         required: true
@@ -801,13 +898,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [currentPassword, newPassword]
+              required: [ currentPassword, newPassword ]
               properties:
                 currentPassword: { type: string }
                 newPassword: { type: string, minLength: 8, maxLength: 128 }
       responses:
         '200': { description: Password changed; cookie cleared; sign in again }
-        '400': { description: Wrong current password, weak password, or guest/social account has no local password; valid session is preserved for retry }
+        '400':
+          {
+            description: Wrong current password,
+            weak password,
+            or guest/social account has no local password; valid session is preserved for retry
+          }
         '401': { description: Missing or invalid bearer session }
         '422': { description: Unchanged new password }
   # System Health
@@ -991,6 +1093,18 @@ paths:
       summary: Tạo tài khoản guest
       description: Tạo tài khoản guest tạm thời không cần email/password
       operationId: createGuest
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                deviceKey:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+                  description: Mã ngẫu nhiên bền vững của bản cài đặt native; trình duyệt còn dùng cookie HttpOnly signvoice_guest_device.
       responses:
         '201':
           description: Tài khoản guest được tạo thành công
@@ -1093,7 +1207,8 @@ paths:
     post:
       tags: [ Auth ]
       summary: Yêu cầu email đặt lại mật khẩu
-      description: Không tiết lộ email có tồn tại. SMTP phải được cấu hình. Giới hạn mỗi tài khoản một yêu cầu trong 60 giây; liên kết có hiệu lực 15 phút.
+      description: Không tiết lộ email có tồn tại. SMTP phải được cấu hình. Giới hạn
+        mỗi tài khoản một yêu cầu trong 60 giây; liên kết có hiệu lực 15 phút.
       security: []
       requestBody:
         required: true
@@ -1120,7 +1235,8 @@ paths:
     post:
       tags: [ Auth ]
       summary: Đặt mật khẩu mới bằng token nhận trong email
-      description: Token dùng một lần. Mật khẩu mới 8–128 ký tự, có chữ cái và chữ số. Thu hồi mọi phiên đăng nhập cũ.
+      description: Token dùng một lần. Mật khẩu mới 8–128 ký tự, có chữ cái và chữ số.
+        Thu hồi mọi phiên đăng nhập cũ.
       security: []
       requestBody:
         required: true
@@ -1245,6 +1361,15 @@ paths:
           schema:
             type: string
           description: Tìm kiếm theo từ hoặc định nghĩa
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [word_asc, word_desc]
+          description: >-
+            Sắp xếp tên từ tăng/giảm theo tiếng Việt, số theo giá trị tự nhiên,
+            trước khi phân trang. Áp dụng cùng tìm kiếm và danh mục.
+            Bỏ qua tham số để giữ thứ tự mặc định của API.
         - name: difficulty
           in: query
           schema:
@@ -1925,11 +2050,23 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
+              minProperties: 1
               properties:
                 displayName:
                   type: string
+                  minLength: 2
+                  maxLength: 50
                 avatarUrl:
                   type: string
+                  description: URL HTTP/HTTPS hoặc chuỗi rỗng để xóa
+                email:
+                  type: string
+                  format: email
+                currentPassword:
+                  type: string
+                  writeOnly: true
+                  description: Bắt buộc khi đổi email của tài khoản LOCAL
       responses:
         '200':
           description: Cập nhật thành công
@@ -1942,6 +2079,11 @@ paths:
                     type: boolean
                   data:
                     $ref: '#/components/schemas/User'
+        "400":
+          description: Dữ liệu không hợp lệ hoặc mật khẩu chứng minh sai; không làm mất
+            phiên đăng nhập
+        "409":
+          description: Email đã được sử dụng
 
   /api/v1/users/settings:
     get:
@@ -1978,7 +2120,55 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserSettings'
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                theme:
+                  type: string
+                  enum:
+                    - LIGHT
+                    - DARK
+                    - SYSTEM
+                language:
+                  type: string
+                  enum:
+                    - vi
+                    - en
+                fontSize:
+                  type: number
+                  minimum: 12
+                  maximum: 24
+                highContrast:
+                  type: boolean
+                speechSpeed:
+                  type: number
+                  minimum: 0.5
+                  maximum: 2
+                speechPitch:
+                  type: number
+                  minimum: 0.5
+                  maximum: 2
+                autoSpeak:
+                  type: boolean
+                avatarColor:
+                  type: integer
+                  minimum: 0
+                  maximum: 3
+                notificationsEnabled:
+                  type: boolean
+                shareUsageData:
+                  type: boolean
+                notificationPreferences:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    newWords:
+                      type: boolean
+                    favorites:
+                      type: boolean
+                    updates:
+                      type: boolean
       responses:
         '200':
           description: Cập nhật thành công
@@ -2310,34 +2500,24 @@ paths:
     get:
       tags:
         - Staff
-      summary: Lấy báo cáo/vấn đề
+      summary: Chức năng báo cáo chưa hỗ trợ
       description: Danh sách báo cáo từ người dùng
       operationId: getReports
       security:
         - bearerAuth: []
       responses:
-        '200':
-          description: Danh sách báo cáo
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: object
-                    properties:
-                      reports:
-                        type: array
-                        items:
-                          type: object
+        "401":
+          description: Chưa xác thực
+        "403":
+          description: Không đủ quyền
+        "501":
+          description: FEATURE_UNAVAILABLE; chưa cập nhật hoặc tạo dữ liệu nào
 
   /api/v1/staff/reports/{id}:
     patch:
       tags:
         - Staff
-      summary: Cập nhật trạng thái báo cáo
+      summary: Chức năng báo cáo chưa hỗ trợ
       description: Thay đổi trạng thái xử lý báo cáo
       operationId: updateReport
       security:
@@ -2358,17 +2538,12 @@ paths:
                 status:
                   type: string
       responses:
-        '200':
-          description: Cập nhật thành công
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
+        "401":
+          description: Chưa xác thực
+        "403":
+          description: Không đủ quyền
+        "501":
+          description: FEATURE_UNAVAILABLE; chưa cập nhật hoặc tạo dữ liệu nào
 
   /api/v1/staff/stats:
     get:
@@ -2487,7 +2662,8 @@ paths:
       tags:
         - Admin
       summary: Tạo tài khoản và gán role
-      description: Yêu cầu admin:access và users:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và users:write. Quyền được lấy từ role hiện
+        tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -2555,7 +2731,8 @@ paths:
       tags:
         - Admin
       summary: Sửa tài khoản, role hoặc trạng thái
-      description: Yêu cầu admin:access và users:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và users:write. Quyền được lấy từ role hiện
+        tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -2880,7 +3057,8 @@ paths:
       tags:
         - Admin
       summary: Danh sách role tùy chỉnh
-      description: Yêu cầu admin:access và roles:read. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và roles:read. Quyền được lấy từ role hiện tại
+        trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -2903,7 +3081,8 @@ paths:
       tags:
         - Admin
       summary: Tạo role tùy chỉnh
-      description: Yêu cầu admin:access và roles:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và roles:write. Quyền được lấy từ role hiện
+        tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -2933,7 +3112,8 @@ paths:
       tags:
         - Admin
       summary: Cập nhật role tùy chỉnh
-      description: Yêu cầu admin:access và roles:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và roles:write. Quyền được lấy từ role hiện
+        tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -2969,7 +3149,8 @@ paths:
       tags:
         - Admin
       summary: Xóa role tùy chỉnh
-      description: Chỉ xóa role tùy chỉnh chưa được gán cho tài khoản. USER/STAFF/ADMIN là role hệ thống cố định.
+      description: Chỉ xóa role tùy chỉnh chưa được gán cho tài khoản.
+        USER/STAFF/ADMIN là role hệ thống cố định.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3000,7 +3181,8 @@ paths:
       tags:
         - Admin
       summary: Danh sách mục từ điển
-      description: Yêu cầu admin:access và dictionary:read. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và dictionary:read. Quyền được lấy từ role
+        hiện tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3046,7 +3228,8 @@ paths:
       tags:
         - Admin
       summary: Tạo mục từ điển
-      description: Yêu cầu admin:access và dictionary:write; xuất bản cần thêm content:publish. Danh mục phải đang ACTIVE.
+      description: Yêu cầu admin:access và dictionary:write; xuất bản cần thêm
+        content:publish. Danh mục phải đang ACTIVE.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3076,7 +3259,9 @@ paths:
       tags:
         - Admin
       summary: Cập nhật mục từ điển
-      description: Yêu cầu admin:access và dictionary:write; sửa mục PUBLISHED hoặc chuyển sang PUBLISHED cần content:publish. Đồng bộ wordCount cho danh mục.
+      description: Yêu cầu admin:access và dictionary:write; sửa mục PUBLISHED hoặc
+        chuyển sang PUBLISHED cần content:publish. Đồng bộ wordCount cho danh
+        mục.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3112,7 +3297,8 @@ paths:
       tags:
         - Admin
       summary: Xóa mục từ điển
-      description: Yêu cầu admin:access và dictionary:write; xóa mục PUBLISHED cần content:publish. Xóa cả tham chiếu yêu thích và lịch sử tra cứu.
+      description: Yêu cầu admin:access và dictionary:write; xóa mục PUBLISHED cần
+        content:publish. Xóa cả tham chiếu yêu thích và lịch sử tra cứu.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3143,7 +3329,8 @@ paths:
       tags:
         - Admin
       summary: Danh sách danh mục
-      description: Yêu cầu admin:access và categories:read. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và categories:read. Quyền được lấy từ role
+        hiện tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3166,7 +3353,8 @@ paths:
       tags:
         - Admin
       summary: Tạo danh mục
-      description: Yêu cầu admin:access và categories:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và categories:write. Quyền được lấy từ role
+        hiện tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3196,7 +3384,8 @@ paths:
       tags:
         - Admin
       summary: Cập nhật danh mục
-      description: Yêu cầu admin:access và categories:write. Quyền được lấy từ role hiện tại trong database.
+      description: Yêu cầu admin:access và categories:write. Quyền được lấy từ role
+        hiện tại trong database.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3263,7 +3452,8 @@ paths:
       tags:
         - Admin
       summary: Các role có thể gán cho tài khoản
-      description: Chỉ trả về role có bộ quyền nằm trong bộ quyền người gọi; không yêu cầu roles:read.
+      description: Chỉ trả về role có bộ quyền nằm trong bộ quyền người gọi; không yêu
+        cầu roles:read.
       security:
         - bearerAuth: []
       x-permissions:
@@ -3282,3 +3472,693 @@ paths:
           description: Không tìm thấy dữ liệu
         "409":
           description: Dữ liệu trùng hoặc đang được sử dụng
+  /api/v1/conversations:
+    get:
+      tags:
+        - User data
+      summary: Hội thoại của tài khoản hiện tại, tìm kiếm literal và phân trang
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Conversation"
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      pages:
+                        type: integer
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: direction
+          in: query
+          schema: &a1
+            type: string
+            enum:
+              - TEXT
+              - SIGN_TO_SPEECH
+              - SPEECH_TO_TEXT
+            default: TEXT
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+    post:
+      tags:
+        - User data
+      summary: Lưu nội dung hội thoại vào đúng tài khoản đang đăng nhập
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                direction: *a1
+                favorite:
+                  type: boolean
+                  default: false
+    delete:
+      tags:
+        - User data
+      summary: Xóa toàn bộ hội thoại của tài khoản hiện tại
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deletedCount:
+                        type: integer
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+  /api/v1/conversations/{id}:
+    get:
+      tags:
+        - User data
+      summary: Đọc hội thoại thuộc tài khoản hiện tại
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      parameters:
+        - &a1
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-fA-F0-9]{24}$
+    patch:
+      tags:
+        - User data
+      summary: Cập nhật nội dung hoặc yêu thích hội thoại
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      parameters:
+        - *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                direction:
+                  type: string
+                  enum:
+                    - TEXT
+                    - SIGN_TO_SPEECH
+                    - SPEECH_TO_TEXT
+                  default: TEXT
+                favorite:
+                  type: boolean
+                  default: false
+    delete:
+      tags:
+        - User data
+      summary: Xóa một hội thoại thuộc tài khoản hiện tại
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deletedCount:
+                        type: integer
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      parameters:
+        - *a1
+  /api/v1/users/data/export:
+    get:
+      tags:
+        - User data
+      summary: Xuất JSON dữ liệu thuộc tài khoản; không chứa token hoặc mật khẩu
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: "#/components/schemas/AuthUser"
+                      settings:
+                        $ref: "#/components/schemas/UserSettings"
+                      favorites:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Favorite"
+                      conversations:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Conversation"
+                      searchHistory:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SearchHistory"
+                      exportedAt:
+                        type: string
+                        format: date-time
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+  /api/v1/users/data:
+    delete:
+      tags:
+        - User data
+      summary: Xóa dữ liệu cá nhân và đặt lại cài đặt trong transaction; giữ tài khoản
+        và phiên
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deleted:
+                        type: object
+                        properties:
+                          favorites:
+                            type: integer
+                          conversations:
+                            type: integer
+                          searchHistory:
+                            type: integer
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - confirm
+              properties:
+                confirm:
+                  type: boolean
+                  enum:
+                    - true
+  /api/v1/users/account:
+    delete:
+      tags:
+        - User data
+      summary: Xóa tài khoản, phiên và dữ liệu thuộc tài khoản trong transaction
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+        "409":
+          description: Phải giữ ít nhất một quản trị viên hoạt động
+      description: LOCAL cần currentPassword đúng. Mọi loại tài khoản cần
+        confirm=true. Từ chối xóa quản trị viên hoạt động cuối cùng. Sai mật
+        khẩu trả 400 và giữ phiên.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - confirm
+              properties:
+                confirm:
+                  type: boolean
+                  enum:
+                    - true
+                currentPassword:
+                  type: string
+                  maxLength: 128
+                  writeOnly: true
+  /api/v1/users/sessions:
+    get:
+      tags:
+        - User data
+      summary: Liệt kê phiên refresh còn hiệu lực của tài khoản, không trả token/hash
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        _id:
+                          type: string
+                        deviceInfo:
+                          type: string
+                        ipAddress:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                        lastUsedAt:
+                          type: string
+                          format: date-time
+                        expiresAt:
+                          type: string
+                          format: date-time
+                        current:
+                          type: boolean
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+  /api/v1/users/sessions/{id}:
+    delete:
+      tags:
+        - User data
+      summary: Thu hồi cả session family thuộc tài khoản; đánh dấu khi là thiết bị
+        hiện tại
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      revokedCurrent:
+                        type: boolean
+        "400":
+          description: Dữ liệu không hợp lệ
+        "401":
+          description: Chưa xác thực hoặc phiên đã bị thu hồi
+        "403":
+          description: Không đủ quyền
+        "404":
+          description: Không tìm thấy dữ liệu thuộc tài khoản
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-fA-F0-9]{24}$
+  /api/v1/sign-sequence:
+    post:
+      tags:
+        - Dictionary
+      summary: Ghép văn bản thành chuỗi media từ điển đã xuất bản
+      description: >-
+        Ưu tiên cụm từ dài nhất và tên mục từ chính xác trước tên thay thế.
+        Khi không có mục từ riêng, trả fingerspelling nếu có đủ media chữ cái;
+        letters chứa các đoạn sign theo thứ tự, hasTone cho biết văn bản có dấu thanh.
+        Đánh vần không thay thế bản dịch ngữ pháp hay ký hiệu riêng của cả từ.
+        Không sử dụng hoặc mở rộng bộ nhận diện camera 181 từ.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - text
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "200":
+          description: Chuỗi ký hiệu, từ thiếu hoặc media thiếu được đánh dấu rõ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    additionalProperties: true
+        "400":
+          description: Văn bản không hợp lệ
+        "401":
+          description: Chưa xác thực
+        "403":
+          description: Khách chưa bắt đầu phiên thử hoặc đã hết 10 phút
+        "503":
+          description: Kho vượt giới hạn, cần lập chỉ mục
+  /sign-media/license/{name}:
+    get:
+      tags:
+        - Dictionary
+      summary: Đọc giấy phép của media tham chiếu
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - apache-2.0
+              - cc-by-4.0
+      responses:
+        "200":
+          description: Giấy phép
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Không tìm thấy giấy phép
+  /sign-media/{file}:
+    get:
+      tags:
+        - Dictionary
+      summary: Đọc media có tham chiếu từ mục đã xuất bản, hỗ trợ byte range
+      security: []
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          schema:
+            type: string
+          example: bytes=0-1023
+      responses:
+        "200":
+          description: Media
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Nội dung theo byte range
+        "404":
+          description: File không tồn tại hoặc không có tham chiếu được xuất bản
+
+  /api/v1/guest-trial/status:
+    get:
+      tags: [Authentication]
+      summary: Xem trạng thái phiên dùng thử, không bắt đầu tính giờ
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deviceKey
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-f0-9]{64}$'
+          description: Định danh hạn dùng của bản cài đặt, dùng khi gắn tài khoản khách cũ; không phải token đăng nhập.
+      responses:
+        '200':
+          description: Thời điểm máy chủ và trạng thái hạn dùng; tài khoản chính thức có state unlimited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/GuestTrialStatus'
+        '401':
+          description: Chưa xác thực
+  /api/v1/guest-trial/start:
+    post:
+      tags: [Authentication]
+      summary: Bắt đầu một phiên thử 600 giây hoặc trả lại hạn cũ
+      description: Bắt đầu nguyên tử trên máy chủ; gọi lại, refresh hoặc tải lại trang không gia hạn. Phiên đã hết vẫn trả expired.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                deviceKey:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+      responses:
+        '200':
+          description: Trạng thái phiên thử
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/GuestTrialStatus'
+        '400':
+          description: Không chấp nhận thời hạn hoặc trường ngoài schema từ client
+        '401':
+          description: Chưa xác thực
+  /api/v1/guest-trial/ai-ticket:
+    post:
+      tags: [Authentication]
+      summary: Cấp ticket 30 giây để mở WebSocket AI
+      description: Kết nối tới /sign-ai/v1/stream?ticket=...; gateway bỏ ticket trước khi chuyển tới AI và đóng kết nối khách tại expiresAt. Không ghi ticket vào log.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ticket chỉ dùng cho kết nối AI, không thay access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      ticket:
+                        type: string
+        '401':
+          description: Phiên xác thực không còn hợp lệ
+        '403':
+          description: Phiên thử chưa bắt đầu hoặc đã hết hạn

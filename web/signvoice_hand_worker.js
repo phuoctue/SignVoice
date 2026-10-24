@@ -41,6 +41,27 @@ let faceAnchor = [0,0,0,0], anchorAt = -Infinity;
 let earlyPreview = false, independentEncode = false, targetHands = 2, startupMs = 0, assetLoadMs = 0, detectorInitMs = 0;
 let encoding = false, pendingEncode = null, encoderCanvas, encoderContext;
 let temporalHistory = false, history = [], liveObservations = false;
+let diagnosticPixels = false, diagnosticBusy = false, diagnosticCount = 0, diagnosticAt = -Infinity, diagnosticOrigin = null;
+// PNG snapshots are opt-in, local worker messages only. No extra network calls.
+// Snapshot a separate canvas synchronously; later camera frames cannot overwrite it.
+function captureDiagnostic(meta, raw) {
+  if (!diagnosticPixels || diagnosticBusy || diagnosticCount >= 15 || meta.timestamp-diagnosticAt < 2000) return;
+  diagnosticOrigin ??= meta.timestamp;
+  if (meta.timestamp-diagnosticOrigin > 30000) return;
+  diagnosticAt = meta.timestamp; diagnosticCount++; diagnosticBusy = true;
+  const snapshot = new OffscreenCanvas(meta.width, meta.height);
+  snapshot.getContext('2d').drawImage(pixels, 0, 0);
+  const frozen = {...meta, type:'diagnostic_pixels', timestamp_ms:meta.timestamp,
+    format:'png', rotation:0, mirrored:false, pixel_stage:'resized_detector_input',
+    raw_landmarks:raw.landmarks.map(hand=>hand.map(p=>[p.x,p.y,p.z])),
+    raw_handedness:raw.handedness.map(hand=>hand[0].categoryName),
+    face_anchor:[...faceAnchor], face_anchor_timestamp_ms:Number.isFinite(anchorAt)?anchorAt:null};
+  const began = performance.now();
+  snapshot.convertToBlob({type:'image/png'}).then(blob=>blob.arrayBuffer()).then(bytes=>{
+    send({...frozen, snapshot_encode_ms:performance.now()-began}, bytes);
+  }).catch(error=>send({type:'diagnostic_error',reason:String(error).slice(0,160)}))
+    .finally(()=>{diagnosticBusy=false;});
+}
 // One encoder in flight and one replaceable snapshot. Never queue old camera frames.
 function enqueueEncode(bitmap, meta, observedAt) {
   pendingEncode?.bitmap.close();
@@ -71,6 +92,7 @@ async function encodeLatest() {
 const stamps = [];
 const send = (value, jpeg) => self.postMessage({meta: JSON.stringify(value), jpeg}, jpeg ? [jpeg] : []);
 self.onmessage = async ({data}) => {
+  if (data.type === 'stop_diagnostic_pixels') { diagnosticPixels = false; return; }
   if (data.type === 'init') {
     const initBegin = performance.now();
     const progress = phase => send({type:'init_progress', phase, elapsed_ms:performance.now()-initBegin});
@@ -80,6 +102,7 @@ self.onmessage = async ({data}) => {
     independentEncode = earlyPreview && data.independent_encode === true;
     temporalHistory = data.temporal_history === true;
     liveObservations = data.live_observations === true;
+    diagnosticPixels = data.diagnostic_pixels === true;
     try {
       // Download model and selected WASM concurrently, rather than making each
       // large transfer wait for the previous resource over a public tunnel.
@@ -238,6 +261,7 @@ async function processFrame(image, timestamp, captureSource) {
         landmarks: found.landmarks.map(hand => hand.map(p => [p.x, p.y, p.z])),
         handedness: found.handedness.map(hand => hand[0].categoryName)},
       processing_ms: now - begin, fps: stamps.length > 1 ? 1000 * (stamps.length - 1) / (now - stamps[0]) : 0};
+    captureDiagnostic(meta, raw);
     if (earlyPreview) send({type:'preview',timestamp,capture_source:captureSource,landmarks,
       ...(temporalHistory || liveObservations ? {hand_observation:meta.hand_observation} : {}),
       processing_ms:now-begin,fps:meta.fps});

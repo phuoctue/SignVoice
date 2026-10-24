@@ -8,7 +8,7 @@ part of 'history_entry_model.dart';
 
 HistoryEntryModel _$HistoryEntryModelFromJson(Map<String, dynamic> json) =>
     HistoryEntryModel(
-      id: json['id'] as String,
+      id: json['_id'] as String,
       userId: json['userId'] as String,
       entryId: json['entryId'] as String,
       entry: json['entry'] == null
@@ -21,7 +21,7 @@ HistoryEntryModel _$HistoryEntryModelFromJson(Map<String, dynamic> json) =>
 
 Map<String, dynamic> _$HistoryEntryModelToJson(HistoryEntryModel instance) =>
     <String, dynamic>{
-      'id': instance.id,
+      '_id': instance.id,
       'userId': instance.userId,
       'entryId': instance.entryId,
       'entry': instance.entry,

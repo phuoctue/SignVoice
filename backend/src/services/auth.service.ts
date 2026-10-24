@@ -238,7 +238,7 @@ export async function loginUser(
 /**
  * Create guest account
  */
-export async function createGuestAccount(meta: IRequestMeta = {}): Promise<IAuthResponse> {
+export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?: Types.ObjectId): Promise<IAuthResponse> {
   // Generate random display name
   const displayName = `Guest_${Date.now().toString(36)}`;
 
@@ -246,6 +246,7 @@ export async function createGuestAccount(meta: IRequestMeta = {}): Promise<IAuth
   const user = await User.create({
     displayName,
     accountType: AccountType.GUEST,
+    guestTrialId,
     role: UserRole.USER,
     isGuest: true,
     lastLoginAt: new Date(),

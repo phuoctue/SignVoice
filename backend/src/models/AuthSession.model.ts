@@ -137,7 +137,6 @@ const AuthSessionSchema = new Schema<IAuthSession>(
 // ============================================================================
 
 // Primary queries
-AuthSessionSchema.index({ tokenHash: 1 }, { unique: true });
 AuthSessionSchema.index({ userId: 1, status: 1 });
 AuthSessionSchema.index({ userId: 1, sessionType: 1, status: 1 });
 

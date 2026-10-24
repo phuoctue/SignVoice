@@ -9,10 +9,11 @@ class StaffService {
   static StaffService? _instance;
   final ApiClient _apiClient;
 
-  StaffService._() : _apiClient = ApiClient.instance;
+  StaffService({ApiClient? apiClient})
+    : _apiClient = apiClient ?? ApiClient.instance;
 
   static StaffService get instance {
-    _instance ??= StaffService._();
+    _instance ??= StaffService();
     return _instance!;
   }
 
@@ -30,11 +31,11 @@ class StaffService {
       final queryParams = <String, String>{
         'page': page.toString(),
         'limit': limit.toString(),
-        if (status != null) 'status': status,
-        if (category != null) 'category': category,
+        'status': ?status,
+        'category': ?category,
         if (search != null && search.isNotEmpty) 'search': search,
-        if (sortBy != null) 'sortBy': sortBy,
-        if (order != null) 'order': order,
+        'sortBy': ?sortBy,
+        'order': ?order,
       };
 
       final response = await _apiClient.get(
@@ -43,9 +44,10 @@ class StaffService {
       );
 
       if (response['success'] == true && response['data'] != null) {
-        final List<dynamic> items = response['data']['entries'] ?? [];
-        final entries =
-            items.map((json) => DictionaryEntryModel.fromJson(json)).toList();
+        final List<dynamic> items = response['data']['items'] ?? [];
+        final entries = items
+            .map((json) => DictionaryEntryModel.fromJson(json))
+            .toList();
 
         return {
           'entries': entries,
@@ -65,7 +67,7 @@ class StaffService {
       final response = await _apiClient.get('/staff/content/$id');
 
       if (response['success'] == true && response['data'] != null) {
-        return DictionaryEntryModel.fromJson(response['data']['entry']);
+        return DictionaryEntryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');
@@ -80,13 +82,10 @@ class StaffService {
     Map<String, dynamic> data,
   ) async {
     try {
-      final response = await _apiClient.patch(
-        '/staff/content/$id',
-        body: data,
-      );
+      final response = await _apiClient.patch('/staff/content/$id', body: data);
 
       if (response['success'] == true && response['data'] != null) {
-        return DictionaryEntryModel.fromJson(response['data']['entry']);
+        return DictionaryEntryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to update content');
@@ -101,7 +100,7 @@ class StaffService {
       final response = await _apiClient.post('/staff/content/$id/approve');
 
       if (response['success'] == true && response['data'] != null) {
-        return DictionaryEntryModel.fromJson(response['data']['entry']);
+        return DictionaryEntryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to approve content');
@@ -119,7 +118,7 @@ class StaffService {
       );
 
       if (response['success'] == true && response['data'] != null) {
-        return DictionaryEntryModel.fromJson(response['data']['entry']);
+        return DictionaryEntryModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Failed to reject content');
@@ -141,8 +140,8 @@ class StaffService {
         'page': page.toString(),
         'limit': limit.toString(),
         if (search != null && search.isNotEmpty) 'search': search,
-        if (role != null) 'role': role,
-        if (status != null) 'status': status,
+        'role': ?role,
+        'status': ?status,
       };
 
       final response = await _apiClient.get(
@@ -172,7 +171,7 @@ class StaffService {
       final response = await _apiClient.get('/staff/users/$id');
 
       if (response['success'] == true && response['data'] != null) {
-        return UserModel.fromJson(response['data']['user']);
+        return UserModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');
@@ -187,7 +186,7 @@ class StaffService {
       final response = await _apiClient.get('/staff/stats');
 
       if (response['success'] == true && response['data'] != null) {
-        return StaffStatsModel.fromJson(response['data']['stats']);
+        return StaffStatsModel.fromJson(response['data']);
       }
 
       throw ApiException(message: 'Invalid response format');

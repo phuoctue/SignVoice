@@ -388,12 +388,24 @@ class SentenceScreen extends StatelessWidget {
             icon: Icons.save_outlined,
             onPressed: state.sentence.isEmpty
                 ? null
-                : () {
-                    state.saveConversation(
+                : () async {
+                    if (state.guest) {
+                      openScreen(context, 'S06');
+                      return;
+                    }
+                    final success = await state.saveConversation(
                       state.sentenceText,
                       ConversationDirection.signToSpeech,
                     );
-                    openScreen(context, 'SS03');
+                    if (!context.mounted) return;
+                    if (success) {
+                      openScreen(context, 'SS03');
+                    } else {
+                      toast(
+                        context,
+                        state.error ?? 'Không lưu được hội thoại.',
+                      );
+                    }
                   },
           ),
         ],
@@ -555,12 +567,24 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
             icon: Icons.save_outlined,
             onPressed: state.sentence.isEmpty
                 ? null
-                : () {
-                    state.saveConversation(
+                : () async {
+                    if (state.guest) {
+                      openScreen(context, 'S06');
+                      return;
+                    }
+                    final success = await state.saveConversation(
                       state.sentenceText,
                       ConversationDirection.signToSpeech,
                     );
-                    openScreen(context, 'SS03');
+                    if (!context.mounted) return;
+                    if (success) {
+                      openScreen(context, 'SS03');
+                    } else {
+                      toast(
+                        context,
+                        state.error ?? 'Không lưu được hội thoại.',
+                      );
+                    }
                   },
           ),
           TextButton(

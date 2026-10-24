@@ -3,6 +3,9 @@ import { SearchHistory } from '../models/SearchHistory.model';
 import { requireAuth } from '../common/middlewares/auth.middleware';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
+import { z } from 'zod';
+import { validate } from '../common/middlewares/validate.middleware';
+import { offsetQuery } from '../validation/user-data.validation';
 
 const router = Router();
 
@@ -14,7 +17,7 @@ router.use(requireAuth);
  * @desc Get user's search history
  * @access Private
  */
-router.get('/', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', validate(z.object({query: offsetQuery})), async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) {
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
@@ -28,7 +31,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       .skip(skip ? parseInt(skip as string) : 0)
       .populate({
         path: 'entryId',
-        select: 'word definition videoUrl thumbnailUrl categoryId status',
+        populate: {path: 'categoryId', select: 'name slug'},
         match: { status: 'PUBLISHED' },
       })
       .exec();

@@ -29,6 +29,9 @@ export interface IConversation extends Document {
   
   // Conversation data
   title?: string; // Optional user-set title
+  content?: string;
+  direction: 'TEXT' | 'SIGN_TO_SPEECH' | 'SPEECH_TO_TEXT';
+  favorite: boolean;
   messages: IMessage[];
   
   // Status
@@ -58,6 +61,9 @@ const ConversationSchema = new Schema<IConversation>(
       index: true,
     },
     
+    content: { type: String, trim: true, maxlength: 10000 },
+    direction: { type: String, enum: ['TEXT', 'SIGN_TO_SPEECH', 'SPEECH_TO_TEXT'], default: 'TEXT' },
+    favorite: { type: Boolean, default: false },
     title: {
       type: String,
       trim: true,

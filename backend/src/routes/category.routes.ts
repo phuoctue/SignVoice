@@ -13,7 +13,7 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const categories = await Category.find({ status: 'ACTIVE' })
       .sort({ sortOrder: 1, name: 1 })
-      .select('name slug description icon sortOrder wordCount parentId')
+      .select('name slug description icon sortOrder wordCount parentId status createdAt updatedAt')
       .exec();
     
     res.status(200).json({

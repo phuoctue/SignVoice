@@ -6,10 +6,11 @@ part 'user_settings_model.g.dart';
 class UserSettingsModel {
   final String theme;
   final String language;
+  @JsonKey(name: 'notificationsEnabled')
   final bool notifications;
 
   UserSettingsModel({
-    this.theme = 'light',
+    this.theme = 'SYSTEM',
     this.language = 'vi',
     this.notifications = true,
   });

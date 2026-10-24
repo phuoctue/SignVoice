@@ -39,6 +39,7 @@ dependencies:
   
   # HTTP client
   http: ^1.2.0
+  intl: ^0.20.3
   
   # Local storage for tokens
   shared_preferences: ^2.2.2
@@ -47,7 +48,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   
   # JSON serialization
-  json_annotation: ^4.8.1
+  json_annotation: ^4.12.0
   
   # State management
   provider: ^6.1.1

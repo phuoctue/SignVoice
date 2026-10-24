@@ -58,7 +58,6 @@ FavoriteSchema.index({ userId: 1, entryId: 1 }, { unique: true });
 
 // Query optimization
 FavoriteSchema.index({ userId: 1, createdAt: -1 }); // User's favorites sorted by date
-FavoriteSchema.index({ entryId: 1 }); // Count favorites for an entry
 
 // ============================================================================
 // STATIC METHODS

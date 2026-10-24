@@ -3,6 +3,12 @@ import * as dictionaryController from '../controllers/dictionary.controller';
 import { authenticate, requireAuth, requirePermission } from '../common/middlewares/auth.middleware';
 import { validate } from '../common/middlewares/validate.middleware';
 import { staffCreateDictionarySchema, staffUpdateDictionarySchema } from '../validation/admin.validation';
+import { z } from 'zod';
+import { offsetQuery, objectId } from '../validation/user-data.validation';
+const publicQuery = z.object({query: offsetQuery.extend({
+  categoryId: objectId.optional(), search: z.string().trim().max(200).optional(), difficulty: z.enum(['BEGINNER','INTERMEDIATE','ADVANCED']).optional(),
+  sort: z.enum(['word_asc', 'word_desc']).optional(),
+})});
 
 const router = Router();
 
@@ -11,14 +17,14 @@ const router = Router();
  * @desc Get popular entries
  * @access Public
  */
-router.get('/popular', dictionaryController.getPopularEntries);
+router.get('/popular', validate(z.object({query: offsetQuery.pick({limit:true})})), dictionaryController.getPopularEntries);
 
 /**
  * @route GET /api/v1/dictionary
  * @desc Get published dictionary entries with filters
  * @access Public (with optional auth for history tracking)
  */
-router.get('/', authenticate, dictionaryController.getEntries);
+router.get('/', authenticate, validate(publicQuery), dictionaryController.getEntries);
 
 /**
  * @route GET /api/v1/dictionary/:id

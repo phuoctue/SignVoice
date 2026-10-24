@@ -12,10 +12,10 @@ Future<Map<String, dynamic>> loadSignSequence(String text) async {
   final response = await ApiClient.instance.post(
     '/sign-sequence',
     body: {'text': text},
-    requiresAuth: false,
+    requiresAuth: true,
   );
   final data = Map<String, dynamic>.from(response['data'] as Map);
-  data['segments'] = (data['segments'] as List).map((value) {
+  Map<String, dynamic> resolve(dynamic value) {
     final segment = Map<String, dynamic>.from(value as Map);
     for (final field in ['thumbnailUrl', 'videoUrl']) {
       if (segment[field] is String) {
@@ -28,8 +28,13 @@ Future<Map<String, dynamic>> loadSignSequence(String text) async {
           .map(ApiConfig.mediaUrl)
           .toList();
     }
+    if (segment['letters'] is List) {
+      segment['letters'] = (segment['letters'] as List).map(resolve).toList();
+    }
     return segment;
-  }).toList();
+  }
+
+  data['segments'] = (data['segments'] as List).map(resolve).toList();
   return data;
 }
 
@@ -50,6 +55,19 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
   bool loading = false;
   String? error;
   int request = 0;
+
+  List<Map<String, dynamic>> playbackItems(List<Map<String, dynamic>> items) =>
+      [
+        for (final item in items)
+          if (item['type'] == 'fingerspelling')
+            for (final letter in item['letters'] as List)
+              {
+                ...Map<String, dynamic>.from(letter),
+                'text': '${letter['text']} · đánh vần “${item['text']}”',
+              }
+          else
+            item,
+      ];
 
   @override
   void didUpdateWidget(covariant SignSequencePanel oldWidget) {
@@ -115,7 +133,7 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
               onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => SignVideoDialog(
-                  items: items,
+                  items: playbackItems(items),
                   initialIndex: 0,
                   playSequence: true,
                 ),
@@ -134,13 +152,34 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
     int index,
     List<Map<String, dynamic>> items,
   ) {
-    final found = item['type'] == 'sign';
-    final images = (item['imageUrls'] as List? ?? [])
-        .whereType<String>()
+    final spelling = item['type'] == 'fingerspelling';
+    final letters = (item['letters'] as List? ?? [])
+        .map((value) => Map<String, dynamic>.from(value as Map))
         .toList();
+    final found = item['type'] == 'sign' || spelling;
+    final images =
+        (spelling
+                ? letters
+                      .map(
+                        (letter) =>
+                            letter['thumbnailUrl'] ??
+                            (letter['imageUrls'] as List? ?? []).firstOrNull,
+                      )
+                      .whereType<String>()
+                      .toList()
+                : item['imageUrls'] as List? ?? [])
+            .whereType<String>()
+            .toList();
     final thumbnail = item['thumbnailUrl'] as String?;
     final video = item['videoUrl'] as String?;
     final pictures = images.isNotEmpty ? images : [?thumbnail];
+    final attribution = spelling
+        ? letters
+              .map((letter) => letter['attribution'])
+              .whereType<String>()
+              .toSet()
+              .join('\n\n')
+        : item['attribution'] as String?;
     final message = switch (item['type']) {
       'ambiguous' =>
         'Có nhiều mẫu cùng tên; cần duyệt biến thể trước khi hiển thị.',
@@ -163,11 +202,32 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(message),
               ),
+            if (spelling) ...[
+              const Text(
+                'Đánh vần thay thế',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Wrap(
+                spacing: 6,
+                children: [
+                  for (final letter in letters)
+                    Chip(
+                      label: Text(
+                        '${letter['text']} (chữ ${'${letter['word']}'.toUpperCase()})',
+                      ),
+                    ),
+                ],
+              ),
+              if (item['hasTone'] == true)
+                const Text(
+                  'Ảnh thể hiện chữ cái cơ bản; dấu thanh được giữ trong văn bản.',
+                ),
+            ],
             if (found && pictures.isNotEmpty) ...[
-              _SignFrames(
+              SignReferenceImages(
                 key: ValueKey(pictures.join('|')),
                 urls: pictures,
-                word: '${item['word']}',
+                word: spelling ? 'Đánh vần ${item['text']}' : '${item['word']}',
                 initialIndex: thumbnail != null && pictures.contains(thumbnail)
                     ? pictures.indexOf(thumbnail)
                     : 0,
@@ -175,24 +235,34 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
               if (images.isEmpty)
                 const Text('Ảnh xem trước; xem video để theo dõi động tác.'),
             ],
-            if (found && video != null)
+            if (found &&
+                (video != null ||
+                    spelling &&
+                        letters.any((letter) => letter['videoUrl'] != null)))
               TextButton.icon(
                 icon: const Icon(Icons.play_circle_outline),
-                label: const Text('Xem động tác'),
+                label: Text(spelling ? 'Xem đánh vần' : 'Xem động tác'),
                 onPressed: () => showDialog<void>(
                   context: context,
-                  builder: (_) =>
-                      SignVideoDialog(items: items, initialIndex: index),
+                  builder: (_) => SignVideoDialog(
+                    items: spelling
+                        ? playbackItems([item])
+                        : playbackItems(items),
+                    initialIndex: spelling
+                        ? 0
+                        : playbackItems(items).indexOf(item),
+                    playSequence: spelling,
+                  ),
                 ),
               ),
-            if (found && item['attribution'] is String)
+            if (found && attribution != null && attribution.isNotEmpty)
               ExpansionTile(
                 title: const Text('Nguồn và giấy phép'),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(8),
                     child: SelectableText(
-                      item['attribution'] as String,
+                      attribution,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -205,8 +275,8 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
   }
 }
 
-class _SignFrames extends StatefulWidget {
-  const _SignFrames({
+class SignReferenceImages extends StatefulWidget {
+  const SignReferenceImages({
     super.key,
     required this.urls,
     required this.word,
@@ -216,10 +286,10 @@ class _SignFrames extends StatefulWidget {
   final String word;
   final int initialIndex;
   @override
-  State<_SignFrames> createState() => _SignFramesState();
+  State<SignReferenceImages> createState() => _SignReferenceImagesState();
 }
 
-class _SignFramesState extends State<_SignFrames> {
+class _SignReferenceImagesState extends State<SignReferenceImages> {
   late int index;
   late final PageController pages;
   @override

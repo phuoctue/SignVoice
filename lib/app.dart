@@ -8,6 +8,10 @@ import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/admin/admin_management_screens.dart';
 import 'services/admin/admin_workspace_service.dart';
 import 'screens/staff/staff_dashboard_screen.dart';
+import 'screens/staff/staff_workspace_screen.dart';
+import 'services/user/user_data_service.dart';
+import 'services/staff/staff_workspace_service.dart';
+import 'services/staff/staff_service.dart';
 
 import 'core/app_state.dart';
 import 'core/theme.dart';
@@ -21,6 +25,7 @@ import 'features/library/library_screens.dart';
 import 'features/profile/profile_screens.dart';
 import 'features/system/system_screens.dart';
 import 'features/recognition/live_camera_screen.dart';
+import 'widgets/guest_access_gate.dart';
 
 class SignVoiceApp extends StatefulWidget {
   const SignVoiceApp({
@@ -29,17 +34,20 @@ class SignVoiceApp extends StatefulWidget {
     this.state,
     this.auth,
     this.adminService,
+    this.staffService,
   });
   final String initialScreen;
   final AppState? state;
   final AuthProvider? auth;
   final AdminWorkspaceService? adminService;
+  final StaffWorkspaceService? staffService;
   @override
   State<SignVoiceApp> createState() => _SignVoiceAppState();
 }
 
 class _SignVoiceAppState extends State<SignVoiceApp> {
-  late final AppState state = widget.state ?? AppState();
+  late final AppState state =
+      widget.state ?? AppState(service: UserDataService());
   late final AuthProvider auth = widget.auth ?? AuthProvider();
   late final AdminWorkspaceService adminService =
       widget.adminService ?? AdminWorkspaceService();
@@ -76,8 +84,7 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
       }
     } else if (auth.state == AuthState.unauthenticated) {
       _currentUserId = null;
-      state.clearLocalData();
-      state.enter(asGuest: false, displayName: '', userEmail: '');
+      state.unbindAccount();
     }
   }
 
@@ -94,6 +101,7 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
     providers: [
       ChangeNotifierProvider.value(value: auth),
       Provider.value(value: adminService),
+      Provider.value(value: widget.staffService ?? StaffWorkspaceService()),
     ],
     child: AppScope(
       state: state,
@@ -135,17 +143,20 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
                 ),
               ];
             }
+            final screenId =
+                screenNames.containsKey(initialRoute) ||
+                    initialRoute == 'admin' ||
+                    initialRoute == 'staff' ||
+                    initialRoute.startsWith('/admin/') ||
+                    initialRoute.startsWith('/staff/') ||
+                    initialRoute.startsWith('/dictionary/') ||
+                    initialRoute.startsWith('/conversations/')
+                ? initialRoute
+                : widget.initialScreen;
             return [
               MaterialPageRoute<void>(
-                settings: const RouteSettings(name: '/'),
-                builder: (_) => AccessGate(
-                  screenId:
-                      screenNames.containsKey(initialRoute) ||
-                          initialRoute == 'admin' ||
-                          initialRoute.startsWith('/admin/')
-                      ? initialRoute
-                      : widget.initialScreen,
-                ),
+                settings: RouteSettings(name: screenId),
+                builder: (_) => AccessGate(screenId: screenId),
               ),
             ];
           },
@@ -162,6 +173,15 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
           },
           onGenerateRoute: (settings) {
             final uri = Uri.tryParse(settings.name ?? '');
+            if (uri != null &&
+                (uri.path.startsWith('/staff/') ||
+                    uri.path.startsWith('/dictionary/') ||
+                    uri.path.startsWith('/conversations/'))) {
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => AccessGate(screenId: uri.path),
+              );
+            }
             if (uri?.path == '/oauth-complete') {
               return MaterialPageRoute<void>(
                 settings: settings,
@@ -250,6 +270,33 @@ class AccessGate extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!auth.isAuthenticated) return const AuthScreen();
+    final state = AppScope.of(context);
+    if (state.persisted && !state.ready) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Dữ liệu tài khoản')),
+        body: Center(
+          child: state.syncing
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(state.error ?? 'Không tải được dữ liệu.'),
+                    ),
+                    FilledButton(
+                      onPressed: state.synchronize,
+                      child: const Text('Thử lại'),
+                    ),
+                    TextButton(
+                      onPressed: auth.logout,
+                      child: const Text('Đăng xuất'),
+                    ),
+                  ],
+                ),
+        ),
+      );
+    }
     final isAdminRoute = screenId == 'admin' || screenId.startsWith('/admin/');
     final resource = screenId.split('/').last;
     final permission = resource == 'content'
@@ -258,7 +305,12 @@ class AccessGate extends StatelessWidget {
     if ((isAdminRoute &&
             (!auth.isAdmin ||
                 (screenId != 'admin' && !auth.can(permission)))) ||
-        (screenId == 'staff' && !auth.isStaff)) {
+        ((screenId == 'staff' || screenId.startsWith('/staff/')) &&
+            (!auth.isStaff ||
+                (screenId.startsWith('/staff/users') &&
+                    !auth.can('users:read')) ||
+                (screenId.startsWith('/staff/content') &&
+                    !auth.can('dictionary:read'))))) {
       return Scaffold(
         appBar: AppBar(title: const Text('Quyền truy cập')),
         body: const Center(
@@ -277,11 +329,52 @@ class AccessGate extends StatelessWidget {
     }
     if (screenId == 'staff') {
       return ChangeNotifierProvider(
-        create: (_) => StaffProvider(),
+        create: (_) => StaffProvider(
+          staffService: StaffService(
+            apiClient: context.read<StaffWorkspaceService>().api,
+          ),
+        ),
         child: const StaffDashboardScreen(),
       );
     }
-    return screenFor(screenId);
+    if (screenId.startsWith('/staff/')) {
+      return StaffWorkspaceScreen(path: screenId);
+    }
+    if (screenId.startsWith('/dictionary/')) {
+      return SignDetailScreen(
+        entryId: Uri.decodeComponent(screenId.split('/').last),
+      );
+    }
+    if (screenId.startsWith('/conversations/')) {
+      final child = HistoryDetailScreen(id: screenId.split('/').last);
+      return auth.user?.isGuest == true
+          ? GuestAccessGate(permanentOnly: true, child: child)
+          : child;
+    }
+    final page = screenFor(screenId);
+    if (auth.user?.isGuest == true) {
+      if (const {
+        'S09',
+        'S10',
+        'S11',
+        'S12',
+        'S13',
+        'S14',
+        'S15',
+        'S16',
+        'S17',
+        'S18',
+        'S19',
+        'ai_vision',
+      }.contains(screenId)) {
+        return GuestAccessGate(child: page);
+      }
+      if (const {'S20', 'S21', 'S24', 'S29'}.contains(screenId) ||
+          screenId.startsWith('/conversations/')) {
+        return GuestAccessGate(permanentOnly: true, child: page);
+      }
+    }
+    return page;
   }
 }
 

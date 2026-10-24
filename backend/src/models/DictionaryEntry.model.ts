@@ -34,6 +34,7 @@ export interface IDictionaryEntry extends Document {
   
   // Basic info
   word: string; // The sign language word/phrase (Vietnamese)
+  aliases?: string[];
   definition: string; // Explanation
   
   // Media
@@ -84,7 +85,6 @@ const DictionaryEntrySchema = new Schema<IDictionaryEntry>(
       trim: true,
       minlength: [1, 'Word must be at least 1 character'],
       maxlength: [200, 'Word must be less than 200 characters'],
-      index: 'text', // Full-text search
     },
     
     definition: {
@@ -93,7 +93,12 @@ const DictionaryEntrySchema = new Schema<IDictionaryEntry>(
       trim: true,
       minlength: [5, 'Definition must be at least 5 characters'],
       maxlength: [2000, 'Definition must be less than 2000 characters'],
-      index: 'text', // Full-text search
+    },
+
+    aliases: {
+      type: [String], default: [],
+      validate: { validator: (values: string[]) => values.length <= 20 && values.every(value => value.length > 0 && value.length <= 200),
+        message: 'Invalid dictionary aliases' },
     },
     
     videoUrl: {

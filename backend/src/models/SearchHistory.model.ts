@@ -39,7 +39,6 @@ const SearchHistorySchema = new Schema<ISearchHistory>(
       type: Date,
       default: Date.now,
       required: true,
-      index: true,
     },
   },
   {

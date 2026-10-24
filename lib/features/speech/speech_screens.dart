@@ -37,8 +37,13 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
   void _changed() {
     if (!mounted) return;
     final state = context.getInheritedWidgetOfExactType<AppScope>()?.notifier;
-    if (state != null && state.microphoneAllowed != _input.permissionGranted) {
-      state.update(() => state.microphoneAllowed = _input.permissionGranted);
+    if (state != null &&
+        (state.microphoneAllowed != _input.permissionGranted ||
+            _input.text.trim().isNotEmpty && state.transcript != _input.text)) {
+      state.update(() {
+        state.microphoneAllowed = _input.permissionGranted;
+        if (_input.text.trim().isNotEmpty) state.transcript = _input.text;
+      });
     }
     setState(() {});
   }
@@ -96,7 +101,7 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
           ),
         )
       : AppPage(
-          title: 'Giọng nói → Văn bản',
+          title: 'Giọng nói → Hình ảnh',
           child: Column(
             children: [
               const SizedBox(height: 24),
@@ -157,7 +162,7 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
                   !_input.busy) ...[
                 const SizedBox(height: 12),
                 AppButton(
-                  'Xem văn bản',
+                  'Xem hình ảnh',
                   color: AppColors.blue,
                   onPressed: _result,
                 ),
@@ -260,7 +265,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
       );
     }
     return AppPage(
-      title: 'Văn bản và ký hiệu',
+      title: 'Văn bản và hình ảnh ký hiệu',
       actions: [
         IconButton(
           tooltip: 'Giảm cỡ chữ',
@@ -350,9 +355,21 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
             color: AppColors.green,
             secondary: true,
             icon: Icons.save_outlined,
-            onPressed: () {
-              state.saveConversation(text, ConversationDirection.speechToText);
-              openScreen(context, 'SS03');
+            onPressed: () async {
+              if (state.guest) {
+                openScreen(context, 'S06');
+                return;
+              }
+              final success = await state.saveConversation(
+                text,
+                ConversationDirection.speechToText,
+              );
+              if (!context.mounted) return;
+              if (success) {
+                openScreen(context, 'SS03');
+              } else {
+                toast(context, state.error ?? 'Không lưu được hội thoại.');
+              }
             },
           ),
         ],

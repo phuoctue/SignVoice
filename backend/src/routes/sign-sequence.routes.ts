@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { DictionaryEntry, EntryStatus } from '../models/DictionaryEntry.model';
 import { composeSignSequence } from '../services/sign-sequence';
+import {requireAuth} from '../common/middlewares/auth.middleware';
+import {requireActiveTrial} from '../common/middlewares/guest-trial.middleware';
 
 const router = Router();
-router.post('/', async (req, res, next) => {
+router.post('/', requireAuth, requireActiveTrial, async (req, res, next) => {
   try {
     const text = req.body?.text;
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) {
@@ -11,7 +13,7 @@ router.post('/', async (req, res, next) => {
       return;
     }
     const entries = await DictionaryEntry.find({ status: EntryStatus.PUBLISHED })
-      .select('_id word videoUrl thumbnailUrl imageUrls notes').sort({ _id: 1 }).limit(10001).lean();
+      .select('_id word aliases videoUrl thumbnailUrl imageUrls notes').sort({ _id: 1 }).limit(10001).lean();
     if (entries.length > 10000) {
       res.status(503).json({ success: false, error: { code: 'CATALOG_TOO_LARGE', message: 'Kho ký hiệu cần được lập chỉ mục lại.' } });
       return;

@@ -18,7 +18,8 @@ class BrowserSignCamera
         SignCamera,
         LocalTrackingCamera,
         ForegroundTrackingCamera,
-        HandTrackingModeCamera {
+        HandTrackingModeCamera,
+        PixelDiagnosticCamera {
   BrowserSignCamera(this.front);
   @override
   final bool front;
@@ -33,6 +34,11 @@ class BrowserSignCamera
   final _captureClock = Stopwatch();
   final _frameGate = VideoFrameGate();
   final _localTracker = BrowserHandTracker();
+  @override
+  void setPixelDiagnostic(bool enabled) =>
+      _localTracker.pixelDiagnostic = enabled;
+  @override
+  Stream<CapturedFrame> get diagnosticPixels => _localTracker.diagnosticPixels;
   StreamSubscription<CapturedFrame>? _gpuSubscription;
   int _lastDelivered = -1;
   int _lastStartupFallback = -1000;

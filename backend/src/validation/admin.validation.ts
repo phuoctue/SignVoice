@@ -3,6 +3,7 @@ import { UserRole, AccountStatus } from '../models/User.model';
 import { CategoryStatus } from '../models/Category.model';
 import { DifficultyLevel, EntryStatus } from '../models/DictionaryEntry.model';
 import { permissions } from '../models/Role.model';
+import { httpUrl } from './user-data.validation';
 
 const objectId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid ID');
 const email = z.string().trim().toLowerCase().email();
@@ -40,8 +41,8 @@ const dictionaryFields = z.object({
   definition:z.string().trim().min(5).max(2000),
   videoUrl:z.string().url().regex(/^https?:\/\//),
   categoryId:objectId,
-  thumbnailUrl:z.union([z.string().url(),z.literal('')]).optional(),
-  imageUrls:z.array(z.string().url()).max(10).optional(),
+  thumbnailUrl:z.union([httpUrl,z.literal('')]).optional(),
+  imageUrls:z.array(httpUrl).max(10).optional(),
   difficulty:z.nativeEnum(DifficultyLevel).optional(),
   tags:z.array(z.string().trim().min(1).max(50)).max(20).optional(),
   usageExample:z.string().trim().max(1000).optional(),

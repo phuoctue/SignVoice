@@ -8,8 +8,12 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../services/sign_ai/camera_capture.dart';
+import '../../services/sign_ai/camera_diagnostic.dart';
+import '../../services/sign_ai/diagnostic_export.dart';
 import '../../services/sign_ai/media_access_error.dart';
+import '../../services/sign_ai/observation_pacer.dart';
 import '../../services/sign_ai/sign_ai_config.dart';
+import '../../services/sign_ai/sign_ai_access.dart';
 import '../../services/sign_ai/speech_output.dart';
 import '../../services/sign_ai/stream_timing.dart';
 import '../../widgets/device_permission_page.dart';
@@ -26,9 +30,15 @@ class LiveCameraScreen extends StatefulWidget {
     super.key,
     this.cameraFactory = createSignCamera,
     this.channelFactory = WebSocketChannel.connect,
+    this.ticketLoader = loadAiStreamTicket,
+    this.diagnosticsEnabled = const bool.fromEnvironment('CAMERA_DIAGNOSTICS'),
+    this.diagnosticExporter = exportDiagnostic,
   });
   final SignCamera Function({required bool front}) cameraFactory;
   final WebSocketChannel Function(Uri) channelFactory;
+  final Future<String> Function() ticketLoader;
+  final bool diagnosticsEnabled;
+  final Future<String> Function(String) diagnosticExporter;
   @override
   State<LiveCameraScreen> createState() => _LiveCameraScreenState();
 }
@@ -43,6 +53,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   int _localReceived = -10000;
   Timer? _localStale;
   final _clock = Stopwatch()..start();
+  final _diagnostic = CameraDiagnostic();
+  bool _diagnosticBusy = false;
   final _speech = SpeechOutput();
   String _url = SignAiConfig.defaultUrl, _mode = 'words', _status = 'idle';
   String? _error, _confirmed;
@@ -58,6 +70,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   bool _liveWordObservations = false;
   int _lastObservationSend = -1000;
   num _lastObservationStamp = -1000;
+  final _observationPacer = ObservationPacer();
+  static const _phaseObservationPacing = bool.fromEnvironment(
+    'CAMERA_PHASE_PACING',
+  );
   num? _pendingObservation;
   LocalHandObservation? _waitingObservation;
   bool _autoSpeak = false, _showOpenCv = false, _resume = false;
@@ -176,6 +192,21 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
             .listen((observation) {
               if (!mounted || generation != _generation) return;
               _localReceived = _clock.elapsedMilliseconds;
+              if (_diagnostic.recording) {
+                _diagnostic.add({
+                  'kind': 'local',
+                  'client_received_ms': _localReceived,
+                  'timestamp_ms':
+                      observation.timestampMs ??
+                      observation.handObservation?['timestamp_ms'],
+                  'hands': observation.landmarks.length,
+                  'fps': observation.fps,
+                  'processing_ms': observation.processingMs,
+                  'capture_source': observation.captureSource,
+                  'capture_age_ms': observation.captureAgeMs,
+                  'initialization_ms': observation.initializationMs,
+                });
+              }
               if (observation.captureSource == 'initializing') {
                 _localStale?.cancel();
                 _localHands.value = observation;
@@ -202,7 +233,18 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       final state = context.getInheritedWidgetOfExactType<AppScope>()?.notifier;
       state?.update(() => state.cameraAllowed = true);
       stage = 'service';
-      final channel = widget.channelFactory(SignAiConfig.socketUri(_url));
+      if (state?.guest == true) _url = SignAiConfig.gatewayUrl;
+      var socketUri = SignAiConfig.socketUri(_url);
+      final gateway = Uri.parse(SignAiConfig.gatewayUrl);
+      if (socketUri.host == gateway.host &&
+          socketUri.port == gateway.port &&
+          socketUri.path == '/sign-ai/v1/stream') {
+        socketUri = socketUri.replace(
+          queryParameters: {'ticket': await widget.ticketLoader()},
+        );
+      }
+      if (!mounted || generation != _generation) return;
+      final channel = widget.channelFactory(socketUri);
       _channel = channel;
       await channel.ready.timeout(const Duration(seconds: 15));
       if (!mounted || generation != _generation) {
@@ -217,11 +259,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       _waitingObservation = null;
       _lastObservationSend = -1000;
       _lastObservationStamp = -1000;
+      _observationPacer.reset();
       channel.sink.add(
         jsonEncode({
           'mode': _mode,
           'vision': false,
           'token': SignAiConfig.token,
+          if (_diagnostic.recording) 'diagnostic': true,
         }),
       );
       _subscription = channel.stream.listen(
@@ -258,6 +302,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
           _lastSend,
           encodingMs: frame.metadata['encode_ms'] as num?,
         );
+        _diagnostic.sent(_sequence, _lastSend);
+        if (_diagnostic.recording) {
+          _diagnostic.add({
+            'kind': 'frame',
+            'sequence': _sequence,
+            'timestamp_ms': frame.timestampMs ?? _lastSend,
+            'client_sent_ms': _lastSend,
+            for (final key in const ['format', 'width', 'height', 'encode_ms'])
+              if (frame.metadata.containsKey(key)) key: frame.metadata[key],
+          });
+        }
         channel.sink.add(frame.packet(_sequence++, _lastSend));
       }, () => generation == _generation && _canSend());
       if (!mounted || generation != _generation) return;
@@ -317,11 +372,22 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       return;
     }
     final stamp = measured['timestamp_ms'] as num;
-    if (stamp - _lastObservationStamp < 66) return;
+    if (_phaseObservationPacing && _mode == 'words') {
+      if (!_observationPacer.claim(stamp)) return;
+    } else if (stamp - _lastObservationStamp < 66) {
+      return;
+    }
     _waitingObservation = null;
     _lastObservationStamp = stamp;
     _pendingObservation = stamp;
     _lastObservationSend = now;
+    if (_diagnostic.recording) {
+      _diagnostic.add({
+        'kind': 'observation_send',
+        'timestamp_ms': stamp,
+        'client_sent_ms': now,
+      });
+    }
     _channel?.sink.add(
       jsonEncode({'type': 'hand_observation', 'observation': measured}),
     );
@@ -370,6 +436,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   }
 
   void _message(Map<String, dynamic> message) {
+    _diagnostic.received(message, _clock.elapsedMilliseconds);
+    if (_diagnostic.recording &&
+        (message['type'] == 'frame_received' ||
+            message['type'] == 'observation_received')) {
+      _diagnostic.add({
+        'kind': message['type'],
+        'sequence': message['sequence'],
+        'timestamp_ms': message['timestamp_ms'],
+        'client_received_ms': _clock.elapsedMilliseconds,
+      });
+    }
     if (message['type'] == 'error') {
       _fail(message['message']?.toString() ?? 'Service AI gặp lỗi.');
       return;
@@ -453,6 +530,56 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       updateUi();
     }
     if (_autoSpeak && spoken != null) unawaited(_speak(spoken));
+  }
+
+  Future<void> _toggleDiagnostic() async {
+    if (!widget.diagnosticsEnabled ||
+        _starting ||
+        _opening ||
+        _diagnosticBusy) {
+      return;
+    }
+    if (!_diagnostic.recording && _diagnostic.messages.isEmpty) {
+      _diagnostic.start();
+      _diagnostic.add({
+        'kind': 'session_start',
+        'mode': _mode,
+        'client_started_ms': _clock.elapsedMilliseconds,
+        'observation_pacing': _phaseObservationPacing && _mode == 'words'
+            ? 'phase_15hz_v1'
+            : 'minimum_gap_66ms',
+      });
+      // A fresh connection requests the existing worker journal and identity.
+      await _start();
+      return;
+    }
+    setState(() => _diagnosticBusy = true);
+    _diagnostic.add({
+      'kind': 'session_stop',
+      'client_stopped_ms': _clock.elapsedMilliseconds,
+      'last_frame_sequence': _sequence - 1,
+      'frame_awaiting_receipt': _pending,
+      'observation_awaiting_receipt': _pendingObservation,
+    });
+    _diagnostic.recording = false;
+    try {
+      await _stop();
+      final message = await widget.diagnosticExporter(_diagnostic.export());
+      _diagnostic.clear();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Chưa xuất được chẩn đoán. Bấm xuất để thử lại.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _diagnosticBusy = false);
+    }
   }
 
   Future<void> _speak(String text) async {
@@ -759,6 +886,19 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
           ),
         ),
         actions: [
+          if (widget.diagnosticsEnabled)
+            IconButton(
+              onPressed: _opening || _diagnosticBusy ? null : _toggleDiagnostic,
+              tooltip: _diagnostic.recording || _diagnostic.messages.isNotEmpty
+                  ? 'Dừng và xuất chẩn đoán'
+                  : 'Ghi chẩn đoán (không ảnh)',
+              icon: Icon(
+                _diagnostic.recording || _diagnostic.messages.isNotEmpty
+                    ? Icons.download
+                    : Icons.bug_report_outlined,
+                color: _diagnostic.recording ? _red : null,
+              ),
+            ),
           IconButton(
             onPressed: _help,
             tooltip: 'Hướng dẫn',

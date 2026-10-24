@@ -19,6 +19,39 @@ class ApiClient {
   final ValueNotifier<int> sessionInvalidated = ValueNotifier(0);
   Future<void>? _refreshing;
   bool _loggingOut = false;
+  int _sessionEpoch = 0;
+  Future<void> _sessionWrites = Future<void>.value();
+  int get sessionEpoch => _sessionEpoch;
+  void checkSession(int epoch) {
+    if (epoch != _sessionEpoch) {
+      throw ApiException(
+        message: 'Tài khoản đã thay đổi. Vui lòng thực hiện lại.',
+        code: 'SESSION_CHANGED',
+        statusCode: 409,
+      );
+    }
+  }
+
+  int beginAuthentication() {
+    _refreshing = null;
+    _loggingOut = false;
+    return ++_sessionEpoch;
+  }
+
+  Future<void> writeSession(int epoch, Future<void> Function() operation) {
+    final result = Completer<void>();
+    _sessionWrites = _sessionWrites.then((_) async {
+      try {
+        checkSession(epoch);
+        await operation();
+        checkSession(epoch);
+        result.complete();
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
+  }
 
   ApiClient({
     http.Client? client,
@@ -128,10 +161,20 @@ class ApiClient {
     throw ApiException(message: 'Phản hồi máy chủ không hợp lệ.');
   }
 
-  Future<void> _invalidateSession() async {
-    await _tokenStorage.clearAll();
-    sessionInvalidated.value++;
+  Future<void> _invalidateSession({int? expectedEpoch}) async {
+    if (expectedEpoch != null && expectedEpoch != _sessionEpoch) return;
+    final epoch = ++_sessionEpoch;
+    _refreshing = null;
+    try {
+      await writeSession(epoch, _tokenStorage.clearAll);
+    } on ApiException {
+      return;
+    }
+    if (epoch == _sessionEpoch) sessionInvalidated.value++;
   }
+
+  Future<void> clearSession({int? expectedEpoch}) =>
+      _invalidateSession(expectedEpoch: expectedEpoch);
 
   /// Concurrent requests share one refresh operation; both tokens are rotated.
   Future<void> refreshToken({bool duringLogout = false}) async {
@@ -140,19 +183,27 @@ class ApiClient {
     }
     final pending = _refreshing;
     if (pending != null) return pending;
-    final operation = _performRefresh();
+    final operation = _performRefresh(_sessionEpoch);
     _refreshing = operation;
     try {
       await operation;
     } finally {
-      _refreshing = null;
+      if (identical(_refreshing, operation)) _refreshing = null;
     }
   }
 
-  void sessionStarted() => _loggingOut = false;
+  void sessionStarted({int? expectedEpoch}) {
+    if (expectedEpoch != null) {
+      checkSession(expectedEpoch);
+    } else {
+      _sessionEpoch++;
+    }
+    _loggingOut = false;
+  }
 
   /// Finish any token rotation before revoking the current device session.
   Future<void> logout({bool allDevices = false}) async {
+    final epoch = _sessionEpoch;
     _loggingOut = true;
     try {
       final pending = _refreshing;
@@ -163,15 +214,16 @@ class ApiClient {
           // The server may already have revoked the session.
         }
       }
+      checkSession(epoch);
       await post(
         '${ApiConfig.authEndpoint}/${allDevices ? 'logout-all' : 'logout'}',
       );
     } finally {
-      await _invalidateSession();
+      await _invalidateSession(expectedEpoch: epoch);
     }
   }
 
-  Future<void> _performRefresh() async {
+  Future<void> _performRefresh(int epoch) async {
     try {
       final refresh = await _tokenStorage.getRefreshToken();
       if (!useRefreshCookie && refresh == null) {
@@ -191,13 +243,17 @@ class ApiClient {
           tokens?['refreshToken'] is! String) {
         throw UnauthorizedException(message: 'Vui lòng đăng nhập lại.');
       }
-      await _tokenStorage.saveTokens(
-        accessToken: tokens['accessToken'],
-        refreshToken: tokens['refreshToken'],
+      checkSession(epoch);
+      await writeSession(
+        epoch,
+        () => _tokenStorage.saveTokens(
+          accessToken: tokens['accessToken'],
+          refreshToken: tokens['refreshToken'],
+        ),
       );
     } on ApiException catch (error) {
       if (error.statusCode == 401 || error.statusCode == 403) {
-        await _invalidateSession();
+        await _invalidateSession(expectedEpoch: epoch);
       }
       rethrow;
     } catch (error) {
@@ -212,8 +268,11 @@ class ApiClient {
     dynamic body,
     bool requiresAuth = true,
   }) async {
+    final epoch = _sessionEpoch;
     for (var attempt = 0; attempt < 2; attempt++) {
+      if (requiresAuth) checkSession(epoch);
       final headers = await _getHeaders(includeAuth: requiresAuth);
+      if (requiresAuth) checkSession(epoch);
       try {
         final uri = Uri.parse(_buildUrl(endpoint))
             .replace(queryParameters: queryParameters);
@@ -223,10 +282,12 @@ class ApiClient {
             .send(request)
             .then(http.Response.fromStream)
             .timeout(ApiConfig.receiveTimeout);
+        if (requiresAuth) checkSession(epoch);
         return _handleResponse(response);
       } on TokenExpiredException {
+        checkSession(epoch);
         if (!requiresAuth || attempt > 0) {
-          if (requiresAuth) await _invalidateSession();
+          if (requiresAuth) await _invalidateSession(expectedEpoch: epoch);
           throw UnauthorizedException(message: 'Phiên đăng nhập đã hết hạn.');
         }
         // Another request may already have rotated the access token.
@@ -241,7 +302,7 @@ class ApiClient {
           );
         }
       } on UnauthorizedException {
-        if (requiresAuth) await _invalidateSession();
+        if (requiresAuth) await _invalidateSession(expectedEpoch: epoch);
         rethrow;
       } catch (error) {
         _handleError(error);
@@ -275,8 +336,11 @@ class ApiClient {
     dynamic body,
     bool requiresAuth = true,
   }) => _request('PATCH', endpoint, body: body, requiresAuth: requiresAuth);
-  Future<dynamic> delete(String endpoint, {bool requiresAuth = true}) =>
-      _request('DELETE', endpoint, requiresAuth: requiresAuth);
+  Future<dynamic> delete(
+    String endpoint, {
+    dynamic body,
+    bool requiresAuth = true,
+  }) => _request('DELETE', endpoint, body: body, requiresAuth: requiresAuth);
 
   void dispose() {
     _client.close();

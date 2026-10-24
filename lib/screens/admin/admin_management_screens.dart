@@ -96,19 +96,21 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
   }
 
   Future<void> _edit([AdminRecord? record]) async {
+    final account = context.read<AuthProvider>().accountEpoch;
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => AdminEditorScreen(resource: resource, record: record),
       ),
     );
-    if (changed == true && mounted) {
+    if (changed == true && mounted && context.read<AuthProvider>().accountEpoch == account) {
       _page = 1;
       await _load();
     }
   }
 
   Future<void> _delete(AdminRecord record) async {
+    final account = context.read<AuthProvider>().accountEpoch;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -134,7 +136,7 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || context.read<AuthProvider>().accountEpoch != account) return;
     setState(() => _mutating = true);
     try {
       await service.delete(resource, recordId(record['_id']));
@@ -429,7 +431,10 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   List<AdminRecord> _options = [];
   late Set<String> _permissions;
   late String _status, _difficulty, _role, _category;
-  bool _loading = false, _saving = false;
+  bool _loading = false, _saving = false, _optionsReady = false;
+  late int _accountEpoch;
+  late String? _accountId;
+  bool get _sameAccount => mounted && context.read<AuthProvider>().accountEpoch == _accountEpoch && context.read<AuthProvider>().user?.id == _accountId;
   String? _error;
   AdminRecord get record => widget.record ?? {};
   bool get editing => widget.record != null;
@@ -440,6 +445,9 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _accountEpoch = context.read<AuthProvider>().accountEpoch;
+    _accountId = context.read<AuthProvider>().user?.id;
+    _optionsReady = !['users', 'dictionary'].contains(resource);
     for (final key in [
       'name',
       'key',
@@ -489,6 +497,7 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   Future<void> _loadOptions() async {
     setState(() {
       _loading = true;
+      _optionsReady = false;
       _error = null;
     });
     try {
@@ -496,8 +505,9 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
       final options = resource == 'users'
           ? await service.roleOptions()
           : await service.activeCategories();
-      if (mounted) {
+      if (_sameAccount) {
         setState(() {
+          _optionsReady = true;
           _options = options;
           final id = resource == 'users' ? _role : _category;
           if (id.isNotEmpty &&
@@ -640,7 +650,7 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
     ),
   );
   Future<void> _save() async {
-    if (!_form.currentState!.validate()) return;
+    if (!_sameAccount || !_optionsReady || !_form.currentState!.validate()) return;
     final AdminRecord body;
     switch (resource) {
       case 'roles':
@@ -704,6 +714,7 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
         body,
         id: editing ? recordId(record['_id']) : null,
       );
+      if (!_sameAccount) return;
       if (resource == 'roles' &&
           mounted &&
           context.read<AuthProvider>().user?.customRoleId ==
@@ -868,7 +879,7 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: _saving || !auth.can('$resource:write')
+                  onPressed: _saving || !_optionsReady || !_sameAccount || !auth.can('$resource:write')
                       ? null
                       : _save,
                   icon: _saving

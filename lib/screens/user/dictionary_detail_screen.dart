@@ -111,8 +111,7 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
-                          if (entry.videoUrl != null &&
-                              entry.videoUrl!.isNotEmpty)
+                          if (entry.videoUrl.isNotEmpty)
                             Container(
                               height: 200,
                               decoration: BoxDecoration(

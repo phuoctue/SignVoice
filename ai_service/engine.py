@@ -217,7 +217,17 @@ class VideoSession:
         prediction_stamp=inference.get('prediction_timestamp_ms')
         prediction_age=None if prediction_stamp is None else max(0.,stamp-prediction_stamp)
         confirmed=None
-        if output is not None and output[0] is not None and output[3] and np.any(pose):
+        fresh_word_completion=False
+        if (getattr(self.recognizer,'mode',None)=='words' and isinstance(completed,dict)
+                and prediction_stamp is not None and output is not None and output[0] is not None):
+            event_time=completed.get('time')
+            fresh_word_completion=(isinstance(event_time,(int,float)) and np.isfinite(event_time)
+                and completed.get('label')==self.recognizer.labels[int(output[0])]
+                and abs(event_time*1000-prediction_stamp)<=2.
+                and -.001<=now-event_time<=.25)
+        # A newly completed word can arrive just after hands leave the image.
+        # Deliver that real event once; never extend a held or old word result.
+        if output is not None and output[0] is not None and output[3] and (np.any(pose) or fresh_word_completion):
             label=self.recognizer.labels[int(output[0])]
             observed_stamp=inference.get('observation_timestamp_ms')
             current_hold=held and observed_stamp is not None and observed_stamp>=stamp-1.
@@ -226,7 +236,7 @@ class VideoSession:
         # worker's earlier tentative events are not blindly appended to text.
         events=[]
         if hands:self.last_observed=now
-        elif now-self.last_observed>.65:
+        elif now-self.last_observed>.65 and not fresh_word_completion:
             self.last_event_label=None
         status='tracking';score=None
         if confirmed is not None and scores is not None:score=float(scores[self.recognizer.labels.index(confirmed)])

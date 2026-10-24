@@ -33,11 +33,11 @@ class AdminService {
         'page': page.toString(),
         'limit': limit.toString(),
         if (search != null && search.isNotEmpty) 'search': search,
-        if (role != null) 'role': role,
-        if (status != null) 'status': status,
-        if (accountType != null) 'accountType': accountType,
-        if (sortBy != null) 'sortBy': sortBy,
-        if (order != null) 'order': order,
+        'role': ?role,
+        'status': ?status,
+        'accountType': ?accountType,
+        'sortBy': ?sortBy,
+        'order': ?order,
       };
 
       final response = await _apiClient.get(

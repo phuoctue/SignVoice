@@ -300,7 +300,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (oauth?[provider] != true) {
       toast(
         context,
-        'Máy chủ chưa cấu hình OAuth cho $provider. Bạn vẫn có thể dùng email hoặc tài khoản khách.',
+        oauthError ??
+            'Đăng nhập bằng ${provider == 'google' ? 'Google' : 'Facebook'} hiện chưa sẵn sàng. Vui lòng chọn email hoặc dùng thử.',
       );
       return;
     }
@@ -340,11 +341,17 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => busy = true);
     final auth = context.read<AuthProvider>();
     final success = widget.register
-        ? await auth.register(
-            email: email.text.trim(),
-            password: password.text,
-            displayName: name.text.trim(),
-          )
+        ? auth.user?.isGuest == true
+              ? await auth.convertGuest(
+                  email: email.text.trim(),
+                  password: password.text,
+                  displayName: name.text.trim(),
+                )
+              : await auth.register(
+                  email: email.text.trim(),
+                  password: password.text,
+                  displayName: name.text.trim(),
+                )
         : await auth.login(email: email.text.trim(), password: password.text);
     if (!mounted) return;
     setState(() => busy = false);
@@ -502,10 +509,6 @@ class _AuthScreenState extends State<AuthScreen> {
             busy: busy,
             onPressed: submit,
           ),
-          const SizedBox(height: 18),
-          const Notice(
-            'Đăng nhập bằng tài khoản SignVoice để sử dụng ứng dụng.',
-          ),
           ...[
             const SizedBox(height: 20),
             Row(
@@ -537,27 +540,6 @@ class _AuthScreenState extends State<AuthScreen> {
               icon: Icons.facebook,
               onPressed: busy ? null : () => socialLogin('facebook'),
             ),
-            const SizedBox(height: 10),
-            const BodyText(
-              'Lần đầu tiếp tục bằng Google hoặc Facebook sẽ tạo tài khoản SignVoice mới.',
-              center: true,
-            ),
-            const SizedBox(height: 10),
-            if (oauthError != null) ...[
-              Notice(oauthError!),
-              TextButton(
-                onPressed: loadOAuth,
-                child: const Text('Thử lại trạng thái OAuth'),
-              ),
-            ] else if (oauth != null &&
-                (oauth!['google'] != true || oauth!['facebook'] != true))
-              const Notice(
-                'Một số nhà cung cấp chưa được cấu hình. Đăng nhập email và dùng thử vẫn hoạt động.',
-              ),
-            if (!kIsWeb)
-              const Notice(
-                'Google/Facebook hiện hỗ trợ phiên bản web; ứng dụng dùng đăng nhập email.',
-              ),
           ],
           if (!widget.register) ...[
             const SizedBox(height: 18),

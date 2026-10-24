@@ -181,7 +181,6 @@ const AuditLogSchema = new Schema<IAuditLog>(
       type: Date,
       default: Date.now,
       required: true,
-      index: true,
     },
   },
   {

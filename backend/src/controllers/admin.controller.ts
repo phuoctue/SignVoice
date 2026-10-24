@@ -1,3 +1,4 @@
+import { administratorTransaction } from '../services/administrator-transaction.service';
 import { Request, Response, NextFunction } from 'express';
 import { User, UserRole, AccountStatus } from '../models/User.model';
 import { AuthSession, SessionStatus } from '../models/AuthSession.model';
@@ -129,17 +130,18 @@ export async function updateUser(
   next: NextFunction
 ): Promise<void> {
   try {
+    const user = await administratorTransaction(async session => {
     const { id } = req.params;
     const updates = req.body;
     if (req.user!.id.toString() === id && (updates.role || updates.customRoleId !== undefined)) {
       throw new AppError('Không thể tự thay đổi role của tài khoản đang dùng.',400,ErrorCodes.VALIDATION_ERROR);
     }
-    const existing = await User.findById(id);
+    const existing = await User.findById(id).session(session);
     if (!existing) throw new AppError('User not found',404,ErrorCodes.NOT_FOUND);
     assertCanGrant(req.user!.permissions,(await authorizationFor(existing)).permissions);
     if (existing.isGuest && (updates.role || updates.customRoleId)) throw new AppError('Không thể gán quyền quản lý cho tài khoản dùng thử.',400,ErrorCodes.VALIDATION_ERROR);
     if (updates.customRoleId) {
-      const custom = await Role.findById(updates.customRoleId);
+      const custom = await Role.findById(updates.customRoleId).session(session);
       if (!custom) throw new AppError('Role không tồn tại.',400,ErrorCodes.BAD_REQUEST);
       assertCanGrant(req.user!.permissions,custom.permissions);
       updates.role = roleForPermissions(custom.permissions);
@@ -171,14 +173,17 @@ export async function updateUser(
     const user = await User.findByIdAndUpdate(
       id,
       updates,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true, session }
     ).select('-passwordHash');
 
     if (!user) {
       throw new AppError('User not found', 404, ErrorCodes.NOT_FOUND);
     }
 
-    if (updates.status && updates.status !== AccountStatus.ACTIVE) await AuthSession.revokeAllForUser(user._id);
+    if (updates.status && updates.status !== AccountStatus.ACTIVE) await AuthSession.updateMany({userId:user._id}, {$set:{status:'REVOKED',revokedAt:new Date()}}, {session});
+
+      return user;
+    });
 
     res.status(200).json({
       success: true,
@@ -200,9 +205,10 @@ export async function deleteUser(
   next: NextFunction
 ): Promise<void> {
   try {
+    const user = await administratorTransaction(async session => {
     const { id } = req.params;
 
-    const existing = await User.findById(id);
+    const existing = await User.findById(id).session(session);
     if (!existing) throw new AppError('User not found',404,ErrorCodes.NOT_FOUND);
     assertCanGrant(req.user!.permissions,(await authorizationFor(existing)).permissions);
 
@@ -214,7 +220,7 @@ export async function deleteUser(
     const user = await User.findByIdAndUpdate(
       id,
       { status: AccountStatus.DELETED },
-      { new: true }
+      { new: true, session }
     ).select('-passwordHash');
 
     if (!user) {
@@ -222,7 +228,10 @@ export async function deleteUser(
     }
 
     // Invalidate all user sessions
-    await AuthSession.deleteMany({ userId: user._id });
+    await AuthSession.deleteMany({ userId: user._id }, {session});
+
+      return user;
+    });
 
     res.status(200).json({
       success: true,
@@ -244,8 +253,9 @@ export async function suspendUser(
   next: NextFunction
 ): Promise<void> {
   try {
+    const user = await administratorTransaction(async session => {
     const { id } = req.params;
-    const existing = await User.findById(id);
+    const existing = await User.findById(id).session(session);
     if (!existing) throw new AppError('User not found',404,ErrorCodes.NOT_FOUND);
     assertCanGrant(req.user!.permissions,(await authorizationFor(existing)).permissions);
     const { reason } = req.body;
@@ -261,7 +271,7 @@ export async function suspendUser(
         status: AccountStatus.SUSPENDED,
         suspensionReason: reason,
       },
-      { new: true }
+      { new: true, session }
     ).select('-passwordHash');
 
     if (!user) {
@@ -269,7 +279,10 @@ export async function suspendUser(
     }
 
     // Invalidate all user sessions
-    await AuthSession.deleteMany({ userId: user._id });
+    await AuthSession.deleteMany({ userId: user._id }, {session});
+
+      return user;
+    });
 
     res.status(200).json({
       success: true,

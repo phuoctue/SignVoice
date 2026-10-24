@@ -2,6 +2,9 @@ import { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { Application } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import {env} from './config/env';
+import {requireAuth} from './common/middlewares/auth.middleware';
+import {assertTrialActive, authorizeAiTicket} from './services/guest-trial.service';
 
 /** Transport only: model inference remains in the separate loopback AI service. */
 export function attachAiPublicProxy(
@@ -14,7 +17,7 @@ export function attachAiPublicProxy(
     throw new Error('AI proxy target must be a fixed loopback HTTP service origin');
   }
   const allowed = new Set([
-    options.publicOrigin,
+    options.publicOrigin, ...env.CORS_ALLOWED_ORIGINS,
     `http://localhost:${options.port}`, `http://127.0.0.1:${options.port}`,
   ].filter(Boolean));
   const originAllowed = (req: IncomingMessage): boolean =>
@@ -35,29 +38,56 @@ export function attachAiPublicProxy(
       // The edge validates browser origins. The upstream is a server-to-server
       // loopback connection, so it does not need the public browser Origin.
       proxyReq: (req) => req.removeHeader('origin'),
-      proxyReqWs: (req) => req.removeHeader('origin'),
+      proxyReqWs: (outgoing, _incoming, socket) => {
+        outgoing.removeHeader('origin');
+        outgoing.once('upgrade', (_response, upstream) => {
+          // Abrupt downstream expiry must also release the AI worker upstream.
+          socket.once('close', () => upstream.destroy());
+          if (socket.destroyed) upstream.destroy();
+        });
+      },
     },
   });
   // Register before JSON parsers: POST bodies must be streamed, not consumed.
-  app.use('/sign-ai', (req, res, next) => {
-    if (!originAllowed(req)) { res.status(403).json({ error: 'AI origin is not allowed' }); return; }
-    // Conveyor may forward absolute-form request targets. Keep only their path;
-    // the upstream host remains the fixed loopback target above.
-    const url = new URL(req.url, 'http://localhost');
-    req.url = url.pathname + url.search;
-    if (!routeAllowed(req)) { res.status(404).json({ error: 'Unknown AI endpoint' }); return; }
-    void proxy(req, res, next);
+  app.use('/sign-ai', async (req, res, next) => {
+    try {
+      if (!originAllowed(req)) { res.status(403).json({ error: 'AI origin is not allowed' }); return; }
+      // Conveyor may forward absolute-form request targets. Keep only their path;
+      // the upstream host remains the fixed loopback target above.
+      const url = new URL(req.url, 'http://localhost');
+      req.url = url.pathname + url.search;
+      if (!routeAllowed(req)) { res.status(404).json({ error: 'Unknown AI endpoint' }); return; }
+      if (req.method === 'POST') {
+        await new Promise<void>((resolve, reject) => {
+          void requireAuth(req, res, error => error ? reject(error) : resolve());
+        });
+        await assertTrialActive(req.user!.id);
+      }
+      void proxy(req, res, next);
+    } catch (error) { next(error); }
   });
   return {
     attach(server) {
-      server.on('upgrade', (req, socket, head) => {
-        const url = new URL(req.url || '/', 'http://localhost');
-        req.url = url.pathname + url.search;
-        if (req.method !== 'GET' || req.url !== '/sign-ai/v1/stream' || !originAllowed(req)) {
+      server.on('upgrade', async (req, socket, head) => {
+        try {
+          const url = new URL(req.url || '/', 'http://localhost');
+          req.url = url.pathname;
+          if (req.method !== 'GET' || req.url !== '/sign-ai/v1/stream' || !originAllowed(req)) {
+            socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+            return;
+          }
+          const lease = await authorizeAiTicket(url.searchParams.get('ticket') || '');
+          if (lease.expiresAt) {
+            const remaining = lease.expiresAt.getTime() - Date.now();
+            if (remaining <= 0) throw new Error('Trial expired');
+            const expiry = setTimeout(() => socket.destroy(), remaining);
+            expiry.unref();
+            socket.once('close', () => clearTimeout(expiry));
+          }
+          await proxy.upgrade(req, socket as Socket, head);
+        } catch {
           socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-          return;
         }
-        proxy.upgrade(req, socket as Socket, head);
       });
     },
   };

@@ -63,6 +63,7 @@ export interface IUser extends Document {
   accountType: AccountType;
   passwordHash?: string; // Only for LOCAL accounts
   passwordVersion: number;
+  dataVersion: number;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date;
   passwordResetRequestedAt?: Date;
@@ -77,6 +78,7 @@ export interface IUser extends Document {
   // Guest account handling
   isGuest: boolean;
   guestConvertedAt?: Date; // When guest → permanent account
+  guestTrialId?: Types.ObjectId;
   
   // Tracking
   lastLoginAt?: Date;
@@ -134,6 +136,7 @@ const UserSchema = new Schema<IUser>(
       select: false, // Never include in queries by default
     },
     passwordVersion: { type: Number, default: 0, select: true },
+    dataVersion: { type: Number, default: 0, select: false },
     customRoleId: { type: Schema.Types.ObjectId, ref: 'Role', index: true },
     passwordResetTokenHash: { type: String, select: false },
     passwordResetExpiresAt: { type: Date, select: false },
@@ -176,6 +179,7 @@ const UserSchema = new Schema<IUser>(
     guestConvertedAt: {
       type: Date,
     },
+    guestTrialId: {type: Schema.Types.ObjectId, ref: 'GuestTrial', select: false},
     
     lastLoginAt: {
       type: Date,

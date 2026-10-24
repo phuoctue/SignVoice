@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/auth_provider.dart';
-import '../../services/user/user_service.dart';
+import 'account_data_actions.dart';
 import '../../services/api/api_config.dart';
 
 import '../../core/app_state.dart';
@@ -42,10 +42,13 @@ class ProfileScreen extends StatelessWidget {
         children: [
           if (state.guest) ...[
             const Notice(
-              'Bạn đang dùng thử. Đăng nhập để xem luồng tài khoản và đồng bộ demo.',
+              'Bạn có một phiên dùng thử 10 phút, tính từ lúc bắt đầu. Tạo tài khoản để tiếp tục phiên dịch, lưu hội thoại và đồng bộ.',
             ),
             const SizedBox(height: 12),
-            AppButton('Đăng nhập', onPressed: () => openRoot(context, 'S05')),
+            AppButton(
+              'Tạo tài khoản và giữ dữ liệu',
+              onPressed: () => openScreen(context, 'S06'),
+            ),
           ] else
             Column(
               children: [
@@ -53,6 +56,12 @@ class ProfileScreen extends StatelessWidget {
                 CircleAvatar(
                   radius: 42,
                   backgroundColor: avatarColors[state.avatarColor],
+                  foregroundImage: state.avatarUrl.isEmpty
+                      ? null
+                      : NetworkImage(state.avatarUrl),
+                  onForegroundImageError: state.avatarUrl.isEmpty
+                      ? null
+                      : (_, _) {},
                   child: Text(
                     state.name.isEmpty ? 'S' : state.name[0],
                     style: const TextStyle(
@@ -90,11 +99,13 @@ class ProfileScreen extends StatelessWidget {
             title: state.guest ? 'Kết thúc dùng thử' : 'Đăng xuất',
             color: AppColors.red,
             onTap: () async {
+              final epoch = auth.accountEpoch;
               if (await confirm(
                 context,
                 title: 'Đăng xuất?',
                 message: 'Bạn sẽ quay về màn hình đăng nhập.',
               )) {
+                if (!context.mounted || auth.accountEpoch != epoch) return;
                 await auth.logout();
                 if (context.mounted) openRoot(context, 'S05');
               }
@@ -114,113 +125,288 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final form = GlobalKey<FormState>();
-  final name = TextEditingController(), email = TextEditingController();
-  bool initialized = false, saved = false;
+  final name = TextEditingController(),
+      email = TextEditingController(),
+      avatar = TextEditingController(),
+      password = TextEditingController();
+  bool initialized = false, loading = true, saving = false;
+  String? error;
+  int color = 0;
+  late int epoch;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!initialized) {
-      final state = AppScope.of(context);
-      name.text = state.name;
-      email.text = state.email;
       initialized = true;
+      epoch = AppScope.of(context).accountEpoch;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
+  }
+
+  Future<void> _load() async {
+    final state = AppScope.of(context);
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final data = state.service == null
+          ? {
+              'displayName': state.name,
+              'email': state.email,
+              'avatarUrl': state.avatarUrl,
+            }
+          : await state.service!.profile();
+      if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
+      name.text = '${data['displayName']}';
+      email.text = '${data['email'] ?? ''}';
+      avatar.text = '${data['avatarUrl'] ?? ''}';
+      color = state.avatarColor;
+      setState(() => loading = false);
+    } catch (failure) {
+      if (mounted) {
+        setState(() {
+          error = '$failure';
+          loading = false;
+        });
+      }
     }
   }
 
   @override
   void dispose() {
-    name.dispose();
-    email.dispose();
+    for (final controller in [name, email, avatar, password]) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  Future<void> _save() async {
+    final state = AppScope.of(context);
+    if (!form.currentState!.validate() ||
+        (state.persisted && !state.isCurrent(epoch))) {
+      return;
+    }
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    final auth = context.read<AuthProvider>();
+    final success = await state.saveProfile({
+      'displayName': name.text.trim(),
+      'avatarUrl': avatar.text.trim(),
+      if (state.accountType == 'LOCAL' && email.text.trim() != state.email)
+        'email': email.text.trim(),
+      if (password.text.isNotEmpty) 'currentPassword': password.text,
+    });
+    if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
+    if (!success) {
+      setState(() {
+        saving = false;
+        error = state.error ?? 'Không lưu được hồ sơ.';
+      });
+      return;
+    }
+    final preferencesSaved = await state.saveSettings({'avatarColor': color});
+    if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
+    await auth.refreshUser();
+    if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
+    setState(() {
+      saving = false;
+      error = preferencesSaved ? null : state.error;
+    });
+    if (preferencesSaved) {
+      password.clear();
+      toast(context, 'Đã lưu hồ sơ trên máy chủ.');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    return AppPage(
-      title: 'Chỉnh sửa hồ sơ',
-      child: Form(
-        key: form,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: CircleAvatar(
-                radius: 44,
-                backgroundColor: avatarColors[state.avatarColor],
-                child: Text(
-                  state.name.isEmpty ? 'S' : state.name[0],
-                  style: const TextStyle(fontSize: 32, color: Colors.white),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            const BodyText('Chọn màu ảnh đại diện', center: true),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                avatarColors.length,
-                (i) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: IconButton(
-                    tooltip: 'Màu đại diện ${i + 1}',
-                    style: IconButton.styleFrom(
-                      backgroundColor: avatarColors[i],
-                    ),
-                    onPressed: () => state.update(() => state.avatarColor = i),
-                    icon: Icon(
-                      state.avatarColor == i ? Icons.check : Icons.circle,
-                      color: Colors.white,
-                      size: 18,
-                    ),
+    return PopScope(
+      canPop: !saving,
+      child: AppPage(
+        title: 'Chỉnh sửa hồ sơ',
+        child: Form(
+          key: form,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (loading) const LinearProgressIndicator(),
+              if (error != null) ...[
+                Notice(error!),
+                if (name.text.isEmpty)
+                  TextButton(onPressed: _load, child: const Text('Thử lại')),
+              ],
+              if (!loading && name.text.isNotEmpty) ...[
+                CircleAvatar(
+                  radius: 44,
+                  backgroundColor: avatarColors[color],
+                  foregroundImage: state.avatarUrl.isEmpty
+                      ? null
+                      : NetworkImage(state.avatarUrl),
+                  onForegroundImageError: state.avatarUrl.isEmpty
+                      ? null
+                      : (_, _) {},
+                  child: Text(
+                    name.text.isEmpty ? 'S' : name.text[0],
+                    style: const TextStyle(fontSize: 32, color: Colors.white),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            TextFormField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Họ và tên'),
-              onChanged: (_) => setState(() => saved = false),
-              validator: (v) => v == null || v.trim().isEmpty
-                  ? 'Vui lòng nhập họ và tên.'
-                  : null,
-            ),
-            const SizedBox(height: 18),
-            TextFormField(
-              controller: email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email'),
-              validator: validateEmail,
-              onChanged: (_) => setState(() => saved = false),
-            ),
-            const SizedBox(height: 22),
-            if (saved) ...[
-              const Notice(
-                'Đã lưu thay đổi trong phiên demo.',
-                color: AppColors.green,
-                icon: Icons.check_circle_outline,
-              ),
-              const SizedBox(height: 16),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (var i = 0; i < avatarColors.length; i++)
+                      IconButton(
+                        onPressed: saving
+                            ? null
+                            : () => setState(() => color = i),
+                        tooltip: 'Màu đại diện ${i + 1}',
+                        icon: Icon(
+                          color == i ? Icons.check_circle : Icons.circle,
+                          color: avatarColors[i],
+                        ),
+                      ),
+                  ],
+                ),
+                TextFormField(
+                  controller: name,
+                  enabled: !saving,
+                  decoration: const InputDecoration(labelText: 'Họ và tên'),
+                  validator: (value) =>
+                      (value?.trim().length ?? 0) < 2 ||
+                          (value?.trim().length ?? 0) > 50
+                      ? 'Tên cần từ 2 đến 50 ký tự.'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: email,
+                  enabled: !saving && state.accountType == 'LOCAL',
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: state.accountType == 'LOCAL'
+                      ? validateEmail
+                      : null,
+                  onChanged: (_) => setState(() {}),
+                ),
+                if (state.accountType == 'LOCAL' &&
+                    email.text.trim() != state.email)
+                  TextFormField(
+                    controller: password,
+                    enabled: !saving,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Mật khẩu hiện tại để đổi email',
+                    ),
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Vui lòng nhập mật khẩu hiện tại.'
+                        : null,
+                  ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: avatar,
+                  enabled: !saving,
+                  decoration: const InputDecoration(
+                    labelText: 'URL ảnh đại diện (tùy chọn)',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) return null;
+                    final uri = Uri.tryParse(value.trim());
+                    return uri == null ||
+                            !['http', 'https'].contains(uri.scheme) ||
+                            uri.host.isEmpty
+                        ? 'Dùng URL HTTP hoặc HTTPS hợp lệ.'
+                        : null;
+                  },
+                ),
+                const SizedBox(height: 24),
+                AppButton(
+                  'Lưu thay đổi',
+                  busy: saving,
+                  onPressed: saving ? null : _save,
+                ),
+              ],
             ],
-            AppButton(
-              'Lưu thay đổi',
-              onPressed: () {
-                if (form.currentState!.validate()) {
-                  state.update(() {
-                    state.name = name.text.trim();
-                    state.email = email.text.trim();
-                  });
-                  setState(() => saved = true);
-                }
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+Future<bool> savePreference(
+  BuildContext context,
+  AppState state,
+  Map<String, dynamic> changes,
+) async {
+  final epoch = state.accountEpoch;
+  state.update(() => state.saving = true);
+  final success = await state.saveSettings(changes);
+  if (state.persisted && !state.isCurrent(epoch)) return false;
+  state.update(() => state.saving = false);
+  if (!success && context.mounted) {
+    toast(context, state.error ?? 'Không lưu được cài đặt.');
+  }
+  return success;
+}
+
+class _PreferenceSlider extends StatefulWidget {
+  const _PreferenceSlider({
+    required this.label,
+    required this.value,
+    required this.save,
+    this.enabled = true,
+  });
+  final String label;
+  final double value;
+  final bool enabled;
+  final Future<bool> Function(double) save;
+  @override
+  State<_PreferenceSlider> createState() => _PreferenceSliderState();
+}
+
+class _PreferenceSliderState extends State<_PreferenceSlider> {
+  late double draft = widget.value;
+  bool dragging = false;
+  @override
+  void didUpdateWidget(covariant _PreferenceSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!dragging) draft = widget.value;
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text('${widget.label}: ${draft.toStringAsFixed(1)}'),
+      Slider(
+        value: draft.clamp(.5, 2),
+        min: .5,
+        max: 2,
+        divisions: 15,
+        onChanged: widget.enabled
+            ? (value) => setState(() {
+                dragging = true;
+                draft = value;
+              })
+            : null,
+        onChangeEnd: widget.enabled
+            ? (value) async {
+                await widget.save(value);
+                if (mounted) {
+                  setState(() {
+                    dragging = false;
+                    draft = widget.value;
+                  });
+                }
+              }
+            : null,
+      ),
+    ],
+  );
 }
 
 class VoiceSettingsScreen extends StatelessWidget {
@@ -228,91 +414,50 @@ class VoiceSettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    Widget slider(
-      String title,
-      double value,
-      String low,
-      String high,
-      ValueChanged<double> change,
-    ) => Column(
-      children: [
-        Row(
-          children: [
-            Expanded(child: Heading(title, size: 16)),
-            SignVoiceBadge(value.toStringAsFixed(1)),
-          ],
-        ),
-        Slider(
-          value: value,
-          min: .5,
-          max: 2,
-          divisions: 15,
-          label: value.toStringAsFixed(1),
-          onChanged: change,
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [BodyText(low), BodyText(high)],
-        ),
-      ],
-    );
     return AppPage(
       title: 'Cài đặt giọng nói',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppCard(
-            child: Column(
-              children: [
-                slider(
-                  'Tốc độ đọc',
-                  state.speechSpeed,
-                  'Chậm',
-                  'Nhanh',
-                  (v) => state.update(() => state.speechSpeed = v),
-                ),
-                const SizedBox(height: 22),
-                slider(
-                  'Cao độ',
-                  state.speechPitch,
-                  'Thấp',
-                  'Cao',
-                  (v) => state.update(() => state.speechPitch = v),
-                ),
-                const SizedBox(height: 18),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Tự động phát'),
-                  subtitle: const Text('Mở trình phát khi xác nhận câu'),
-                  value: state.autoSpeak,
-                  onChanged: (v) => state.update(() => state.autoSpeak = v),
-                ),
-                const Divider(),
-                const ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('Ngôn ngữ'),
-                  subtitle: Text('Tiếng Việt (VI)'),
-                ),
-              ],
-            ),
+          if (state.saving) const LinearProgressIndicator(),
+          _PreferenceSlider(
+            label: 'Tốc độ đọc',
+            value: state.speechSpeed,
+            enabled: !state.saving,
+            save: (value) =>
+                savePreference(context, state, {'speechSpeed': value}),
+          ),
+          _PreferenceSlider(
+            label: 'Cao độ',
+            value: state.speechPitch,
+            enabled: !state.saving,
+            save: (value) =>
+                savePreference(context, state, {'speechPitch': value}),
+          ),
+          SwitchListTile(
+            title: const Text('Tự động phát'),
+            subtitle: const Text('Mở trình phát khi xác nhận câu'),
+            value: state.autoSpeak,
+            onChanged: state.saving
+                ? null
+                : (value) =>
+                      savePreference(context, state, {'autoSpeak': value}),
           ),
           const SizedBox(height: 18),
           AppButton(
             'Nghe thử giọng đọc',
-            secondary: true,
-            icon: Icons.volume_up_outlined,
             onPressed: () {
               state.update(() {
-                state.sentence.clear();
-                state.sentence.add('Xin chào, chào mừng bạn đến với SignVoice');
+                state.sentence
+                  ..clear()
+                  ..add('Xin chào, chào mừng bạn đến với SignVoice');
               });
               openScreen(context, 'S14');
             },
           ),
           const SizedBox(height: 18),
           const Notice(
-            'Tốc độ và cao độ đã lưu trong trạng thái FE. '
-            'Phát âm thanh thực tế cần tích hợp TTS.',
+            'Cài đặt được lưu theo tài khoản. Giọng tiếng Việt phụ thuộc trình duyệt hoặc thiết bị.',
           ),
         ],
       ),
@@ -330,136 +475,51 @@ class AppearanceScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Heading('Giao diện', size: 17),
-                const SizedBox(height: 18),
-                Row(
-                  children: List.generate(3, (i) {
-                    const modes = [
-                      ThemeMode.light,
-                      ThemeMode.dark,
-                      ThemeMode.system,
-                    ];
-                    const labels = ['Sáng', 'Tối', 'Hệ thống'];
-                    const icons = [
-                      Icons.light_mode_outlined,
-                      Icons.dark_mode_outlined,
-                      Icons.phone_android,
-                    ];
-                    return Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(right: i == 2 ? 0 : 8),
-                        child: InkWell(
-                          onTap: () =>
-                              state.update(() => state.themeMode = modes[i]),
-                          borderRadius: BorderRadius.circular(14),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 16,
-                              horizontal: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              color: state.themeMode == modes[i]
-                                  ? AppColors.blue.withAlpha(15)
-                                  : null,
-                              border: Border.all(
-                                color: state.themeMode == modes[i]
-                                    ? AppColors.blue
-                                    : Theme.of(context)
-                                          .colorScheme
-                                          .outlineVariant,
-                                width: state.themeMode == modes[i] ? 2 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(icons[i], color: AppColors.blue),
-                                const SizedBox(height: 10),
-                                Text(
-                                  labels[i],
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
+          if (state.saving) const LinearProgressIndicator(),
+          const Heading('Giao diện', size: 17),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            children: [
+              for (final mode in ThemeMode.values)
+                ChoiceChip(
+                  label: Text(switch (mode) {
+                    ThemeMode.system => 'Hệ thống',
+                    ThemeMode.light => 'Sáng',
+                    ThemeMode.dark => 'Tối',
                   }),
+                  selected: state.themeMode == mode,
+                  onSelected: state.saving
+                      ? null
+                      : (_) => savePreference(context, state, {
+                          'theme': mode.name.toUpperCase(),
+                        }),
                 ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(height: 18),
-          AppCard(
-            child: Column(
-              children: [
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Heading('Cỡ chữ', size: 17),
+          const SizedBox(height: 22),
+          Text('Cỡ chữ: ${(state.fontScale * 100).round()}%'),
+          Wrap(
+            spacing: 12,
+            children: [
+              for (final size in [14, 16, 18, 20, 22, 24])
+                ChoiceChip(
+                  label: Text('$size'),
+                  selected: (state.fontScale * 16).round() == size,
+                  onSelected: state.saving
+                      ? null
+                      : (_) =>
+                            savePreference(context, state, {'fontSize': size}),
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    IconButton.outlined(
-                      tooltip: 'Giảm cỡ chữ',
-                      onPressed: state.fontScale <= .9
-                          ? null
-                          : () => state.update(
-                              () => state.fontScale = (state.fontScale - .1)
-                                  .clamp(.9, 1.4)
-                                  .toDouble(),
-                            ),
-                      icon: const Icon(Icons.remove),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Aa • ${(state.fontScale * 100).round()}%',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton.outlined(
-                      tooltip: 'Tăng cỡ chữ',
-                      onPressed: state.fontScale >= 1.4
-                          ? null
-                          : () => state.update(
-                              () => state.fontScale = (state.fontScale + .1)
-                                  .clamp(.9, 1.4)
-                                  .toDouble(),
-                            ),
-                      icon: const Icon(Icons.add),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const BodyText(
-                  'Cỡ chữ được áp dụng cho toàn ứng dụng.',
-                  center: true,
-                ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(height: 18),
-          AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: SwitchListTile(
-              title: const Text('Tương phản cao'),
-              subtitle: const Text('Tăng độ rõ của chữ và nút'),
-              value: state.highContrast,
-              onChanged: (v) => state.update(() => state.highContrast = v),
-            ),
+          SwitchListTile(
+            title: const Text('Tương phản cao'),
+            value: state.highContrast,
+            onChanged: state.saving
+                ? null
+                : (value) =>
+                      savePreference(context, state, {'highContrast': value}),
           ),
         ],
       ),
@@ -472,215 +532,96 @@ class SyncScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final status = state.syncing
-        ? 'Đang đồng bộ demo...'
-        : !state.online
-        ? 'Chờ kết nối'
-        : state.lastSync == null
-        ? 'Sẵn sàng đồng bộ demo'
-        : 'Đã đồng bộ demo';
     return AppPage(
       title: 'Đồng bộ dữ liệu',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           IconTile(
-            icon: state.syncing
-                ? Icons.sync
-                : state.online
-                ? Icons.check_circle_outline
-                : Icons.wifi_off,
-            title: status,
+            icon: Icons.sync,
+            title: state.syncing
+                ? 'Đang tải dữ liệu từ máy chủ...'
+                : 'Dữ liệu tài khoản',
             subtitle: state.lastSync == null
-                ? 'Chưa có phiên đồng bộ'
-                : 'Lần cuối: ${state.lastSync!.hour.toString().padLeft(2, '0')}:${state.lastSync!.minute.toString().padLeft(2, '0')}',
-            color: state.online ? AppColors.green : AppColors.red,
-            trailing: state.syncing
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : null,
+                ? 'Chưa tải dữ liệu thành công.'
+                : 'Tải gần nhất: ${state.lastSync!.toLocal()}',
           ),
-          const SizedBox(height: 18),
-          AppCard(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Kết nối demo'),
-                  subtitle: Text(state.online ? 'Đang kết nối' : 'Mất kết nối'),
-                  value: state.online,
-                  onChanged: state.syncing
-                      ? null
-                      : (v) => state.update(() => state.online = v),
-                ),
-                const Divider(),
-                _CountRow('Lịch sử hội thoại', '${state.history.length} mục'),
-                const SizedBox(height: 12),
-                _CountRow(
-                  'Ký hiệu yêu thích',
-                  '${state.favorites.length} ký hiệu',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          if (state.guest) ...[
-            const Notice('Vui lòng đăng nhập để xem luồng đồng bộ demo.'),
-            const SizedBox(height: 14),
-          ],
+          if (state.syncing) const LinearProgressIndicator(),
+          if (state.error != null) Notice(state.error!),
+          const SizedBox(height: 16),
+          Text('Hội thoại đã tải: ${state.history.length}'),
+          Text('Ký hiệu yêu thích: ${state.favorites.length}'),
+          const SizedBox(height: 20),
           AppButton(
             'Đồng bộ ngay',
-            icon: Icons.sync,
             busy: state.syncing,
-            onPressed: !state.online || state.guest
+            onPressed: state.syncing
                 ? null
-                : () => state.simulateSync(),
+                : () async {
+                    final success = await state.synchronize();
+                    if (context.mounted) {
+                      toast(
+                        context,
+                        success
+                            ? 'Đã tải lại dữ liệu đã lưu trên máy chủ.'
+                            : state.error ?? 'Không đồng bộ được.',
+                      );
+                    }
+                  },
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           const Notice(
-            'Đồng bộ hiện là mô phỏng. Dữ liệu chỉ giữ trong phiên chạy ứng dụng, '
-            'chưa được gửi lên máy chủ.',
+            'Hồ sơ, cài đặt, yêu thích và lịch sử hội thoại được tải lại từ tài khoản hiện tại. Hội thoại được phân trang.',
           ),
         ],
       ),
     );
   }
-}
-
-class _CountRow extends StatelessWidget {
-  const _CountRow(this.label, this.value);
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(child: BodyText(label)),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-    ],
-  );
 }
 
 class PrivacyScreen extends StatelessWidget {
   const PrivacyScreen({super.key});
   @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    return AppPage(
-      title: 'Quyền riêng tư',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          IconTile(
-            icon: Icons.policy_outlined,
-            title: 'Chính sách quyền riêng tư',
-            onTap: () => launchUrl(
-              Uri.base.resolve(ApiConfig.baseUrl).resolve('/privacy'),
-              mode: LaunchMode.externalApplication,
-            ),
+  Widget build(BuildContext context) => AppPage(
+    title: 'Quyền riêng tư',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        IconTile(
+          icon: Icons.policy_outlined,
+          title: 'Chính sách quyền riêng tư',
+          onTap: () => launchUrl(
+            Uri.base.resolve(ApiConfig.baseUrl).resolve('/privacy'),
+            mode: LaunchMode.externalApplication,
           ),
-          const SizedBox(height: 12),
-          IconTile(
-            icon: Icons.help_outline,
-            title: 'Hướng dẫn xóa dữ liệu',
-            onTap: () => launchUrl(
-              Uri.base.resolve(ApiConfig.baseUrl).resolve('/data-deletion'),
-              mode: LaunchMode.externalApplication,
-            ),
+        ),
+        IconTile(
+          icon: Icons.help_outline,
+          title: 'Hướng dẫn xóa dữ liệu',
+          onTap: () => launchUrl(
+            Uri.base.resolve(ApiConfig.baseUrl).resolve('/data-deletion'),
+            mode: LaunchMode.externalApplication,
           ),
-          const SizedBox(height: 18),
-          const Notice(
-            'Camera và microphone chỉ được yêu cầu khi bạn dùng chức năng tương ứng. '
-            'Camera được xử lý bởi dịch vụ AI; nhận dạng giọng nói có thể dùng dịch vụ của trình duyệt.',
-            icon: Icons.shield_outlined,
-          ),
-          const SizedBox(height: 18),
-          IconTile(
-            icon: Icons.camera_alt_outlined,
-            title: 'Quyền camera',
-            trailing: SignVoiceBadge(
-              state.cameraAllowed ? 'Đã cho phép' : 'Chưa cấp',
-              color: state.cameraAllowed ? AppColors.green : AppColors.muted,
-            ),
-            onTap: () => openScreen(context, 'S09'),
-          ),
-          const SizedBox(height: 10),
-          IconTile(
-            icon: Icons.mic_none,
-            title: 'Quyền microphone demo',
-            trailing: SignVoiceBadge(
-              state.microphoneAllowed ? 'Đã cho phép' : 'Chưa cấp',
-              color: state.microphoneAllowed
-                  ? AppColors.green
-                  : AppColors.muted,
-            ),
-            onTap: () => openScreen(context, 'S15'),
-          ),
-          const SizedBox(height: 24),
-          IconTile(
-            icon: Icons.history,
-            title: 'Xóa lịch sử hội thoại',
-            onTap: () async {
-              if (await confirm(
-                context,
-                title: 'Xóa lịch sử?',
-                message: 'Tất cả hội thoại demo trong phiên này sẽ bị xóa.',
-              )) {
-                state.update(() {
-                  state.history.clear();
-                  state.selectedHistoryId = null;
-                });
-                if (context.mounted) toast(context, 'Đã xóa lịch sử demo.');
-              }
-            },
-          ),
-          const SizedBox(height: 10),
-          IconTile(
-            icon: Icons.delete_sweep_outlined,
-            title: 'Xóa dữ liệu demo',
-            onTap: () async {
-              if (await confirm(
-                context,
-                title: 'Xóa dữ liệu demo?',
-                message:
-                    'Lịch sử, câu hiện tại và ký hiệu yêu thích sẽ bị xóa.',
-              )) {
-                state.clearLocalData();
-                if (context.mounted) {
-                  toast(context, 'Đã xóa dữ liệu demo trong phiên.');
-                }
-              }
-            },
-          ),
-          const SizedBox(height: 10),
-          IconTile(
-            icon: Icons.person_remove_outlined,
-            title: 'Xóa tài khoản',
-            color: AppColors.red,
-            onTap: () async {
-              if (await confirm(
-                context,
-                title: 'Xóa tài khoản vĩnh viễn?',
-                message: 'Tài khoản, hồ sơ, lịch sử, mục yêu thích và cài đặt trên server sẽ bị xóa. Bạn không thể hoàn tác thao tác này.',
-              )) {
-                try {
-                  await UserService.instance.deleteAccount();
-                } catch (_) {
-                  if (context.mounted) toast(context, 'Chưa xóa được tài khoản. Vui lòng thử lại.');
-                  return;
-                }
-                state.clearLocalData();
-                if (!context.mounted) return;
-                await context.read<AuthProvider>().logout();
-                if (context.mounted) openRoot(context, 'S05');
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+        const SizedBox(height: 18),
+        const Notice(
+          'Camera và microphone chỉ được yêu cầu khi bạn dùng chức năng tương ứng. Camera được xử lý bởi dịch vụ AI; nhận dạng giọng nói có thể dùng dịch vụ của trình duyệt.',
+        ),
+        IconTile(
+          icon: Icons.camera_alt_outlined,
+          title: 'Camera',
+          onTap: () => openScreen(context, 'S09'),
+        ),
+        IconTile(
+          icon: Icons.mic_none,
+          title: 'Microphone',
+          onTap: () => openScreen(context, 'S15'),
+        ),
+        const SizedBox(height: 20),
+        const AccountDataActions(),
+      ],
+    ),
+  );
 }
 
 class AboutScreen extends StatelessWidget {
@@ -712,8 +653,8 @@ class AboutScreen extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         const Notice(
-          'Mục tiêu phiên bản 1.0: 20–50 ký hiệu giao tiếp cơ bản, '
-          'ưu tiên một tay. FE hiện có 10 mục từ mẫu và các luồng nhận diện mô phỏng.',
+          'SignVoice đang sử dụng bộ model 181 từ. '
+          'Chất lượng nhận diện và độ phủ video còn phụ thuộc dữ liệu và thiết bị.',
           color: Color(0xFFD97706),
           icon: Icons.warning_amber_outlined,
         ),
@@ -726,14 +667,14 @@ class AboutScreen extends StatelessWidget {
         const SizedBox(height: 10),
         IconTile(
           icon: Icons.description_outlined,
-          title: 'Điều khoản demo',
+          title: 'Điều khoản sử dụng',
           onTap: () => showDialog<void>(
             context: context,
             builder: (dialogContext) => AlertDialog(
-              title: const Text('Điều khoản demo'),
+              title: const Text('Điều khoản sử dụng'),
               content: const Text(
-                'Đây là nguyên mẫu giao diện phục vụ môn lập trình di động. '
-                'Tài khoản và kết quả nhận diện hiện dùng dữ liệu mô phỏng.',
+                'SignVoice hỗ trợ giao tiếp và tham khảo ngôn ngữ ký hiệu. '
+                'Hãy kiểm tra lại kết quả nhận diện trước khi sử dụng trong giao tiếp quan trọng.',
               ),
               actions: [
                 TextButton(
@@ -747,7 +688,7 @@ class AboutScreen extends StatelessWidget {
         const SizedBox(height: 10),
         IconTile(
           icon: Icons.bug_report_outlined,
-          title: 'Danh mục 37 màn hình',
+          title: 'Danh mục màn hình',
           onTap: () => openScreen(context, 'catalog'),
         ),
       ],

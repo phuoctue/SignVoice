@@ -78,3 +78,9 @@ abstract interface class ForegroundTrackingCamera {
 abstract interface class HandTrackingModeCamera {
   void setTrackingMode(String mode);
 }
+
+/// Explicit local-only snapshots of the exact resized detector input.
+abstract interface class PixelDiagnosticCamera {
+  void setPixelDiagnostic(bool enabled);
+  Stream<CapturedFrame> get diagnosticPixels;
+}

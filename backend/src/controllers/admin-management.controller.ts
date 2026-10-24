@@ -1,12 +1,12 @@
+import { administratorTransaction } from '../services/administrator-transaction.service';
+import { writeContent, removeContent, removeCategory } from '../services/content-management.service';
 import { Request, Response, NextFunction } from 'express';
 import { User, AccountType, UserRole } from '../models/User.model';
 import { Role } from '../models/Role.model';
 import { builtInPermissions, roleForPermissions, assertCanGrant } from '../services/authorization.service';
 import { UserSettings } from '../models/UserSettings.model';
 import { Category } from '../models/Category.model';
-import { DictionaryEntry, EntryStatus } from '../models/DictionaryEntry.model';
-import { Favorite } from '../models/Favorite.model';
-import { SearchHistory } from '../models/SearchHistory.model';
+import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { hashPassword } from '../utils/password.util';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
@@ -19,11 +19,6 @@ function literalSearch(value: unknown): string {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 function notFound() { return new AppError('Không tìm thấy dữ liệu.',404,ErrorCodes.NOT_FOUND); }
-async function syncCategoryCount(id: unknown): Promise<void> {
-  const wordCount = await DictionaryEntry.countDocuments({categoryId:id,status:EntryStatus.PUBLISHED});
-  await Category.findByIdAndUpdate(id,{$set:{wordCount}});
-}
-
 export async function createUser(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const {email,password,displayName,role} = req.body;
@@ -61,7 +56,8 @@ export async function createRole(req: Request, res: Response, next: NextFunction
 }
 export async function updateRole(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const existing=await Role.findById(req.params.id);
+    const role = await administratorTransaction(async session => {
+    const existing=await Role.findById(req.params.id).session(session);
     if(!existing) throw notFound();
     assertCanGrant(req.user!.permissions,existing.permissions);
     if(req.body.permissions) assertCanGrant(req.user!.permissions,req.body.permissions);
@@ -69,8 +65,10 @@ export async function updateRole(req: Request, res: Response, next: NextFunction
        ['admin:access','roles:write'].some(permission=>!req.body.permissions.includes(permission))) {
       throw new AppError('Không thể bỏ quyền truy cập/quản lý role của chính mình.',400,ErrorCodes.VALIDATION_ERROR);
     }
-    const role=await Role.findByIdAndUpdate(req.params.id,{$set:req.body},{new:true,runValidators:true});
+    const role=await Role.findByIdAndUpdate(req.params.id,{$set:req.body},{new:true,runValidators:true,session});
     if(!role) throw notFound();
+      return role;
+    });
     res.json({success:true,data:role});
   } catch(error) {next(error);}
 }
@@ -101,48 +99,13 @@ export async function listDictionary(req: Request, res: Response, next: NextFunc
 }
 
 export async function createDictionary(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const category=await Category.findById(req.body.categoryId);
-    if(!category?.isActive()) throw new AppError('Danh mục không tồn tại hoặc đã lưu trữ.',400,ErrorCodes.CATEGORY_NOT_FOUND);
-    const status=req.body.status || EntryStatus.DRAFT;
-    if(status===EntryStatus.PUBLISHED && !req.user!.permissions.includes('content:publish')) throw new AppError('Bạn không có quyền xuất bản.',403,ErrorCodes.AUTH_FORBIDDEN);
-    const entry=await DictionaryEntry.create({...req.body,status,createdBy:req.user!.id,lastModifiedBy:req.user!.id,...(status===EntryStatus.PUBLISHED?{publishedAt:new Date()}:{})});
-    await syncCategoryCount(entry.categoryId);
-    res.status(201).json({success:true,data:entry});
-  } catch(error) {next(error);}
+  try { res.status(201).json({success:true,data:await writeContent(req.user!, req.body)}); } catch(error) { next(error); }
 }
-
 export async function updateDictionary(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const entry=await DictionaryEntry.findById(req.params.id);
-    if(!entry) throw notFound();
-    const oldCategory=entry.categoryId;
-    if((entry.status===EntryStatus.PUBLISHED || req.body.status===EntryStatus.PUBLISHED) && !req.user!.permissions.includes('content:publish')) throw new AppError('Bạn không có quyền sửa nội dung đã xuất bản.',403,ErrorCodes.AUTH_FORBIDDEN);
-    const category=await Category.findById(req.body.categoryId || entry.categoryId);
-    if(!category?.isActive() && (req.body.categoryId || req.body.status===EntryStatus.PUBLISHED)) throw new AppError('Cần chọn danh mục đang hoạt động.',400,ErrorCodes.CATEGORY_NOT_FOUND);
-    if(req.body.status===EntryStatus.PUBLISHED && entry.status!==EntryStatus.PUBLISHED) entry.publishedAt=new Date();
-    Object.assign(entry,req.body,{lastModifiedBy:req.user!.id});
-    await entry.save();
-    await syncCategoryCount(oldCategory);
-    if(!entry.categoryId.equals(oldCategory)) await syncCategoryCount(entry.categoryId);
-    res.json({success:true,data:entry});
-  } catch(error) {next(error);}
+  try { res.json({success:true,data:await writeContent(req.user!, req.body, req.params.id)}); } catch(error) { next(error); }
 }
-
 export async function deleteDictionary(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const existing=await DictionaryEntry.findById(req.params.id);
-    if(!existing) throw notFound();
-    if(existing.status===EntryStatus.PUBLISHED && !req.user!.permissions.includes('content:publish')) throw new AppError('Bạn không có quyền xóa nội dung đã xuất bản.',403,ErrorCodes.AUTH_FORBIDDEN);
-    const entry=await DictionaryEntry.findByIdAndDelete(req.params.id);
-    if(!entry) throw notFound();
-    await Promise.all([
-      Favorite.deleteMany({entryId:entry._id}), SearchHistory.deleteMany({entryId:entry._id}),
-      DictionaryEntry.updateMany({'relatedWords.entryId':entry._id},{$pull:{relatedWords:{entryId:entry._id}}}),
-      syncCategoryCount(entry.categoryId),
-    ]);
-    res.json({success:true,data:{message:'Đã xóa mục từ điển.'}});
-  } catch(error) {next(error);}
+  try { await removeContent(req.user!,req.params.id); res.json({success:true,data:{message:'Đã xóa mục từ điển.'}}); } catch(error) { next(error); }
 }
 
 export async function listCategories(_req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -159,10 +122,5 @@ export async function updateCategory(req: Request, res: Response, next: NextFunc
   } catch(error) {next(error);}
 }
 export async function deleteCategory(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    if(await DictionaryEntry.exists({categoryId:req.params.id}) || await Category.exists({parentId:req.params.id})) throw new AppError('Danh mục đang được sử dụng. Hãy chuyển hoặc xóa các mục bên trong trước.',409,ErrorCodes.CATEGORY_IN_USE);
-    const category=await Category.findByIdAndDelete(req.params.id);
-    if(!category) throw notFound();
-    res.json({success:true,data:{message:'Đã xóa danh mục.'}});
-  } catch(error) {next(error);}
+  try { await removeCategory(req.params.id); res.json({success:true,data:{message:'Đã xóa danh mục.'}}); } catch(error) { next(error); }
 }

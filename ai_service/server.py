@@ -66,7 +66,13 @@ async def stream(ws:WebSocket):
         # Old clients may retain vision=True in preferences. Camera recognition
         # now always uses the trained model directly, without an LM veto.
         session=await loop.run_in_executor(pool,app.state.engine.session,mode,False)
-        await ws.send_json(dict(type='ready',**app.state.engine.info()))
+        diagnostic = hello.get('diagnostic') is True
+        diagnostic_identity = None
+        if diagnostic:
+            from .diagnostic_replay import identity
+            session.worker.enable_diagnostics()
+            diagnostic_identity = identity(app.state.engine, mode)
+        await ws.send_json(dict(type='ready',**app.state.engine.info(),worker_identity=diagnostic_identity))
         mailbox=LatestFrameMailbox();observations=LatestFrameMailbox();send_lock=asyncio.Lock()
         recognition_ready=asyncio.Event();last_publication=-1
         session.worker.on_update=lambda:loop.call_soon_threadsafe(recognition_ready.set)
@@ -77,6 +83,9 @@ async def stream(ws:WebSocket):
                     publication=data.get('publication',0)
                     if publication<=last_publication:return
                     last_publication=publication
+                    if diagnostic:
+                        data = {**data, 'worker_diagnostic': session.worker.drain_diagnostics(),
+                                'dropped_observations': observations.dropped}
                 await ws.send_json(data)
         async def receive_frames():
             previous_stamp=-1.;previous_sequence=-1

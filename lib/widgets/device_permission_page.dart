@@ -28,7 +28,7 @@ class DevicePermissionPage extends StatelessWidget {
     final device = camera ? 'camera' : 'microphone';
     final color = camera ? AppColors.blue : AppColors.teal;
     return AppPage(
-      title: camera ? 'Nhận diện ký hiệu' : 'Giọng nói → Văn bản',
+      title: camera ? 'Nhận diện ký hiệu' : 'Giọng nói → Hình ảnh',
       actions: [
         if (onSettings != null)
           IconButton(

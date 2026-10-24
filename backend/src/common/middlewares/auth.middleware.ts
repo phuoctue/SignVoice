@@ -190,7 +190,7 @@ export function requirePermanentAccount(req: Request, _res: Response, next: Next
     
     if (req.user.isGuest) {
       throw new AppError(
-        'This action requires a permanent account',
+        'Vui lòng đăng nhập hoặc tạo tài khoản để lưu và đồng bộ dữ liệu.',
         403,
         ErrorCodes.AUTH_GUEST_RESTRICTED
       );

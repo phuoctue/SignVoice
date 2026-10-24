@@ -5,8 +5,23 @@ import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && AppScope.of(context).persisted) {
+        AppScope.of(context).loadHistory(search: '');
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -25,7 +40,8 @@ class HomeScreen extends StatelessWidget {
         IconButton(
           tooltip: 'Thông báo',
           icon: const Icon(Icons.notifications_none),
-          onPressed: () => toast(context, 'Bạn chưa có thông báo mới.'),
+          onPressed: () =>
+              toast(context, 'Chức năng thông báo chưa được hỗ trợ.'),
         ),
         Padding(
           padding: const EdgeInsets.only(right: 14),
@@ -62,9 +78,9 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _FeatureCard(
-            title: 'Giọng nói → Văn bản',
-            description: 'Chuyển lời nói thành văn bản và xem ký hiệu tương ứng.',
-            label: 'Bắt đầu ghi âm',
+            title: 'Giọng nói → Hình ảnh',
+            description: 'Nói hoặc nhập văn bản để xem ảnh và video ký hiệu.',
+            label: 'Nói hoặc nhập văn bản',
             color: AppColors.teal,
             icon: Icons.mic_none,
             onTap: () => openScreen(context, 'S15'),

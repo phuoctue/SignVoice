@@ -29,6 +29,7 @@ export interface ICategory extends Document {
   
   // Statistics (denormalized for performance)
   wordCount: number; // Number of dictionary entries in this category
+  mutationVersion: number;
   
   // Timestamps
   createdAt: Date;
@@ -92,6 +93,7 @@ const CategorySchema = new Schema<ICategory>(
       required: true,
     },
     
+    mutationVersion: { type: Number, default: 0, select: false },
     wordCount: {
       type: Number,
       default: 0,
@@ -110,7 +112,6 @@ const CategorySchema = new Schema<ICategory>(
 // ============================================================================
 
 // Primary lookups
-CategorySchema.index({ slug: 1 }, { unique: true });
 CategorySchema.index({ status: 1, sortOrder: 1 }); // For listing active categories
 CategorySchema.index({ parentId: 1, sortOrder: 1 }); // For nested categories
 

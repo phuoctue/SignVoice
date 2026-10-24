@@ -29,7 +29,13 @@ export interface IUserSettings extends Document {
   
   // Appearance
   theme: Theme;
+  language: string;
   fontSize: number; // 12-24 range
+  highContrast: boolean;
+  speechSpeed: number;
+  speechPitch: number;
+  autoSpeak: boolean;
+  avatarColor: number;
   
   // Notifications
   notificationsEnabled: boolean;
@@ -56,6 +62,7 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       index: true,
     },
     
+    language: {type: String, enum: ['vi','en'], default: 'vi'},
     theme: {
       type: String,
       enum: Object.values(Theme),
@@ -71,6 +78,11 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       required: true,
     },
     
+    highContrast: { type: Boolean, default: false },
+    speechSpeed: { type: Number, min: 0.5, max: 2, default: 1 },
+    speechPitch: { type: Number, min: 0.5, max: 2, default: 1 },
+    autoSpeak: { type: Boolean, default: false },
+    avatarColor: { type: Number, min: 0, max: 3, default: 0 },
     notificationsEnabled: {
       type: Boolean,
       default: true,
@@ -109,7 +121,6 @@ const UserSettingsSchema = new Schema<IUserSettings>(
 // ============================================================================
 
 // Primary lookup
-UserSettingsSchema.index({ userId: 1 }, { unique: true });
 
 // ============================================================================
 // STATIC METHODS

@@ -74,6 +74,7 @@ class AdminWorkspaceService {
     int page = 1,
     String search = '',
     String? categoryId,
+    String sort = 'word_asc',
   }) async {
     final response = await _api.get(
       '/dictionary',
@@ -82,6 +83,7 @@ class AdminWorkspaceService {
         'skip': '${(page - 1) * 20}',
         if (search.isNotEmpty) 'search': search,
         'categoryId': ?categoryId,
+        'sort': sort,
       },
     );
     final total = (response['pagination']['total'] as num).toInt();
@@ -110,6 +112,11 @@ class AdminWorkspaceService {
     final entries = items.whereType<AdminRecord>().toList();
     return AdminPageData(entries, 1, 1, entries.length);
   }
+
+  Future<AdminRecord> publishedEntry(String id) async =>
+      Map<String, dynamic>.from(
+        (await _api.get('/dictionary/$id', requiresAuth: false))['data'],
+      );
 
   Future<void> save(String resource, AdminRecord body, {String? id}) async {
     if (id == null) {

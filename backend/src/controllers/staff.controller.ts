@@ -4,6 +4,8 @@ import { User } from '../models/User.model';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
 import { updateDictionary } from './admin-management.controller';
+import { literalSearch } from '../validation/user-data.validation';
+import { safeUser } from '../services/user-data.service';
 
 /**
  * GET /api/v1/staff/content
@@ -40,8 +42,8 @@ export async function getContentForModeration(
     // Search filter
     if (search && typeof search === 'string') {
       query.$or = [
-        { word: { $regex: search, $options: 'i' } },
-        { translation: { $regex: search, $options: 'i' } },
+        { word: { $regex: literalSearch(search), $options: 'i' } },
+        { definition: { $regex: literalSearch(search), $options: 'i' } },
       ];
     }
 
@@ -182,8 +184,8 @@ export async function getUsers(
 
     if (search && typeof search === 'string') {
       query.$or = [
-        { displayName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { displayName: { $regex: literalSearch(search), $options: 'i' } },
+        { email: { $regex: literalSearch(search), $options: 'i' } },
       ];
     }
 
@@ -209,7 +211,7 @@ export async function getUsers(
     res.status(200).json({
       success: true,
       data: {
-        users,
+        users: await Promise.all(users.map(safeUser)),
         pagination: {
           page: Number(page),
           limit: Number(limit),
@@ -243,7 +245,7 @@ export async function getUserDetails(
 
     res.status(200).json({
       success: true,
-      data: user,
+      data: await safeUser(user),
     });
   } catch (error) {
     next(error);
@@ -260,14 +262,7 @@ export async function getReports(
   next: NextFunction
 ): Promise<void> {
   try {
-    // TODO: Implement based on your Report model
-    res.status(200).json({
-      success: true,
-      data: {
-        reports: [],
-        message: 'Reports feature not yet implemented',
-      },
-    });
+    res.status(501).json({success: false, error: {code: 'FEATURE_UNAVAILABLE', message: 'Chức năng báo cáo chưa được triển khai.'}});
   } catch (error) {
     next(error);
   }
@@ -283,11 +278,7 @@ export async function updateReport(
   next: NextFunction
 ): Promise<void> {
   try {
-    // TODO: Implement based on your Report model
-    res.status(200).json({
-      success: true,
-      message: 'Report update not yet implemented',
-    });
+    res.status(501).json({success: false, error: {code: 'FEATURE_UNAVAILABLE', message: 'Chức năng báo cáo chưa được triển khai.'}});
   } catch (error) {
     next(error);
   }

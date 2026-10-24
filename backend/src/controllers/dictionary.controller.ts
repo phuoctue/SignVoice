@@ -1,3 +1,4 @@
+import { writeContent } from '../services/content-management.service';
 import { Request, Response, NextFunction } from 'express';
 import * as dictionaryService from '../services/dictionary.service';
 import { AppError } from '../common/errors/AppError';
@@ -9,12 +10,13 @@ import { ErrorCodes } from '../common/errors/errorCodes';
  */
 export async function getEntries(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { categoryId, search, difficulty, limit, skip } = req.query;
+    const { categoryId, search, difficulty, limit, skip, sort } = req.query;
     
     const result = await dictionaryService.getPublishedEntries({
       categoryId: categoryId as string,
       search: search as string,
       difficulty: difficulty as string,
+      sort: sort as 'word_asc' | 'word_desc' | undefined,
       limit: limit ? parseInt(limit as string) : undefined,
       skip: skip ? parseInt(skip as string) : undefined,
     });
@@ -81,8 +83,7 @@ export async function createEntry(req: Request, res: Response, next: NextFunctio
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
     }
     
-    const entry = await dictionaryService.createDraftEntry(req.user.id, req.body);
-    
+    const entry = await writeContent(req.user!, {...req.body, status: 'DRAFT'});
     res.status(201).json({
       success: true,
       data: entry,
@@ -103,13 +104,7 @@ export async function updateEntry(req: Request, res: Response, next: NextFunctio
     }
     
     const { id } = req.params;
-    const entry = await dictionaryService.updateDraftEntry(
-      id,
-      req.user.id,
-      req.user.role,
-      req.body
-    );
-    
+    const entry = await writeContent(req.user!, req.body, id);
     res.status(200).json({
       success: true,
       data: entry,
@@ -126,7 +121,7 @@ export async function updateEntry(req: Request, res: Response, next: NextFunctio
 export async function publishEntry(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const entry = await dictionaryService.publishEntry(id);
+    const entry = await writeContent(req.user!, {status:'PUBLISHED'}, id);
     
     res.status(200).json({
       success: true,
@@ -144,7 +139,7 @@ export async function publishEntry(req: Request, res: Response, next: NextFuncti
 export async function archiveEntry(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const entry = await dictionaryService.archiveEntry(id);
+    const entry = await writeContent(req.user!, {status:'ARCHIVED'}, id);
     
     res.status(200).json({
       success: true,

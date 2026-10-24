@@ -1,8 +1,12 @@
 import 'package:flutter/foundation.dart';
 
+import '../api/api_config.dart';
+
 class SignAiConfig {
   static const configuredUrl = String.fromEnvironment('AI_SERVICE_URL');
   static const token = String.fromEnvironment('AI_SERVICE_TOKEN');
+  static String get gatewayUrl =>
+      Uri.base.resolve(ApiConfig.baseUrl).resolve('/sign-ai').toString();
 
   static String get defaultUrl {
     if (configuredUrl.isNotEmpty) {
@@ -13,14 +17,7 @@ class SignAiConfig {
       }
       return configuredUrl;
     }
-    if (kIsWeb) {
-      // HTTPS sites must configure an HTTPS AI service; never downgrade to HTTP.
-      return '${Uri.base.scheme}://${Uri.base.host}:8001';
-    }
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8001';
-    }
-    return 'http://127.0.0.1:8001';
+    return gatewayUrl;
   }
 
   static Uri socketUri(String base, {Uri? appUri}) {

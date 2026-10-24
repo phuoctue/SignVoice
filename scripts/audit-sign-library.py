@@ -29,6 +29,18 @@ def eligible(row):
             and not row.get('training_exclusion_reason', '').strip())
 
 
+def reference_eligible(row):
+    # Unassigned dictionary clips are reference material, never new training data.
+    if row.get('source') != 'user_Dataset.tgz':
+        return eligible(row)
+    return (row.get('kind') == 'rgb' and bool(normalize(row.get('label', '')))
+            and row.get('fixed_split') in ('', 'train')
+            and row.get('source_label_verified', '').casefold() == 'true'
+            and row.get('is_personal', '').casefold() != 'true'
+            and row.get('basic_quality_pass', '').casefold() != 'false'
+            and not row.get('training_exclusion_reason', '').strip())
+
+
 def safe_member(name):
     member = PurePosixPath(name)
     return (not member.is_absolute() and '..' not in member.parts
@@ -42,7 +54,7 @@ def write_csv(path, rows, fields):
         writer.writerows(rows)
 
 
-def build_inventory(rows, members):
+def build_inventory(rows, members, reference=False):
     counts = collections.Counter()
     groups = collections.defaultdict(list)
     conflicts = collections.defaultdict(set)
@@ -50,7 +62,7 @@ def build_inventory(rows, members):
         if row.get('kind') == 'rgb' and row.get('label'):
             conflicts[row['sha256']].add(normalize(row['label']))
     for row in rows:
-        if not eligible(row):
+        if not (reference_eligible(row) if reference else eligible(row)):
             counts['excluded_by_label_kind_split_or_quality'] += 1
             continue
         name = row['path']

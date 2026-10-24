@@ -6,6 +6,8 @@ import { env } from '../config/env';
 import { ITokenPair } from '../utils/jwt.util';
 import * as passwordResetService from '../services/password-reset.service';
 import { authorizationFor } from '../services/authorization.service';
+import {trialForDevice} from '../services/guest-trial.service';
+import {guestDeviceKey} from '../services/guest-device.service';
 
 export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -104,7 +106,8 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
  */
 export async function createGuest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const result = await authService.createGuestAccount(getRequestMeta(req));
+    const trial = await trialForDevice(guestDeviceKey(req, res));
+    const result = await authService.createGuestAccount(getRequestMeta(req), trial._id);
     setRefreshCookie(res, result.tokens);
     
     res.status(201).json({
