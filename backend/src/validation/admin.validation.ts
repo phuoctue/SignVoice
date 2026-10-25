@@ -26,6 +26,9 @@ export const adminUpdateUserSchema = z.object({params:z.object({id:objectId}),bo
   customRoleId:objectId.nullable(),
 }).partial().strict().refine(body=>Object.keys(body).length>0,'No changes provided')});
 export const adminIdSchema = z.object({params:z.object({id:objectId})});
+export const adminResetPasswordSchema = z.object({params:z.object({id:objectId}),body:z.object({
+  newPassword:z.string().min(8).max(128).regex(/[a-zA-Z]/).regex(/[0-9]/),
+}).strict()});
 export const adminSessionIdSchema = z.object({params:z.object({sessionId:objectId})});
 const roleFields=z.object({
   name:z.string().trim().min(2).max(50),

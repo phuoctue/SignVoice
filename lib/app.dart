@@ -18,6 +18,7 @@ import 'core/theme.dart';
 import 'core/navigation.dart';
 import 'features/auth/auth_screens.dart';
 import 'features/auth/oauth_complete_screen.dart';
+import 'features/auth/change_password_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/recognition/recognition_screens.dart';
 import 'features/speech/speech_screens.dart';
@@ -449,6 +450,7 @@ Widget screenFor(String id) => switch (id) {
   'S24' => const DictionaryScreen(favoritesOnly: true),
   'S25' => const ProfileScreen(),
   'S26' => const EditProfileScreen(),
+  'change-password' => const ChangePasswordScreen(),
   'S27' => const VoiceSettingsScreen(),
   'S28' => const AppearanceScreen(),
   'S29' => const SyncScreen(),

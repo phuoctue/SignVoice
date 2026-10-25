@@ -256,3 +256,5 @@ docs/                            # cài đặt, vận hành và đánh giá AI
 ```
 
 Danh mục màn hình nằm ở **Cá nhân → Thông tin ứng dụng → Danh mục màn hình**. Một số màn hình hệ thống/trang thử chỉ để kiểm tra, không thể hiện toàn bộ nghiệp vụ production.
+
+Đổi mật khẩu tại **Cá nhân → Đổi mật khẩu**. Admin có quyền quản lý tài khoản có thể **Đặt lại mật khẩu** cho tài khoản email khác qua menu Thao tác; xem [hướng dẫn mật khẩu](docs/ACCOUNT_PASSWORDS.md).

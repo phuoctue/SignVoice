@@ -129,6 +129,13 @@ class AdminWorkspaceService {
   Future<void> delete(String resource, String id) async {
     await _api.delete('/admin/$resource/$id');
   }
+
+  Future<void> resetUserPassword(String id, String newPassword) async {
+    await _api.post(
+      '/admin/users/$id/password',
+      body: {'newPassword': newPassword},
+    );
+  }
 }
 
 const adminPermissionLabels = {
