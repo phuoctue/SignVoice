@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { ReviewQuiz } from '../models/ReviewQuiz.model';
 import { WordProgress, TopicEnrollment } from '../models/Learning.model';
 import { DictionaryEntry } from '../models/DictionaryEntry.model';
+import { Category } from '../models/Category.model';
+import { LearningEvent } from '../models/LearningEvent.model';
 import { AppError } from '../common/errors/AppError';
 import { topicWords, topicOrFail } from './learning.service';
 import { userTransaction } from './user-data.service';
@@ -18,7 +20,7 @@ function normalize(value: string) { return value.normalize('NFC').trim().toLocal
 function dto(quiz: Attempt) {
   const captures = quiz.captures || [];
   return { _id: String(quiz._id), topicId: String(quiz.topicId), status: quiz.status,
-    questions: quiz.questions.map((q) => ({ entryId: q.entryId, word: q.word,
+    questions: quiz.questions.map((q) => ({ entryId: q.entryId, word: q.word.normalize('NFC'), aliases: (q.aliases || []).map(label => label.normalize('NFC')),
       prompt: `Hãy thực hiện ký hiệu “${q.word}” trước camera.`, videoUrl: q.videoUrl,
       thumbnailUrl: q.thumbnailUrl, imageUrls: q.imageUrls,
       recognizedLabel: captures.find(c => c.entryId === q.entryId)?.recognizedLabel ?? '' })),
@@ -128,6 +130,7 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
       const current = await ReviewQuiz.findOne({ _id: id, userId, status: 'DRAFT', gradingToken: token }).session(session);
       if (!current) throw missingQuiz();
       const output = [];
+      const topic = await Category.findById(quiz.topicId).select('name').session(session).lean();
       for (const question of quiz.questions) {
         const capture = (quiz.captures || []).find(c => c.entryId === question.entryId)!;
         const accepted = [question.word, ...(question.aliases || [])].map(normalize);
@@ -145,6 +148,9 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
           progress!.nextReviewAt = matched ? new Date(Date.now() + 3 * 86400000) : null;
           await progress!.save({ session });
         }
+        await LearningEvent.create([{ userId, topicId: quiz.topicId, entryId: question.entryId, quizId: id,
+          word: question.word, topicName: topic?.name || 'Chủ đề đã được gỡ', kind: 'QUIZ_REVIEWED',
+          stage, score, applied }], { session });
         output.push({ entryId: question.entryId, word: question.word, recognizedLabel: capture.recognizedLabel,
           score, feedback: matched ? 'Camera nhận diện đúng ký hiệu.' : 'Ký hiệu nhận diện chưa khớp. Hãy xem lại mẫu và ôn tập thêm.', stage, applied });
       }

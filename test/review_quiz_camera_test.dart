@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +54,58 @@ class DelayedCamera implements SignCamera {
   }
 }
 
+class StreamingQuizCamera extends DelayedCamera
+    implements LocalTrackingCamera, ForegroundTrackingCamera {
+  final observations = StreamController<LocalHandObservation>.broadcast();
+  int contexts = 0;
+  @override
+  Stream<LocalHandObservation> get localTracking => observations.stream;
+  @override
+  void updateTrackingContext(List<dynamic> anchor, int timestampMs) =>
+      contexts++;
+}
+
+class QuizChannel implements WebSocketChannel {
+  final events = StreamController<dynamic>();
+  final sent = <Map<String, dynamic>>[];
+  late final QuizSink output = QuizSink(this);
+  void reply(Map<String, dynamic> data) => events.add(jsonEncode(data));
+  @override
+  WebSocketSink get sink => output;
+  @override
+  Stream<dynamic> get stream => events.stream;
+  @override
+  Future<void> get ready async {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class QuizSink implements WebSocketSink {
+  QuizSink(this.channel);
+  final QuizChannel channel;
+  @override
+  void add(dynamic data) {
+    if (data is! String) return;
+    final message = jsonDecode(data) as Map<String, dynamic>;
+    channel.sent.add(message);
+    if (message.containsKey('mode')) {
+      channel.reply({
+        'type': 'ready',
+        'stream_protocol': 2,
+        'live_word_observations': true,
+      });
+    }
+  }
+
+  @override
+  Future<void> close([int? code, String? reason]) async {
+    await channel.events.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Future<void> mount(
   WidgetTester tester,
   DelayedCamera camera,
@@ -75,6 +130,89 @@ Future<void> mount(
 }
 
 void main() {
+  testWidgets(
+    'quiz forwards measured hands and keeps confirmed feedback until retry',
+    (tester) async {
+      final camera = StreamingQuizCamera()..initialization.complete();
+      final socket = QuizChannel();
+      final retrySocket = QuizChannel();
+      var connections = 0;
+      await tester.pumpWidget(
+        Provider<LearningService>.value(
+          value: QuizService(),
+          child: MaterialApp(
+            home: ReviewQuizScreen(
+              quizId: 'quiz',
+              cameraFactory: ({required bool front}) => camera,
+              ticketLoader: () async => 'ticket',
+              channelFactory: (_) => connections++ == 0 ? socket : retrySocket,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Mở camera nhận diện'));
+      await tester.tap(find.text('Mở camera nhận diện'));
+      await tester.pumpAndSettle();
+      camera.observations.add(
+        const LocalHandObservation(
+          [],
+          30,
+          5,
+          handObservation: {'timestamp_ms': 1000},
+        ),
+      );
+      await tester.pump();
+      expect(
+        socket.sent.where((m) => m['type'] == 'hand_observation').length,
+        1,
+      );
+      socket.reply({
+        'type': 'result',
+        'hands': 1,
+        'confirmed': null,
+        'timestamp_ms': 1000,
+        'foreground_context': [.5, .4, .2, 1],
+      });
+      await tester.pumpAndSettle();
+      expect(camera.contexts, 1);
+      expect(find.textContaining('Đã thấy 1 tay'), findsOneWidget);
+      socket.reply({'type': 'result', 'hands': 1, 'confirmed': 'ai'});
+      await tester.pumpAndSettle();
+      expect(find.text('Đúng ký hiệu “ai”'), findsOneWidget);
+      socket.reply({'type': 'result', 'hands': 0, 'confirmed': null});
+      await tester.pumpAndSettle();
+      expect(find.text('Đúng ký hiệu “ai”'), findsOneWidget);
+      socket.events.addError(StateError('connection lost'));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.text('Đúng ký hiệu “ai”'), findsOneWidget);
+      await tester.ensureVisible(find.text('Làm lại ký hiệu'));
+      await tester.tap(find.text('Làm lại ký hiệu'));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(
+        connections,
+        2,
+        reason: 'Retry must open a fresh recognition session',
+      );
+      await tester.pumpAndSettle();
+      retrySocket.reply({'type': 'result', 'hands': 1, 'confirmed': 'khác'});
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Chưa khớp'), findsWidgets);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await camera.observations.close();
+      await tester.pump();
+    },
+  );
   test(
     'public HTTPS gateway includes its authentication ticket in WSS',
     () async {

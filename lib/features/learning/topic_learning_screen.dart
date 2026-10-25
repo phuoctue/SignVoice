@@ -195,6 +195,15 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
             icon: const Icon(Icons.visibility_outlined),
             label: const Text('Xem ký hiệu & ví dụ'),
           ),
+          if (enrolled)
+            TextButton.icon(
+              onPressed: () => Navigator.pushNamed(
+                context,
+                '/learn/history?entryId=${word['_id']}',
+              ),
+              icon: const Icon(Icons.history),
+              label: const Text('Lịch sử từ này'),
+            ),
           if (enrolled && word['stage'] == 'LEARNING') ...[
             const SizedBox(height: 8),
             const Text('Bạn nhớ từ này đến đâu?'),
@@ -308,7 +317,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
             if (enrolled && stage == 'REVIEW' && words.isNotEmpty) ...[
               const Notice(
-                'Ôn theo quiz, tối đa 10 câu mỗi lượt. LM Studio đánh giá nghĩa hoặc câu ví dụ; kết quả không chấm động tác ký hiệu.',
+                'Ôn bằng quiz camera, tối đa 10 từ mỗi lượt. Ghi nhận kết quả cho từng từ rồi nộp bài. Từ chưa khớp được tổng hợp trong Thống kê & mục tiêu → Từ cần củng cố.',
               ),
               const SizedBox(height: 12),
               AppButton(
@@ -329,7 +338,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
             const SizedBox(height: 12),
             const Notice(
-              'Tự thực hành theo ảnh/video tham khảo. Tiến độ phản ánh đánh giá của chính bạn; LM Studio chỉ gợi ý ôn tập.',
+              'Học theo ảnh/video tham khảo và tự đánh giá. Quiz camera ghi nhận kết quả ôn tập; LM Studio phân tích tiến độ và gợi ý luyện tập.',
             ),
             if (isStudy)
               TextButton(

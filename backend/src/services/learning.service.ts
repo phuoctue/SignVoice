@@ -25,7 +25,7 @@ function availableMedia(value: unknown): string {
   if (!filename) return value;
   return /^[a-f0-9]{64}(?:-[1-5])?\.(?:mp4|jpg)$/.test(filename) && existsSync(path.join(mediaRoot, filename)) ? value : '';
 }
-function withAvailableMedia(word: Record<string, unknown>) {
+export function withAvailableMedia(word: Record<string, unknown>) {
   const videoUrl = availableMedia(word.videoUrl);
   const thumbnailUrl = availableMedia(word.thumbnailUrl);
   const imageUrls = Array.isArray(word.imageUrls) ? word.imageUrls.map(availableMedia).filter(Boolean) : [];
@@ -102,8 +102,9 @@ export async function exploreTopics(userId: Types.ObjectId, page: number, search
   return { items: result[0].items.map((topic: Record<string, unknown>) => ({ ...topic, imageUrl: availableMedia(topic.imageUrl) })), pagination: pagination(page, result[0].count[0]?.total || 0) };
 }
 
-export async function enrolledTopics(userId: Types.ObjectId, page: number, stage?: string) {
-  const result = await TopicEnrollment.aggregate([
+/** Shared owner-scoped counts before pagination, also used by personal analysis. */
+export function enrolledTopicStages(userId: Types.ObjectId): PipelineStage[] {
+  return [
     { $match: { userId } },
     { $lookup: { from: Category.collection.name, localField: 'topicId', foreignField: '_id', as: 'topic' } },
     { $unwind: '$topic' }, { $match: { 'topic.status': 'ACTIVE' } },
@@ -118,6 +119,12 @@ export async function enrolledTopics(userId: Types.ObjectId, page: number, stage
     ], as: 'counts' } },
     { $set: { summary: { $first: '$counts' } } },
     { $match: { 'summary.total': { $gt: 0 } } },
+  ];
+}
+
+export async function enrolledTopics(userId: Types.ObjectId, page: number, stage?: string) {
+  const result = await TopicEnrollment.aggregate([
+    ...enrolledTopicStages(userId),
     { $sort: { updatedAt: -1, _id: 1 } },
     { $facet: {
       totals: [{ $group: { _id: null, total: { $sum: '$summary.total' }, learning: { $sum: '$summary.learning' }, remembered: { $sum: '$summary.remembered' }, review: { $sum: '$summary.review' } } }],

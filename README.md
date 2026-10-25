@@ -168,7 +168,9 @@ cd SignVoice
 
 Health mong đợi: `http://localhost:8001/health` có `ready: true`, `word_classes: 181`, `word_engine: probability_ensemble`. Model hiện dùng không bị thay bằng kết quả train chưa đạt yêu cầu.
 
-Nhận diện webcam hiện dùng model Python trực tiếp, không bắt buộc LM Studio. Repo vẫn còn code LM Studio cho các trang thử/luồng cũ và xử lý ngôn ngữ tùy chọn. File `backend/src/routes/ai.routes.ts` hiện không được mount trong app; không coi proxy thử này là API đang hoạt động.
+Nhận diện webcam hiện dùng model Python trực tiếp, không bắt buộc LM Studio. Giao diện Từ điển gồm **Khám phá / Đang học / Từ của tôi**. Trong **Đang học**, nút **Phân tích tiến độ cá nhân** gọi `POST /api/v1/learning/analysis` để xem tỷ lệ đã nhớ, kết quả theo chủ đề và nhận xét; nút **Gợi ý ôn tập** gọi `POST /api/v1/learning/coach` để lấy kế hoạch ôn ngắn. Backend kết nối LM Studio bằng `SIGNVOICE_LM_STUDIO_URL` (mặc định cổng 1235), `SIGNVOICE_LM_STUDIO_MODEL` và API key tùy chọn. Xem [kết nối LM Studio](docs/LMStudio-learning-progress.md) và [setup máy khác/cùng Wi-Fi](docs/SETUP_MAY_KHAC_LMSTUDIO.md). File `backend/src/routes/ai.routes.ts` cũ không được mount trong app.
+
+Trong **Đang học**, **Lịch sử học tập** hiển thị các lượt học/ôn đã ghi nhận; từng thẻ từ có **Lịch sử từ này**. **Thống kê & mục tiêu** có biểu đồ 7/30 ngày, từ thường chưa khớp trong quiz và mục tiêu ngày mặc định 5 từ mới/10 từ ôn, chỉnh được theo tài khoản. Xem [chi tiết học tập](docs/DICTIONARY_LEARNING.md).
 
 Public/tunnel là luồng riêng: [CONVEYOR_PUBLISHING.md](docs/CONVEYOR_PUBLISHING.md). Không cần public ứng dụng để kiểm thử local.
 

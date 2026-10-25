@@ -267,6 +267,7 @@ class ApiClient {
     Map<String, String>? queryParameters,
     dynamic body,
     bool requiresAuth = true,
+    Duration? timeout,
   }) async {
     final epoch = _sessionEpoch;
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -281,7 +282,7 @@ class ApiClient {
         final response = await _client
             .send(request)
             .then(http.Response.fromStream)
-            .timeout(ApiConfig.receiveTimeout);
+            .timeout(timeout ?? ApiConfig.receiveTimeout);
         if (requiresAuth) checkSession(epoch);
         return _handleResponse(response);
       } on TokenExpiredException {
@@ -325,7 +326,14 @@ class ApiClient {
     String endpoint, {
     dynamic body,
     bool requiresAuth = true,
-  }) => _request('POST', endpoint, body: body, requiresAuth: requiresAuth);
+    Duration? timeout,
+  }) => _request(
+    'POST',
+    endpoint,
+    body: body,
+    requiresAuth: requiresAuth,
+    timeout: timeout,
+  );
   Future<dynamic> put(
     String endpoint, {
     dynamic body,

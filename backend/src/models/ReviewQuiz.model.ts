@@ -14,4 +14,5 @@ export const ReviewQuiz = model('ReviewQuiz', new Schema({
   completedAt: { type: Date, default: null },
 }, { timestamps: true, collection: 'learning_review_quizzes' })
   .index({ userId: 1, topicId: 1 }, { unique: true, partialFilterExpression: { status: 'DRAFT' } })
-  .index({ userId: 1, createdAt: -1 }));
+  .index({ userId: 1, createdAt: -1 })
+  .index({ userId: 1, status: 1, completedAt: -1 }));

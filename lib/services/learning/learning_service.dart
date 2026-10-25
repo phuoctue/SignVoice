@@ -51,6 +51,44 @@ class LearningService {
       _page('topics/$id', {'page': '$page', 'stage': stage});
   Future<LearningPage> myWords({int page = 1, String search = ''}) =>
       _page('my-words', {'page': '$page', 'search': search});
+  Future<LearningRecord> insights({int days = 7, int page = 1}) async {
+    final response = await _client.get(
+      '/learning/insights',
+      queryParameters: {'days': '$days', 'page': '$page'},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> todayProgress() async {
+    final response = await _client.get('/learning/today');
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningPage> activity({
+    required String date,
+    String kind = 'learned',
+    int page = 1,
+  }) => _page('activity', {'date': date, 'kind': kind, 'page': '$page'});
+
+  Future<void> saveGoals({
+    required int newWords,
+    required int reviewWords,
+  }) async {
+    await _client.patch(
+      '/learning/goals',
+      body: {'newWords': newWords, 'reviewWords': reviewWords},
+    );
+  }
+
+  Future<LearningPage> history({
+    int page = 1,
+    String search = '',
+    String? entryId,
+  }) => _page('history', {
+    'page': '$page',
+    'search': search,
+    'entryId': ?entryId,
+  });
   Future<void> start(String id) async {
     await _client.post('/learning/topics/$id/start');
   }
@@ -104,7 +142,20 @@ class LearningService {
   }
 
   Future<LearningRecord> coach() async {
-    final response = await _client.post('/learning/coach', body: {});
+    final response = await _client.post(
+      '/learning/coach',
+      body: {},
+      timeout: const Duration(seconds: 100),
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> analyzeProgress() async {
+    final response = await _client.post(
+      '/learning/analysis',
+      body: {},
+      timeout: const Duration(seconds: 100),
+    );
     return LearningRecord.from(response['data'] as Map);
   }
 

@@ -27,6 +27,8 @@ import 'features/system/system_screens.dart';
 import 'features/recognition/live_camera_screen.dart';
 import 'widgets/guest_access_gate.dart';
 import 'features/learning/learning_hub.dart';
+import 'features/learning/learning_history_screen.dart';
+import 'features/learning/learning_insights_screen.dart';
 import 'features/learning/review_quiz_screen.dart';
 import 'features/learning/topic_learning_screen.dart';
 import 'services/learning/learning_service.dart';
@@ -184,6 +186,8 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
           onGenerateRoute: (settings) {
             final uri = Uri.tryParse(settings.name ?? '');
             if (uri?.path == '/learn' ||
+                uri?.path == '/learn/insights' ||
+                uri?.path == '/learn/history' ||
                 uri?.path.startsWith('/learn/topic/') == true ||
                 uri?.path.startsWith('/learn/quiz/') == true) {
               return MaterialPageRoute<void>(
@@ -360,6 +364,10 @@ class AccessGate extends StatelessWidget {
     }
     if (screenId.startsWith('/learn')) {
       final uri = Uri.parse(screenId);
+      if (uri.path == '/learn/insights') return const LearningInsightsScreen();
+      if (uri.path == '/learn/history') {
+        return LearningHistoryScreen(entryId: uri.queryParameters['entryId']);
+      }
       if (uri.pathSegments.length == 3 && uri.pathSegments[1] == 'quiz') {
         return ReviewQuizScreen(quizId: uri.pathSegments[2]);
       }

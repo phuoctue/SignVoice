@@ -6,6 +6,8 @@ import { AuthSession, SessionStatus, SessionType } from '../models/AuthSession.m
 import { Favorite } from '../models/Favorite.model';
 import { Conversation } from '../models/Conversation.model';
 import { SearchHistory } from '../models/SearchHistory.model';
+import { LearningEvent } from '../models/LearningEvent.model';
+import { WordProgress } from '../models/Learning.model';
 import { requireAuth } from '../common/middlewares/auth.middleware';
 import { validate } from '../common/middlewares/validate.middleware';
 import { AppError } from '../common/errors/AppError';
@@ -72,7 +74,10 @@ router.get('/data/export', async (req, res, next) => {
       const favorites = await Favorite.find({userId}).select('entryId notes createdAt updatedAt').session(session);
       const conversations = await Conversation.find({userId}).sort({createdAt: -1}).session(session);
       const searchHistory = await SearchHistory.find({userId}).select('entryId viewedAt').session(session);
-      return {profile: await safeUser(user), settings, favorites, conversations: conversations.map(conversationDto), searchHistory, exportedAt: new Date().toISOString()};
+      const learningHistory = await LearningEvent.find({userId}).select('-userId -__v').sort({createdAt: -1, _id: -1}).session(session);
+      const learningProgress = await WordProgress.find({userId}).select('-userId -__v').session(session);
+      return {profile: await safeUser(user), settings, favorites, conversations: conversations.map(conversationDto), searchHistory,
+        learningHistory, learningProgress, exportedAt: new Date().toISOString()};
     });
     res.json({success: true, data});
   } catch (error) { next(error); }

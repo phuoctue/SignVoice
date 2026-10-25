@@ -6,6 +6,7 @@ import { connectDatabase, disconnectDatabase } from '../src/config/database';
 import { Category, DictionaryEntry, User, AuthSession, UserSettings } from '../src/models';
 import { TopicEnrollment, WordProgress, PersonalWord } from '../src/models/Learning.model';
 import { deleteOwnAccount } from '../src/services/account-deletion.service';
+import { LearningEvent } from '../src/models/LearningEvent.model';
 
 let app: Awaited<ReturnType<typeof createApp>>;
 let a: string, b: string, userA: Types.ObjectId, userB: Types.ObjectId;
@@ -36,7 +37,7 @@ afterAll(async () => {
   await Category.deleteMany({ _id: { $in: topics } });
   for (const userId of [userA, userB]) {
     if (!userId) continue;
-    for (const model of [TopicEnrollment, WordProgress, PersonalWord]) await model.collection.deleteMany({ userId });
+    for (const model of [TopicEnrollment, WordProgress, PersonalWord, LearningEvent]) await model.collection.deleteMany({ userId });
     await AuthSession.deleteMany({ userId }); await UserSettings.deleteMany({ userId }); await User.deleteOne({ _id: userId });
   }
   await disconnectDatabase();

@@ -9,6 +9,13 @@ $ErrorActionPreference = 'Stop'
 if ($Port -eq $AiPort) { throw 'Public and AI service ports must be different.' }
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $workspaceRoot 'backend'
+$aiPython = Join-Path $workspaceRoot 'ai_service\.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath (Join-Path $backendRoot '.env'))) {
+    throw 'Missing backend/.env. Copy backend/.env.example to backend/.env and configure it first.'
+}
+if (-not (Test-Path -LiteralPath $aiPython)) {
+    throw 'AI Python environment is missing. Install Python 3.11, then run: .\scripts\setup-ai-service.ps1 -Python (py -3.11 -c "import sys; print(sys.executable)")'
+}
 $runtimeRoot = Join-Path $workspaceRoot '.runtime'
 $stateFile = Join-Path $runtimeRoot $(if ($NoTunnel) { 'local-server.json' } else { 'public-server.json' })
 $settingsFile = Join-Path $runtimeRoot 'public-settings.json'
@@ -68,14 +75,20 @@ try {
         Start-Sleep -Milliseconds 500
     }
     if (-not $SkipBuild) {
+        Push-Location $backendRoot
+        try {
+            if (-not (Test-Path -LiteralPath 'node_modules/.bin/tsc.cmd')) {
+                Write-Host 'Installing backend dependencies (including TypeScript)...'
+                & npm.cmd ci --include=dev
+                if ($LASTEXITCODE) { throw 'Backend dependency installation failed.' }
+            }
+        } finally { Pop-Location }
         Write-Host 'Building Flutter web (release) with same-origin AI...'
         & flutter build web --release --dart-define=API_BASE_URL=/api/v1 --dart-define=AI_SERVICE_URL=/sign-ai --no-web-resources-cdn
         if ($LASTEXITCODE) { throw 'Flutter web build failed.' }
         Push-Location $backendRoot
         try { & npm.cmd run build; if ($LASTEXITCODE) { throw 'Backend build failed.' } } finally { Pop-Location }
     }
-    $aiPython = Join-Path $workspaceRoot 'ai_service\.venv\Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $aiPython)) { throw 'Run scripts/setup-ai-service.ps1 first.' }
     $selectedOutput = & $aiPython -m ai_service.model_selection resolve
     if ($LASTEXITCODE) { throw 'Selected AI model is not valid.' }
     $selected = $selectedOutput | ConvertFrom-Json
@@ -167,7 +180,9 @@ try {
         -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $runtimeRoot 'public-server.log') `
         -RedirectStandardError (Join-Path $runtimeRoot 'public-server.error.log')
-    $health = Wait-Health "http://127.0.0.1:$Port/health/ready" 45 $serverProcess.Id
+    # Allow a cold start on a busy machine; readiness still returns immediately when available.
+    Write-Host 'Waiting up to 120 seconds for backend/database readiness...'
+    $health = Wait-Health "http://127.0.0.1:$Port/health/ready" 120 $serverProcess.Id
     if (-not $health.success) { throw 'Backend/database is not ready.' }
     $proxyHealth = Wait-Health "http://127.0.0.1:$Port/sign-ai/health" 10 $serverProcess.Id
     if (-not $proxyHealth.ready) { throw 'Public AI proxy is not ready.' }

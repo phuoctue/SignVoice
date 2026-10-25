@@ -2250,6 +2250,150 @@ paths:
       responses:
         '200': { description: Saved personal rating and next review time }
         '409': { description: Topic must be started first }
+  /api/v1/learning/today:
+    get:
+      tags: [Dictionary]
+      operationId: getLearningToday
+      summary: Lightweight owner-scoped today's counters and saved goals for foreground polling
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Asia/Ho_Chi_Minh today with unique learned/newWords/reviewed counts, goals and nullable lastQuizAt; same rules as insights
+        '400': { description: Query parameters are not supported }
+        '401': { description: Authentication required }
+  /api/v1/learning/activity:
+    get:
+      tags: [Dictionary]
+      operationId: getLearningDayWords
+      summary: Actual unique studied or reviewed words on a Vietnam calendar date
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: date, required: true, schema: { type: string, format: date } }
+        - { in: query, name: kind, schema: { type: string, enum: [learned, reviewed], default: learned } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
+      responses:
+        '200':
+          description: Owner-scoped date, kind, timeZone, pagination and at most ten unique words with entryId, word, topicName, occurredAt; learned includes stage/isNew, reviewed includes matched/attempts. No user IDs or camera captures.
+        '400': { description: Invalid calendar date, kind, page or unknown query parameter }
+        '401': { description: Authentication required }
+  /api/v1/learning/insights:
+    get:
+      tags: [Dictionary]
+      operationId: getLearningInsights
+      summary: Vietnam-calendar activity, daily goals and paginated frequently missed camera-quiz words
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: days, schema: { type: integer, enum: [7, 30], default: 7 } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
+      responses:
+        '200':
+          description: Owner-scoped zero-filled daily word counts, goals and available weak words; no progress mutations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      timeZone: { type: string, enum: [Asia/Ho_Chi_Minh] }
+                      days: { type: integer, enum: [7, 30] }
+                      startDate: { type: string, format: date }
+                      endDate: { type: string, format: date }
+                      activity:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date: { type: string, format: date }
+                            learned: { type: integer, minimum: 0 }
+                            newWords: { type: integer, minimum: 0 }
+                            reviewed: { type: integer, minimum: 0 }
+                      today: { type: object, description: Today's date and unique learned/newWords/reviewed counts }
+                      goals: { type: object, description: Persisted newWords and reviewWords targets, defaults 5 and 10 }
+                      lastQuizAt: { type: string, format: date-time, nullable: true }
+                      weakWords:
+                        type: object
+                        properties:
+                          pagination: { type: object }
+                          items:
+                            type: array
+                            maxItems: 10
+                            items:
+                              type: object
+                              properties:
+                                entryId: { type: string }
+                                topicId: { type: string }
+                                word: { type: string }
+                                topicName: { type: string }
+                                misses: { type: integer }
+                                attempts: { type: integer }
+                                missRate: { type: integer, minimum: 0, maximum: 100 }
+                                latestMatched: { type: boolean }
+                                lastReviewedAt: { type: string, format: date-time }
+        '400': { description: Invalid period/page or unknown query parameter }
+        '401': { description: Authentication required }
+  /api/v1/learning/goals:
+    patch:
+      tags: [Dictionary]
+      operationId: updateLearningGoals
+      summary: Persist the authenticated learner's daily new-word and review-word targets
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [newWords, reviewWords]
+              properties:
+                newWords: { type: integer, minimum: 1, maximum: 100 }
+                reviewWords: { type: integer, minimum: 1, maximum: 200 }
+            example: { newWords: 5, reviewWords: 10 }
+      responses:
+        '200': { description: Saved newWords and reviewWords goals }
+        '400': { description: Invalid targets or caller-supplied owner }
+        '401': { description: Authentication required }
+  /api/v1/learning/history:
+    get:
+      tags: [Dictionary]
+      summary: Owned learning timeline including labeled last-state records from older progress
+      operationId: getPersonalLearningHistory
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 80 } }
+        - { in: query, name: entryId, schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' } }
+      responses:
+        '200':
+          description: Ten newest owned records per page, filtered before pagination; no userId in records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      pagination: { type: object }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind: { type: string, enum: [TOPIC_STARTED, SELF_RATED, QUIZ_REVIEWED, RECORDED_PROGRESS] }
+                            word: { type: string }
+                            topicName: { type: string }
+                            entryId: { type: string, nullable: true }
+                            createdAt: { type: string, format: date-time }
+                            stage: { type: string, nullable: true, enum: [LEARNING, REMEMBERED, REVIEW, null] }
+                            score: { type: number, nullable: true }
+                            applied: { type: boolean }
+        '400': { description: Invalid page, search, entryId or unsupported query parameter }
+        '401': { description: Authentication required }
   /api/v1/learning/coach:
     post:
       tags: [Dictionary]
@@ -2259,6 +2403,57 @@ paths:
       responses:
         '200': { description: Source, advice and actual progress summary; never changes ratings }
         '429': { description: Six advice requests per minute per IP }
+  /api/v1/learning/analysis:
+    post:
+      tags: [Dictionary]
+      summary: Analyze the authenticated learner's current personal progress across started topics
+      operationId: analyzePersonalLearningProgress
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+            example: {}
+      responses:
+        '200':
+          description: Read-only snapshot, topic summaries and a labeled AI or deterministic analysis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      source: { type: string, enum: [lm-studio, rules, no-data] }
+                      generatedAt: { type: string, format: date-time }
+                      analysis: { type: string }
+                      summary:
+                        type: object
+                        properties:
+                          total: { type: integer, minimum: 0 }
+                          learning: { type: integer, minimum: 0 }
+                          remembered: { type: integer, minimum: 0 }
+                          review: { type: integer, minimum: 0 }
+                          topicCount: { type: integer, minimum: 0 }
+                          rememberedPercent: { type: integer, minimum: 0, maximum: 100 }
+                      topics:
+                        type: array
+                        maxItems: 40
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            total: { type: integer }
+                            learning: { type: integer }
+                            remembered: { type: integer }
+                            review: { type: integer }
+                            rememberedPercent: { type: integer }
+        '400': { description: Only an empty JSON object is accepted }
+        '401': { description: Authentication required }
+        '429': { description: Three analysis requests per minute per account }
   /api/v1/learning/topics/{id}/quiz:
     post:
       tags: [Dictionary]

@@ -6,6 +6,7 @@ import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
 import 'learning_widgets.dart';
 import 'personal_word_form.dart';
+import 'learning_analysis_card.dart';
 
 class LearningHub extends StatefulWidget {
   const LearningHub({super.key, this.initialTab = 0});
@@ -20,6 +21,10 @@ class _LearningHubState extends State<LearningHub> {
   String query = '';
   String? error;
   bool loading = true, coaching = false;
+  bool analyzing = false;
+  int analysisRequest = 0;
+  String? analysisError;
+  LearningRecord? analysis;
   LearningPage? data;
   LearningRecord? advice;
   final search = TextEditingController();
@@ -35,15 +40,20 @@ class _LearningHubState extends State<LearningHub> {
   @override
   void dispose() {
     request++;
+    analysisRequest++;
     search.dispose();
     super.dispose();
   }
 
   Future<void> load() async {
     final current = ++request;
+    analysisRequest++;
     setState(() {
       loading = true;
       error = null;
+      analysis = null;
+      analysisError = null;
+      analyzing = false;
     });
     try {
       final result = switch (tab) {
@@ -90,6 +100,32 @@ class _LearningHubState extends State<LearningHub> {
       }
     } finally {
       if (mounted) setState(() => coaching = false);
+    }
+  }
+
+  Future<void> analyze() async {
+    final current = ++analysisRequest;
+    setState(() {
+      analyzing = true;
+      analysisError = null;
+    });
+    try {
+      final result = await service.analyzeProgress();
+      if (mounted && current == analysisRequest) {
+        setState(() => analysis = result);
+      }
+    } catch (e) {
+      if (mounted && current == analysisRequest) {
+        setState(
+          () => analysisError = e is ApiException
+              ? e.message
+              : 'Chưa phân tích được tiến độ. Dữ liệu học tập vẫn được lưu.',
+        );
+      }
+    } finally {
+      if (mounted && current == analysisRequest) {
+        setState(() => analyzing = false);
+      }
     }
   }
 
@@ -418,13 +454,39 @@ class _LearningHubState extends State<LearningHub> {
         ],
         if (tab == 1) ...[
           LearningSummary(data?.summary ?? {}),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () => Navigator.pushNamed(context, '/learn/history'),
+            icon: const Icon(Icons.history),
+            label: const Text('Lịch sử học tập'),
+          ),
+          TextButton.icon(
+            onPressed: () => Navigator.pushNamed(context, '/learn/insights'),
+            icon: const Icon(Icons.bar_chart_outlined),
+            label: const Text('Thống kê & mục tiêu'),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            'Phân tích tiến độ cá nhân',
+            icon: Icons.analytics_outlined,
+            busy: analyzing,
+            onPressed: analyzing || coaching || loading ? null : analyze,
+          ),
+          if (analysisError != null) ...[
+            const SizedBox(height: 12),
+            Notice(analysisError!),
+          ],
+          if (analysis != null) ...[
+            const SizedBox(height: 12),
+            LearningAnalysisCard(result: analysis!),
+          ],
           const SizedBox(height: 16),
           AppButton(
             'Gợi ý ôn tập',
             icon: Icons.auto_awesome_outlined,
             secondary: true,
             busy: coaching,
-            onPressed: coaching ? null : coach,
+            onPressed: coaching || analyzing ? null : coach,
           ),
           if (advice != null)
             Padding(

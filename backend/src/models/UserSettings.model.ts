@@ -43,6 +43,7 @@ export interface IUserSettings extends Document {
   
   // Privacy
   shareUsageData: boolean;
+  learningGoals: { newWords: number; reviewWords: number };
   
   // Timestamps
   createdAt: Date;
@@ -108,6 +109,10 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       type: Boolean,
       default: false,
       required: true,
+    },
+    learningGoals: {
+      newWords: { type: Number, default: 5, min: 1, max: 100, validate: Number.isInteger },
+      reviewWords: { type: Number, default: 10, min: 1, max: 200, validate: Number.isInteger },
     },
   },
   {

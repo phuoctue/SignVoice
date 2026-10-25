@@ -7,6 +7,11 @@ import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { PersonalWord, TopicEnrollment, WordProgress } from '../models/Learning.model';
 import { exploreTopics, enrolledTopics, objectId, pagination, regexLiteral, topicOrFail, topicWords, PAGE_SIZE } from '../services/learning.service';
 import { learningAdvice } from '../services/learning-coach.service';
+import { analyzeLearningProgress } from '../services/learning-analysis.service';
+import { learningHistory } from '../services/learning-history.service';
+import { LearningEvent } from '../models/LearningEvent.model';
+import { learningInsights, learningToday, learningDayWords } from '../services/learning-insights.service';
+import { UserSettings } from '../models/UserSettings.model';
 import { userTransaction } from '../services/user-data.service';
 import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz } from '../services/review-quiz.service';
 
@@ -24,6 +29,30 @@ const querySchema = z.object({ page: pageSchema, search: z.string().trim().max(8
 const stageSchema = z.enum(['LEARNING', 'REMEMBERED', 'REVIEW']);
 const optionalStage = z.enum(['ALL', 'LEARNING', 'REMEMBERED', 'REVIEW']).default('ALL');
 
+router.get('/insights', wrap(async (req, res) => {
+  const query = parse(z.object({ days: z.enum(['7', '30']).default('7'), page: pageSchema }).strict(), req.query);
+  return res.json({ success: true, data: await learningInsights(req.user!.id, query.days === '30' ? 30 : 7, query.page) });
+}));
+router.get('/today', wrap(async (req, res) => {
+  parse(z.object({}).strict(), req.query);
+  return res.json({ success: true, data: await learningToday(req.user!.id) });
+}));
+router.get('/activity', wrap(async (req, res) => {
+  const query = parse(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), kind: z.enum(['learned', 'reviewed']).default('learned'), page: pageSchema }).strict(), req.query);
+  return res.json({ success: true, data: await learningDayWords(req.user!.id, query.date, query.kind, query.page) });
+}));
+router.patch('/goals', wrap(async (req, res) => {
+  const goals = parse(z.object({ newWords: z.number().int().min(1).max(100), reviewWords: z.number().int().min(1).max(200) }).strict(), req.body);
+  await userTransaction(req.user!.id, session => UserSettings.updateOne({ userId: req.user!.id }, { $set: { learningGoals: goals } }, { upsert: true, runValidators: true, session }));
+  return res.json({ success: true, data: goals });
+}));
+
+router.get('/history', wrap(async (req, res) => {
+  const query = parse(querySchema.extend({ entryId: z.string().regex(/^[a-f0-9]{24}$/i).optional() }).strict(), req.query);
+  return res.json({ success: true, data: await learningHistory(req.user!.id, query.page, query.search,
+    query.entryId ? objectId(query.entryId) : undefined) });
+}));
+
 router.get('/topics', wrap(async (req, res) => {
   const query = parse(querySchema, req.query);
   return res.json({ success: true, data: await exploreTopics(req.user!.id, query.page, query.search) });
@@ -39,25 +68,31 @@ router.get('/topics/:id', wrap(async (req, res) => {
 }));
 router.post('/topics/:id/start', wrap(async (req, res) => {
   const topicId = objectId(req.params.id);
-  await topicOrFail(topicId);
+  const topic = await topicOrFail(topicId);
   if (!await DictionaryEntry.exists({ categoryId: topicId, status: 'PUBLISHED' })) throw new AppError('Chủ đề chưa có từ để học.', 409, 'EMPTY_TOPIC');
   try {
     await userTransaction(req.user!.id, async session => {
-      await TopicEnrollment.updateOne({ userId: req.user!.id, topicId }, { $setOnInsert: { userId: req.user!.id, topicId } }, { upsert: true, session });
+      const enrolled = await TopicEnrollment.updateOne({ userId: req.user!.id, topicId }, { $setOnInsert: { userId: req.user!.id, topicId } }, { upsert: true, session });
+      if (enrolled.upsertedCount) await LearningEvent.create([{ userId: req.user!.id, topicId,
+        kind: 'TOPIC_STARTED', topicName: topic.name }], { session });
     });
   } catch (error) { if ((error as { code?: number }).code !== 11000) throw error; }
   return res.json({ success: true, data: { enrolled: true } });
 }));
 router.patch('/words/:id/progress', wrap(async (req, res) => {
   const { stage } = parse(z.object({ stage: stageSchema }).strict(), req.body);
-  const entry = await DictionaryEntry.findOne({ _id: objectId(req.params.id), status: 'PUBLISHED' }).select('categoryId').lean();
+  const entry = await DictionaryEntry.findOne({ _id: objectId(req.params.id), status: 'PUBLISHED' }).select('categoryId word').lean();
   if (!entry) throw new AppError('Từ không còn khả dụng.', 404, 'WORD_NOT_FOUND');
+  const topic = await topicOrFail(entry.categoryId);
   const progress = await userTransaction(req.user!.id, async session => {
     if (!await TopicEnrollment.exists({ userId: req.user!.id, topicId: entry.categoryId }).session(session)) throw new AppError('Hãy bắt đầu học chủ đề trước.', 409, 'NOT_ENROLLED');
     const previous = await WordProgress.findOne({ userId: req.user!.id, entryId: entry._id }).session(session);
     const reviewing = previous && (previous.stage === 'REVIEW' ||
       previous.stage === 'REMEMBERED' && previous.nextReviewAt && previous.nextReviewAt <= new Date());
     if (reviewing && stage !== 'REVIEW') throw new AppError('Hãy hoàn tất quiz camera để cập nhật từ ôn tập.', 409, 'QUIZ_REQUIRED');
+    if (!previous || previous.stage !== stage) await LearningEvent.create([{ userId: req.user!.id,
+      topicId: entry.categoryId, entryId: entry._id, word: entry.word, topicName: topic.name,
+      kind: 'SELF_RATED', stage, firstLearning: !previous }], { session });
     return WordProgress.findOneAndUpdate({ userId: req.user!.id, entryId: entry._id }, {
       $set: { topicId: entry.categoryId, stage, reviewedAt: new Date(), nextReviewAt: stage === 'REMEMBERED' ? new Date(Date.now() + 3 * 86400000) : null },
     }, { upsert: true, new: true, runValidators: true, session });
@@ -88,6 +123,11 @@ router.post('/quizzes/:id/submit', quizLimit, wrap(async (req, res) => {
 
 router.post('/coach', rateLimit({ windowMs: 60000, limit: 6 }), wrap(async (req, res) => {
   return res.json({ success: true, data: await learningAdvice(req.user!.id) });
+}));
+
+router.post('/analysis', rateLimit({ windowMs: 60000, limit: 3, keyGenerator: req => String(req.user!.id) }), wrap(async (req, res) => {
+  parse(z.object({}).strict(), req.body);
+  return res.json({ success: true, data: await analyzeLearningProgress(req.user!.id) });
 }));
 
 const safeMedia = (value: string) => {
