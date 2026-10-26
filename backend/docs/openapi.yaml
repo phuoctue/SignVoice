@@ -354,6 +354,35 @@ components:
           type: integer
           nullable: true
 
+    StudyReminder:
+      type: object
+      additionalProperties: false
+      required: [enabled, hour, minute, weekdays, timezone]
+      properties:
+        enabled:
+          type: boolean
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+        weekdays:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+          description: Monday=1, Sunday=7
+        timezone:
+          type: string
+          maxLength: 100
+          example: Asia/Ho_Chi_Minh
     UserSettings:
       type: object
       properties:
@@ -394,6 +423,8 @@ components:
           maximum: 3
         notificationsEnabled:
           type: boolean
+        studyReminder:
+          $ref: '#/components/schemas/StudyReminder'
         shareUsageData:
           type: boolean
         notificationPreferences:
@@ -2014,6 +2045,43 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # Users
+  /api/v1/users/bootstrap:
+    get:
+      tags: [Users]
+      summary: Tải dữ liệu khởi động tài khoản trong một yêu cầu
+      description: Trả profile an toàn, settings, trang đầu tối đa 20 hội thoại và toàn bộ ID yêu thích có từ PUBLISHED trong danh mục ACTIVE. Chỉ dữ liệu của tài khoản xác thực; Cache-Control no-store. Các API riêng vẫn được hỗ trợ.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Dữ liệu khởi động
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: object
+                    required: [profile, settings, conversations, favorites]
+                    properties:
+                      profile: {$ref: '#/components/schemas/User'}
+                      settings: {$ref: '#/components/schemas/UserSettings'}
+                      conversations:
+                        type: object
+                        properties:
+                          items: {type: array, items: {type: object}}
+                          total: {type: integer}
+                          page: {type: integer, enum: [1]}
+                          pages: {type: integer}
+                      favorites:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            entryId: {type: string}
+        '400': {description: Không chấp nhận query bổ sung}
+        '401': {description: Phiên không hợp lệ}
+        '404': {description: Tài khoản không tồn tại}
   /api/v1/users/profile:
     get:
       tags:
@@ -2059,7 +2127,12 @@ paths:
                   maxLength: 50
                 avatarUrl:
                   type: string
-                  description: URL HTTP/HTTPS hoặc chuỗi rỗng để xóa
+                  description: URL HTTP/HTTPS, đường dẫn ảnh thuộc chính tài khoản hoặc chuỗi rỗng để xóa. Không gửi cùng avatarImage.
+                avatarImage:
+                  type: string
+                  maxLength: 700000
+                  writeOnly: true
+                  description: Data URL base64 JPEG/PNG/WebP, tối đa 512 KB sau giải mã. Không gửi cùng avatarUrl.
                 email:
                   type: string
                   format: email
@@ -2157,6 +2230,8 @@ paths:
                   maximum: 3
                 notificationsEnabled:
                   type: boolean
+                studyReminder:
+                  $ref: '#/components/schemas/StudyReminder'
                 shareUsageData:
                   type: boolean
                 notificationPreferences:
@@ -4581,6 +4656,113 @@ paths:
           description: Không chấp nhận thời hạn hoặc trường ngoài schema từ client
         '401':
           description: Chưa xác thực
+  /api/v1/users/notifications:
+    get:
+      tags: [Users]
+      summary: Thông báo từ mới và ôn tập của tài khoản
+      description: Tối đa 50 thông báo trong 30 ngày; chỉ tạo thông báo từ dữ liệu đã xuất bản và tiến độ thật. Không gửi push trong HTTP request.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: data gồm items, unread, pushConfigured
+        '401':
+          description: Chưa đăng nhập
+  /api/v1/users/notifications/{id}:
+    patch:
+      tags: [Users]
+      summary: Đánh dấu thông báo của chính tài khoản là đã đọc
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [read]
+              properties:
+                read: {type: boolean, enum: [true]}
+      responses:
+        '200': {description: Đã đọc}
+        '400': {description: Dữ liệu không hợp lệ}
+        '404': {description: Không có thông báo thuộc tài khoản}
+  /api/v1/users/notifications/test:
+    post:
+      tags: [Users]
+      summary: Gửi push thử và lưu vào chuông của chính tài khoản
+      description: Cần thiết bị Android đã đăng ký, bật nhận thông báo và backend FCM. Giới hạn một lần mỗi 10 giây; không gửi tới tài khoản khác.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        '201': {description: data.notification được lưu; data.sent cho biết backend đã gửi thành công tới ít nhất một thiết bị}
+        '403': {description: Tài khoản khách không được gửi push}
+        '409': {description: Chưa bật thông báo hoặc chưa đăng ký thiết bị}
+        '429': {description: Thử quá nhanh}
+        '503': {description: Chưa cấu hình máy chủ FCM}
+  /api/v1/users/notification-devices:
+    post:
+      tags: [Users]
+      summary: Đăng ký thiết bị nhận FCM cho phiên hiện tại
+      description: Một token chỉ thuộc một tài khoản. Thiết bị hết hạn sau 90 ngày nếu không đăng ký lại; không gửi cho phiên đã thu hồi.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, platform]
+              properties:
+                token: {type: string, minLength: 20, maxLength: 4096, writeOnly: true}
+                platform: {type: string, enum: [android, ios]}
+      responses:
+        '200': {description: Đã đăng ký; pushConfigured phản ánh cấu hình máy chủ}
+        '400': {description: Dữ liệu không hợp lệ}
+        '403': {description: Tài khoản khách không được đăng ký push}
+    delete:
+      tags: [Users]
+      summary: Gỡ thiết bị thuộc tài khoản
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: {type: string, minLength: 20, maxLength: 4096, writeOnly: true}
+      responses:
+        '200': {description: Đã gỡ nếu thiết bị thuộc tài khoản}
+        '400': {description: Dữ liệu không hợp lệ}
+  /user-media/avatars/{user}/{file}:
+    get:
+      tags: [Users]
+      summary: Ảnh đại diện đang được tài khoản sử dụng
+      security: []
+      parameters:
+        - in: path
+          name: user
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+        - in: path
+          name: file
+          required: true
+          schema: {type: string, pattern: '^[a-f0-9]{64}\.(jpg|png|webp)$'}
+      responses:
+        '200': {description: Ảnh JPG/PNG/WebP}
+        '404': {description: Không có ảnh hoặc ảnh đã được thay thế}
   /api/v1/guest-trial/ai-ticket:
     post:
       tags: [Authentication]

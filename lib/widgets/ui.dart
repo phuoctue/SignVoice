@@ -135,7 +135,13 @@ class AppButton extends StatelessWidget {
   final bool secondary, outlined, compact, busy;
   @override
   Widget build(BuildContext context) {
-    final c = color ?? Theme.of(context).colorScheme.primary;
+    final scheme = Theme.of(context).colorScheme;
+    final c = color ?? scheme.primary;
+    final onColor = color == null
+        ? scheme.onPrimary
+        : c.computeLuminance() > .179
+        ? Colors.black
+        : Colors.white;
     final style = ButtonStyle(
       minimumSize: WidgetStateProperty.all(
         Size(compact ? 0 : double.infinity, compact ? 44 : 56),
@@ -152,7 +158,7 @@ class AppButton extends StatelessWidget {
       foregroundColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.disabled)
             ? Theme.of(context).disabledColor
-            : (outlined || secondary ? c : Colors.white),
+            : (outlined || secondary ? c : onColor),
       ),
       backgroundColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.disabled)

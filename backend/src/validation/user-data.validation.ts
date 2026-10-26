@@ -8,10 +8,12 @@ export const offsetQuery = z.object({ limit: integer(20, 100, 1), skip: integer(
 export const idParams = z.object({ id: objectId });
 export const profileBody = z.object({
   displayName: z.string().trim().min(2).max(50).optional(),
-  avatarUrl: z.union([httpUrl, z.literal('')]).optional(),
+  avatarUrl: z.union([httpUrl, z.literal(''), z.string().regex(/^\/user-media\/avatars\/[a-f\d]{24}\/[a-f\d]{64}\.(jpg|png|webp)$/)]).optional(),
+  avatarImage: z.string().max(700000).optional(),
   email: z.string().trim().toLowerCase().email().optional(),
   currentPassword: z.string().min(1).max(128).optional(),
-}).strict().refine(value => Object.keys(value).some(key => key !== 'currentPassword'), 'No changes provided');
+}).strict().refine(value => Object.keys(value).some(key => key !== 'currentPassword'), 'No changes provided')
+  .refine(value => value.avatarUrl === undefined || value.avatarImage === undefined, 'Choose one avatar source');
 export const settingsBody = z.object({
   theme: z.enum(['LIGHT', 'DARK', 'SYSTEM']).optional(),
   language: z.enum(['vi', 'en']).optional(),
@@ -22,6 +24,11 @@ export const settingsBody = z.object({
   autoSpeak: z.boolean().optional(),
   avatarColor: z.number().int().min(0).max(3).optional(),
   notificationsEnabled: z.boolean().optional(),
+  studyReminder: z.object({
+    enabled: z.boolean(), hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59),
+    weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7).refine(days => new Set(days).size === days.length),
+    timezone: z.string().max(100).refine(value => {try {new Intl.DateTimeFormat('en', {timeZone: value}); return true;} catch {return false;}}),
+  }).strict().optional(),
   notificationPreferences: z.object({newWords: z.boolean(), favorites: z.boolean(), updates: z.boolean()}).partial().strict().optional(),
   shareUsageData: z.boolean().optional(),
 }).strict().refine(value => Object.keys(value).length > 0, 'No changes provided');

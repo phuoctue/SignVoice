@@ -40,6 +40,7 @@ export interface IUserSettings extends Document {
   // Notifications
   notificationsEnabled: boolean;
   notificationPreferences: INotificationPreferences;
+  studyReminder: {enabled: boolean; hour: number; minute: number; weekdays: number[]; timezone: string};
   
   // Privacy
   shareUsageData: boolean;
@@ -88,6 +89,13 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       type: Boolean,
       default: true,
       required: true,
+    },
+    studyReminder: {
+      enabled: {type: Boolean, default: false},
+      hour: {type: Number, min: 0, max: 23, default: 19},
+      minute: {type: Number, min: 0, max: 59, default: 0},
+      weekdays: {type: [Number], default: [1, 2, 3, 4, 5, 6, 7]},
+      timezone: {type: String, default: 'Asia/Ho_Chi_Minh'},
     },
     
     notificationPreferences: {

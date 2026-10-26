@@ -10,6 +10,8 @@ import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/user_avatar.dart';
+import '../../services/user/avatar_picker.dart';
 import '../auth/auth_screens.dart';
 
 const avatarColors = [
@@ -29,6 +31,7 @@ class ProfileScreen extends StatelessWidget {
       ('Chỉnh sửa hồ sơ', Icons.edit_outlined, 'S26'),
       ('Cài đặt giọng nói', Icons.headphones_outlined, 'S27'),
       ('Giao diện & Trợ năng', Icons.light_mode_outlined, 'S28'),
+      ('Lịch học & thông báo', Icons.notifications_outlined, '/study-reminder'),
       ('Đồng bộ dữ liệu', Icons.sync, 'S29'),
       ('Quyền riêng tư', Icons.shield_outlined, 'S30'),
       ('Thông tin ứng dụng', Icons.info_outline, 'S31'),
@@ -53,23 +56,10 @@ class ProfileScreen extends StatelessWidget {
             Column(
               children: [
                 const SizedBox(height: 12),
-                CircleAvatar(
-                  radius: 42,
-                  backgroundColor: avatarColors[state.avatarColor],
-                  foregroundImage: state.avatarUrl.isEmpty
-                      ? null
-                      : NetworkImage(state.avatarUrl),
-                  onForegroundImageError: state.avatarUrl.isEmpty
-                      ? null
-                      : (_, _) {},
-                  child: Text(
-                    state.name.isEmpty ? 'S' : state.name[0],
-                    style: const TextStyle(
-                      fontSize: 30,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                UserAvatar(
+                  name: state.name,
+                  url: state.avatarUrl,
+                  color: avatarColors[state.avatarColor],
                 ),
                 const SizedBox(height: 18),
                 Heading(state.name, center: true),
@@ -126,7 +116,8 @@ class ProfileScreen extends StatelessWidget {
 }
 
 class EditProfileScreen extends StatefulWidget {
-  const EditProfileScreen({super.key});
+  const EditProfileScreen({super.key, this.avatarPicker = pickAvatarImage});
+  final Future<AvatarSelection?> Function() avatarPicker;
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
@@ -139,6 +130,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       password = TextEditingController();
   bool initialized = false, loading = true, saving = false;
   String? error;
+  AvatarSelection? selectedAvatar;
+  bool picking = false;
   int color = 0;
   late int epoch;
   @override
@@ -204,7 +197,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final auth = context.read<AuthProvider>();
     final success = await state.saveProfile({
       'displayName': name.text.trim(),
-      'avatarUrl': avatar.text.trim(),
+      if (selectedAvatar != null)
+        'avatarImage': selectedAvatar!.dataUrl
+      else
+        'avatarUrl': avatar.text.trim(),
       if (state.accountType == 'LOCAL' && email.text.trim() != state.email)
         'email': email.text.trim(),
       if (password.text.isNotEmpty) 'currentPassword': password.text,
@@ -226,8 +222,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       error = preferencesSaved ? null : state.error;
     });
     if (preferencesSaved) {
+      selectedAvatar = null;
+      avatar.text = state.avatarUrl;
       password.clear();
       toast(context, 'Đã lưu hồ sơ trên máy chủ.');
+    }
+  }
+
+  Future<void> _pickAvatar() async {
+    if (saving || picking) return;
+    final state = AppScope.of(context);
+    setState(() {
+      picking = true;
+      error = null;
+    });
+    try {
+      final image = await widget.avatarPicker();
+      if (mounted &&
+          (!state.persisted || state.isCurrent(epoch)) &&
+          image != null) {
+        setState(() => selectedAvatar = image);
+      }
+    } catch (failure) {
+      if (mounted) {
+        setState(
+          () => error = failure is StateError
+              ? failure.message
+              : 'Không chọn được ảnh. Hãy thử lại.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => picking = false);
     }
   }
 
@@ -250,20 +275,34 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   TextButton(onPressed: _load, child: const Text('Thử lại')),
               ],
               if (!loading && name.text.isNotEmpty) ...[
-                CircleAvatar(
-                  radius: 44,
-                  backgroundColor: avatarColors[color],
-                  foregroundImage: state.avatarUrl.isEmpty
-                      ? null
-                      : NetworkImage(state.avatarUrl),
-                  onForegroundImageError: state.avatarUrl.isEmpty
-                      ? null
-                      : (_, _) {},
-                  child: Text(
-                    name.text.isEmpty ? 'S' : name.text[0],
-                    style: const TextStyle(fontSize: 32, color: Colors.white),
+                Center(
+                  child: UserAvatar(
+                    name: name.text,
+                    url: avatar.text,
+                    color: avatarColors[color],
+                    radius: 44,
+                    preview: selectedAvatar?.bytes,
                   ),
                 ),
+                const SizedBox(height: 12),
+                AppButton(
+                  picking ? 'Đang chọn ảnh...' : 'Chọn ảnh đại diện',
+                  outlined: true,
+                  icon: Icons.photo_library_outlined,
+                  busy: picking,
+                  onPressed: saving || picking ? null : _pickAvatar,
+                ),
+                if (selectedAvatar != null || avatar.text.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: saving || picking
+                        ? null
+                        : () => setState(() {
+                            selectedAvatar = null;
+                            avatar.clear();
+                          }),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Bỏ ảnh đại diện'),
+                  ),
                 Wrap(
                   alignment: WrapAlignment.center,
                   children: [
@@ -314,27 +353,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         : null,
                   ),
                 const SizedBox(height: 16),
-                TextFormField(
-                  controller: avatar,
-                  enabled: !saving,
-                  decoration: const InputDecoration(
-                    labelText: 'URL ảnh đại diện (tùy chọn)',
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) return null;
-                    final uri = Uri.tryParse(value.trim());
-                    return uri == null ||
-                            !['http', 'https'].contains(uri.scheme) ||
-                            uri.host.isEmpty
-                        ? 'Dùng URL HTTP hoặc HTTPS hợp lệ.'
-                        : null;
-                  },
-                ),
                 const SizedBox(height: 24),
                 AppButton(
                   'Lưu thay đổi',
                   busy: saving,
-                  onPressed: saving ? null : _save,
+                  onPressed: saving || picking ? null : _save,
                 ),
               ],
             ],

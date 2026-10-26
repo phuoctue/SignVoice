@@ -6,6 +6,9 @@ import 'package:video_player/video_player.dart';
 import '../../services/api/api_config.dart';
 import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/sign_video_surface.dart';
+import '../../services/media/sign_video_source.dart';
+import '../../services/media/video_source.dart';
 
 const learningLabels = {
   'LEARNING': 'Đang học',
@@ -34,22 +37,42 @@ class SignPhoto extends StatelessWidget {
   final BoxFit fit;
   @override
   Widget build(BuildContext context) {
-    Widget fallback({bool loading = false}) => Container(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.sign_language_outlined, size: 32),
-          const SizedBox(height: 5),
-          Text(
-            loading ? 'Đang tải ảnh' : 'Chưa có ảnh',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 10),
+    Widget fallback({bool loading = false}) {
+      final message = loading ? 'Đang tải ảnh' : 'Chưa có ảnh';
+      return Semantics(
+        image: true,
+        label: '$message ký hiệu $word',
+        child: Tooltip(
+          message: message,
+          child: ExcludeSemantics(
+            child: Container(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              alignment: Alignment.center,
+              child: LayoutBuilder(
+                builder: (context, constraints) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.sign_language_outlined, size: 32),
+                    if (constraints.maxWidth >= 100 &&
+                        constraints.maxHeight >= 100) ...[
+                      const SizedBox(height: 5),
+                      Flexible(
+                        child: Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-    );
+        ),
+      );
+    }
+
     Widget image;
     final url = source ?? '';
     if (url.isEmpty) {
@@ -69,6 +92,13 @@ class SignPhoto extends StatelessWidget {
       image = Image.network(
         ApiConfig.mediaUrl(url),
         fit: fit,
+        cacheWidth: width == null
+            ? 640
+            : (width! * MediaQuery.devicePixelRatioOf(context)).ceil().clamp(
+                64,
+                640,
+              ),
+        gaplessPlayback: true,
         semanticLabel: 'Ảnh ký hiệu $word',
         errorBuilder: (_, _, _) => fallback(),
         loadingBuilder: (_, child, progress) =>
@@ -196,8 +226,22 @@ class LearningWordContent extends StatefulWidget {
   State<LearningWordContent> createState() => _LearningWordContentState();
 }
 
-class _LearningWordContentState extends State<LearningWordContent> {
+class _LearningWordContentState extends State<LearningWordContent>
+    with WidgetsBindingObserver {
   VideoPlayerController? _video;
+  VideoSource? _source;
+  int _generation = 0;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _video?.pause();
+  }
+
   bool _loadingVideo = false;
   String? _videoError;
   int _frame = 0;
@@ -205,7 +249,10 @@ class _LearningWordContentState extends State<LearningWordContent> {
   void didUpdateWidget(covariant LearningWordContent oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.word['_id'] != widget.word['_id']) {
+      _generation++;
       _video?.dispose();
+      _source?.dispose();
+      _source = null;
       _video = null;
       _loadingVideo = false;
       _videoError = null;
@@ -215,11 +262,15 @@ class _LearningWordContentState extends State<LearningWordContent> {
 
   @override
   void dispose() {
+    _generation++;
+    WidgetsBinding.instance.removeObserver(this);
     _video?.dispose();
+    _source?.dispose();
     super.dispose();
   }
 
   Future<void> _play() async {
+    if (_loadingVideo) return;
     if (_video != null) {
       if (_video!.value.isPlaying) {
         await _video!.pause();
@@ -233,24 +284,35 @@ class _LearningWordContentState extends State<LearningWordContent> {
       _loadingVideo = true;
       _videoError = null;
     });
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(ApiConfig.mediaUrl('${widget.word['videoUrl']}')),
-    );
-    _video = controller;
+    final generation = ++_generation;
+    VideoPlayerController? controller;
     try {
-      await controller.initialize();
+      final source = await openSignVideo('${widget.word['videoUrl']}');
+      if (!mounted || generation != _generation) {
+        source.dispose();
+        return;
+      }
+      _source = source;
+      controller = VideoPlayerController.networkUrl(source.uri);
+      _video = controller;
+      await controller.initialize().timeout(const Duration(seconds: 20));
       if (!mounted || _video != controller) return;
+      await controller.setVolume(0);
       await controller.setLooping(true);
       await controller.play();
     } catch (_) {
-      if (mounted && _video == controller) {
+      if (mounted && generation == _generation) {
         _videoError =
             'Chưa tải được video. Bạn vẫn có thể học bằng chuỗi ảnh bên dưới.';
-        await controller.dispose();
+        await controller?.dispose();
+        _source?.dispose();
+        _source = null;
         _video = null;
       }
     } finally {
-      if (mounted) setState(() => _loadingVideo = false);
+      if (mounted && generation == _generation) {
+        setState(() => _loadingVideo = false);
+      }
     }
   }
 
@@ -278,7 +340,7 @@ class _LearningWordContentState extends State<LearningWordContent> {
             borderRadius: BorderRadius.circular(16),
             child: AspectRatio(
               aspectRatio: _video!.value.aspectRatio,
-              child: VideoPlayer(_video!),
+              child: SignVideoSurface(_video!),
             ),
           )
         else

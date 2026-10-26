@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
@@ -14,6 +15,7 @@ import 'services/staff/staff_workspace_service.dart';
 import 'services/staff/staff_service.dart';
 
 import 'core/app_state.dart';
+import 'core/app_route.dart';
 import 'core/theme.dart';
 import 'core/navigation.dart';
 import 'features/auth/auth_screens.dart';
@@ -27,12 +29,15 @@ import 'features/profile/profile_screens.dart';
 import 'features/system/system_screens.dart';
 import 'features/recognition/live_camera_screen.dart';
 import 'widgets/guest_access_gate.dart';
+import 'widgets/ui.dart';
 import 'features/learning/learning_hub.dart';
 import 'features/learning/learning_history_screen.dart';
 import 'features/learning/learning_insights_screen.dart';
 import 'features/learning/review_quiz_screen.dart';
 import 'features/learning/topic_learning_screen.dart';
 import 'services/learning/learning_service.dart';
+import 'services/notifications/notification_service.dart';
+import 'features/notifications/notification_screens.dart';
 
 class SignVoiceApp extends StatefulWidget {
   const SignVoiceApp({
@@ -54,19 +59,40 @@ class SignVoiceApp extends StatefulWidget {
   State<SignVoiceApp> createState() => _SignVoiceAppState();
 }
 
-class _SignVoiceAppState extends State<SignVoiceApp> {
+class _SignVoiceAppState extends State<SignVoiceApp>
+    with WidgetsBindingObserver {
+  final navigatorKey = GlobalKey<NavigatorState>();
+  String? pendingNotificationRoute;
+  late final notifications = NotificationService(
+    state,
+    onOpen: (route) {
+      if (navigatorKey.currentState == null) {
+        pendingNotificationRoute = route;
+      } else {
+        navigatorKey.currentState!.pushNamed(route);
+      }
+    },
+  );
   late final AppState state =
-      widget.state ?? AppState(service: UserDataService());
+      widget.state ?? AppState(service: StartupUserDataService());
   late final AuthProvider auth = widget.auth ?? AuthProvider();
   late final AdminWorkspaceService adminService =
       widget.adminService ?? AdminWorkspaceService();
   late final LearningService learningService =
       widget.learningService ?? LearningService();
   String? _currentUserId;
+  bool _notificationsStarted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (pendingNotificationRoute != null && mounted) {
+        navigatorKey.currentState?.pushNamed(pendingNotificationRoute!);
+        pendingNotificationRoute = null;
+      }
+    });
     auth.addListener(_syncUser);
     final callback =
         Uri.base.path == '/oauth-complete' ||
@@ -97,20 +123,75 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
       _currentUserId = null;
       state.unbindAccount();
     }
+    if (!_notificationsStarted &&
+        (auth.isAuthenticated || auth.state == AuthState.unauthenticated)) {
+      _notificationsStarted = true;
+      notifications.start();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    if (_notificationsStarted && lifecycle == AppLifecycleState.resumed) {
+      notifications.refreshInbox();
+      notifications.retry();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    notifications.dispose();
     auth.removeListener(_syncUser);
     if (widget.auth == null) auth.dispose();
     if (widget.state == null) state.dispose();
     super.dispose();
   }
 
+  Route<void> _route(RouteSettings settings) {
+    final location = settings.name == '/'
+        ? widget.initialScreen
+        : settings.name ?? '';
+    final route = AppRoute.parse(
+      location,
+      adminResources: [...adminModules.keys, 'content'],
+    );
+    return MaterialPageRoute<void>(
+      settings: settings,
+      builder: (_) {
+        if (!route.known) {
+          return AppPage(
+            title: 'Không tìm thấy trang',
+            child: EmptyView(
+              title: 'Liên kết không hợp lệ',
+              description: 'Trang này không tồn tại hoặc liên kết đã thay đổi.',
+              action: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => backOrHome(context),
+                  child: const Text('Quay lại'),
+                ),
+              ),
+            ),
+          );
+        }
+        if (route.uri.path == '/oauth-complete') {
+          return OAuthCompleteScreen(error: route.uri.queryParameters['error']);
+        }
+        if (route.uri.path == '/reset-password') {
+          return ResetPasswordScreen(
+            token: route.uri.queryParameters['token'] ?? '',
+          );
+        }
+        return AccessGate(screenId: route.screenId!);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: auth),
+      ChangeNotifierProvider.value(value: notifications),
       Provider.value(value: adminService),
       Provider.value(value: learningService),
       Provider.value(value: widget.staffService ?? StaffWorkspaceService()),
@@ -121,6 +202,7 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
         animation: state,
         builder: (context, child) => MaterialApp(
           title: 'SignVoice',
+          navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
           locale: const Locale('vi'),
           supportedLocales: const [Locale('vi'), Locale('en')],
@@ -132,96 +214,12 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
           theme: makeTheme(dark: false, highContrast: state.highContrast),
           darkTheme: makeTheme(dark: true, highContrast: state.highContrast),
           themeMode: state.themeMode,
-          onGenerateInitialRoutes: (initialRoute) {
-            final uri = Uri.tryParse(initialRoute);
-            if (uri?.path == '/oauth-complete') {
-              return [
-                MaterialPageRoute<void>(
-                  settings: RouteSettings(name: initialRoute),
-                  builder: (_) =>
-                      OAuthCompleteScreen(error: uri!.queryParameters['error']),
-                ),
-              ];
-            }
-            // Build the reset page alone: a background splash timer must not
-            // redirect the user away from the link opened from their email.
-            if (uri?.path == '/reset-password') {
-              return [
-                MaterialPageRoute<void>(
-                  settings: RouteSettings(name: initialRoute),
-                  builder: (_) => ResetPasswordScreen(
-                    token: uri!.queryParameters['token'] ?? '',
-                  ),
-                ),
-              ];
-            }
-            final screenId =
-                screenNames.containsKey(initialRoute) ||
-                    initialRoute == 'admin' ||
-                    initialRoute == 'staff' ||
-                    initialRoute.startsWith('/admin/') ||
-                    initialRoute.startsWith('/staff/') ||
-                    initialRoute.startsWith('/dictionary/') ||
-                    initialRoute.startsWith('/conversations/') ||
-                    initialRoute.startsWith('/learn')
-                ? initialRoute
-                : widget.initialScreen;
-            return [
-              MaterialPageRoute<void>(
-                settings: RouteSettings(name: screenId),
-                builder: (_) => AccessGate(screenId: screenId),
-              ),
-            ];
-          },
-          routes: {
-            '/': (_) => AccessGate(screenId: widget.initialScreen),
-            for (final id in screenNames.keys)
-              id: (_) => AccessGate(screenId: id),
-            'catalog': (_) => const AccessGate(screenId: 'catalog'),
-            'admin': (_) => const AccessGate(screenId: 'admin'),
-            for (final resource in [...adminModules.keys, 'content'])
-              '/admin/$resource': (_) =>
-                  AccessGate(screenId: '/admin/$resource'),
-            'staff': (_) => const AccessGate(screenId: 'staff'),
-          },
-          onGenerateRoute: (settings) {
-            final uri = Uri.tryParse(settings.name ?? '');
-            if (uri?.path == '/learn' ||
-                uri?.path == '/learn/insights' ||
-                uri?.path == '/learn/history' ||
-                uri?.path.startsWith('/learn/topic/') == true ||
-                uri?.path.startsWith('/learn/quiz/') == true) {
-              return MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) => AccessGate(screenId: settings.name!),
-              );
-            }
-            if (uri != null &&
-                (uri.path.startsWith('/staff/') ||
-                    uri.path.startsWith('/dictionary/') ||
-                    uri.path.startsWith('/conversations/'))) {
-              return MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) => AccessGate(screenId: uri.path),
-              );
-            }
-            if (uri?.path == '/oauth-complete') {
-              return MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) =>
-                    OAuthCompleteScreen(error: uri!.queryParameters['error']),
-              );
-            }
-            if (uri?.path == '/reset-password') {
-              return MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) => ResetPasswordScreen(
-                  token: uri!.queryParameters['token'] ?? '',
-                ),
-              );
-            }
-            return null;
-          },
+          // Share route parsing for startup links and navigation within the app.
+          // A reset/OAuth link must never mount a splash timer behind its page.
+          onGenerateInitialRoutes: (location) => [
+            _route(RouteSettings(name: location)),
+          ],
+          onGenerateRoute: _route,
           builder: (context, navigator) {
             final media = MediaQuery.of(context);
             final content = MediaQuery(
@@ -235,7 +233,15 @@ class _SignVoiceAppState extends State<SignVoiceApp> {
             // Mobile lấp đầy màn hình; desktop/Chrome có khung điện thoại để demo.
             return LayoutBuilder(
               builder: (context, constraints) {
-                if (constraints.maxWidth < 600) return content;
+                final desktopFrame =
+                    kIsWeb ||
+                    switch (defaultTargetPlatform) {
+                      TargetPlatform.windows ||
+                      TargetPlatform.macOS ||
+                      TargetPlatform.linux => true,
+                      _ => false,
+                    };
+                if (!desktopFrame || constraints.maxWidth < 600) return content;
                 return ColoredBox(
                   color: const Color(0xFFE2E8F0),
                   child: Center(
@@ -359,6 +365,14 @@ class AccessGate extends StatelessWidget {
         ),
         child: const StaffDashboardScreen(),
       );
+    }
+    if (screenId == '/notifications' || screenId == '/study-reminder') {
+      final page = screenId == '/notifications'
+          ? const NotificationsScreen()
+          : const StudyReminderScreen();
+      return auth.user?.isGuest == true
+          ? GuestAccessGate(permanentOnly: true, child: page)
+          : page;
     }
     if (screenId.startsWith('/staff/')) {
       return StaffWorkspaceScreen(path: screenId);

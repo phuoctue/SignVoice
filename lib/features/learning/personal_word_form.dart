@@ -244,6 +244,7 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
                 ),
               AppButton(
                 'Lưu từ',
+                key: const ValueKey('personal-word-save'),
                 icon: Icons.check,
                 busy: saving,
                 onPressed: saving || picking ? null : save,

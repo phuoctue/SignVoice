@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/api/api_exception.dart';
 import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
+import 'learning_page_controller.dart';
 import 'learning_widgets.dart';
 import 'personal_word_form.dart';
 import 'learning_analysis_card.dart';
@@ -17,21 +18,32 @@ class LearningHub extends StatefulWidget {
 
 class _LearningHubState extends State<LearningHub> {
   late int tab = widget.initialTab;
-  int page = 1, request = 0;
   String query = '';
-  String? error;
-  bool loading = true, coaching = false;
+  bool coaching = false;
   bool analyzing = false;
   int analysisRequest = 0;
   String? analysisError;
   LearningRecord? analysis;
-  LearningPage? data;
+  late final LearningPageController controller;
+  int get page => controller.page;
+  String? get error => controller.error;
+  bool get loading => controller.loading;
+  LearningPage? get data => controller.data;
   LearningRecord? advice;
   final search = TextEditingController();
   LearningService get service => context.read<LearningService>();
   @override
   void initState() {
     super.initState();
+    final source = service;
+    controller = LearningPageController(
+      loadPage: (page) => switch (tab) {
+        0 => source.topics(page: page, search: query),
+        1 => source.progress(page: page),
+        _ => source.myWords(page: page, search: query),
+      },
+      errorMessage: 'Chưa tải được nội dung. Hãy thử lại.',
+    )..addListener(_onPageChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) load();
     });
@@ -39,46 +51,22 @@ class _LearningHubState extends State<LearningHub> {
 
   @override
   void dispose() {
-    request++;
     analysisRequest++;
+    controller.dispose();
     search.dispose();
     super.dispose();
   }
 
-  Future<void> load() async {
-    final current = ++request;
+  void _onPageChanged() => setState(() {});
+
+  Future<void> load({int? page}) {
     analysisRequest++;
     setState(() {
-      loading = true;
-      error = null;
       analysis = null;
       analysisError = null;
       analyzing = false;
     });
-    try {
-      final result = switch (tab) {
-        0 => await service.topics(page: page, search: query),
-        1 => await service.progress(page: page),
-        _ => await service.myWords(page: page, search: query),
-      };
-      if (!mounted || current != request) return;
-      if (page > result.pages) {
-        page = result.pages;
-        await load();
-        return;
-      }
-      setState(() => data = result);
-    } catch (e) {
-      if (mounted && current == request) {
-        setState(
-          () => error = e is ApiException
-              ? e.message
-              : 'Chưa tải được nội dung. Hãy thử lại.',
-        );
-      }
-    } finally {
-      if (mounted && current == request) setState(() => loading = false);
-    }
+    return controller.load(page: page);
   }
 
   Future<void> openTopic(String id, {bool study = false}) async {
@@ -131,8 +119,7 @@ class _LearningHubState extends State<LearningHub> {
 
   Future<void> edit([LearningRecord? word]) async {
     if (await editPersonalWord(context, service, word: word) && mounted) {
-      page = 1;
-      load();
+      load(page: 1);
     }
   }
 
@@ -437,15 +424,13 @@ class _LearningHubState extends State<LearningHub> {
                 icon: const Icon(Icons.arrow_forward),
                 onPressed: () {
                   query = search.text.trim();
-                  page = 1;
-                  load();
+                  load(page: 1);
                 },
               ),
             ),
             onSubmitted: (v) {
               query = v.trim();
-              page = 1;
-              load();
+              load(page: 1);
             },
           ),
         if (tab == 2) ...[
@@ -556,8 +541,7 @@ class _LearningHubState extends State<LearningHub> {
               page: page,
               pages: data!.pages,
               onPage: (v) {
-                page = v;
-                load();
+                load(page: v);
               },
             ),
           if (data!.total > 0)

@@ -186,6 +186,10 @@ class TranscriptScreen extends StatefulWidget {
 
 class _TranscriptScreenState extends State<TranscriptScreen> {
   double fontSize = 28;
+  final editor = TextEditingController();
+  final editorFocus = FocusNode();
+  bool editing = false;
+  String? editError;
   @override
   void initState() {
     super.initState();
@@ -194,6 +198,43 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
 
   void changeSize(double delta) =>
       setState(() => fontSize = (fontSize + delta).clamp(18, 72).toDouble());
+
+  void beginEdit() {
+    editor.text = AppScope.of(context).transcript;
+    editor.selection = TextSelection.collapsed(offset: editor.text.length);
+    setState(() {
+      editing = true;
+      editError = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && editing) editorFocus.requestFocus();
+    });
+  }
+
+  void finishEdit({required bool save}) {
+    final value = editor.text.trim();
+    if (save && value.isEmpty) {
+      setState(() => editError = 'Vui lòng nhập văn bản.');
+      return;
+    }
+    if (save) {
+      final state = AppScope.of(context);
+      state.update(() => state.transcript = value);
+    }
+    editorFocus.unfocus();
+    setState(() {
+      editing = false;
+      editError = null;
+    });
+  }
+
+  @override
+  void dispose() {
+    editor.dispose();
+    editorFocus.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -265,7 +306,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
       );
     }
     return AppPage(
-      title: 'Văn bản và hình ảnh ký hiệu',
+      title: 'Văn bản & ký hiệu',
       actions: [
         IconButton(
           tooltip: 'Giảm cỡ chữ',
@@ -278,24 +319,26 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
           icon: const Icon(Icons.add),
         ),
       ],
-      footer: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppButton(
-            'Toàn màn hình',
-            color: AppColors.teal,
-            icon: Icons.fullscreen,
-            onPressed: () => openScreen(context, 'S19'),
-          ),
-          const SizedBox(height: 10),
-          AppButton(
-            'Ghi nhận lại',
-            outlined: true,
-            icon: Icons.refresh,
-            onPressed: () => openScreen(context, 'S16', replace: true),
-          ),
-        ],
-      ),
+      footer: editing
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppButton(
+                  'Toàn màn hình',
+                  color: AppColors.teal,
+                  icon: Icons.fullscreen,
+                  onPressed: () => openScreen(context, 'S19'),
+                ),
+                const SizedBox(height: 10),
+                AppButton(
+                  'Ghi nhận lại',
+                  outlined: true,
+                  icon: Icons.refresh,
+                  onPressed: () => openScreen(context, 'S16', replace: true),
+                ),
+              ],
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -310,44 +353,94 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
               constraints: const BoxConstraints(minHeight: 180),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    height: 1.4,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                child: editing
+                    ? TextField(
+                        key: const ValueKey('transcript-editor'),
+                        controller: editor,
+                        focusNode: editorFocus,
+                        minLines: 4,
+                        maxLines: null,
+                        keyboardType: TextInputType.multiline,
+                        textCapitalization: TextCapitalization.sentences,
+                        scrollPadding: const EdgeInsets.all(24),
+                        decoration: InputDecoration(
+                          labelText: 'Văn bản',
+                          hintText: 'Nhập văn bản...',
+                          alignLabelWithHint: true,
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: EdgeInsets.zero,
+                          errorText: editError,
+                        ),
+                        style: TextStyle(
+                          fontSize: fontSize,
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        onChanged: (_) {
+                          if (editError != null) {
+                            setState(() => editError = null);
+                          }
+                        },
+                      )
+                    : Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: fontSize,
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ),
             ),
           ),
           const SizedBox(height: 18),
-          AppButton(
-            'Chỉnh sửa văn bản',
-            secondary: true,
-            icon: Icons.edit_outlined,
-            onPressed: () async {
-              final result = await editText(
-                context,
-                title: 'Chỉnh sửa văn bản',
-                initial: text,
-              );
-              if (result != null && result.isNotEmpty) {
-                state.update(() => state.transcript = result);
-              }
-            },
-          ),
+          if (editing)
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    'Hủy',
+                    outlined: true,
+                    onPressed: () => finishEdit(save: false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AppButton(
+                    'Lưu văn bản',
+                    icon: Icons.check,
+                    onPressed: () => finishEdit(save: true),
+                  ),
+                ),
+              ],
+            )
+          else
+            AppButton(
+              'Chỉnh sửa văn bản',
+              secondary: true,
+              icon: Icons.edit_outlined,
+              onPressed: beginEdit,
+            ),
           const SizedBox(height: 12),
-          SignSequencePanel(text: text),
+          Visibility(
+            visible: !editing,
+            maintainState: true,
+            child: SignSequencePanel(text: text),
+          ),
           const SizedBox(height: 10),
           AppButton(
             'Sao chép',
             outlined: true,
             icon: Icons.copy_outlined,
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: text));
-              if (context.mounted) toast(context, 'Đã sao chép văn bản.');
-            },
+            onPressed: editing
+                ? null
+                : () async {
+                    await Clipboard.setData(ClipboardData(text: text));
+                    if (context.mounted) toast(context, 'Đã sao chép văn bản.');
+                  },
           ),
           const SizedBox(height: 10),
           AppButton(
@@ -355,22 +448,27 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
             color: AppColors.green,
             secondary: true,
             icon: Icons.save_outlined,
-            onPressed: () async {
-              if (state.guest) {
-                openScreen(context, 'S06');
-                return;
-              }
-              final success = await state.saveConversation(
-                text,
-                ConversationDirection.speechToText,
-              );
-              if (!context.mounted) return;
-              if (success) {
-                openScreen(context, 'SS03');
-              } else {
-                toast(context, state.error ?? 'Không lưu được hội thoại.');
-              }
-            },
+            onPressed: editing
+                ? null
+                : () async {
+                    if (state.guest) {
+                      openScreen(context, 'S06');
+                      return;
+                    }
+                    final success = await state.saveConversation(
+                      text,
+                      ConversationDirection.speechToText,
+                    );
+                    if (!context.mounted) return;
+                    if (success) {
+                      openScreen(context, 'SS03');
+                    } else {
+                      toast(
+                        context,
+                        state.error ?? 'Không lưu được hội thoại.',
+                      );
+                    }
+                  },
           ),
         ],
       ),

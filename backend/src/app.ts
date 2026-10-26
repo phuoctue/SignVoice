@@ -11,7 +11,9 @@ import { isDatabaseReady, getDatabaseInfo } from './config/database';
 import { setupSwagger } from './config/swagger';
 import { attachAiPublicProxy } from './ai-public-proxy';
 import { serveDetectorAssets } from './detector-assets';
+import {serveWebStartupAssets} from './web-startup-assets';
 import { servePublicInformation } from './public-information';
+import {createAvatarMediaRouter} from './services/avatar-media.service';
 
 /**
  * Create and configure Express application
@@ -129,11 +131,13 @@ export async function createApp(): Promise<Application> {
   app.use('/api/v1/learning', (await import('./routes/learning.routes')).default);
   app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);
   app.use('/sign-media', (await import('./routes/sign-media.routes')).default);
+  app.use('/user-media/avatars', createAvatarMediaRouter());
   app.use('/api/v1/categories', (await import('./routes/category.routes')).default);
   app.use('/api/v1/favorites', (await import('./routes/favorites.routes')).default);
   app.use('/api/v1/history', (await import('./routes/history.routes')).default);
   app.use('/api/v1/conversations', (await import('./routes/conversation.routes')).default);
   app.use('/api/v1/users', (await import('./routes/user.routes')).default);
+  app.use('/api/v1/users', (await import('./routes/notification.routes')).default);
   app.use('/api/v1/staff', (await import('./routes/staff.routes')).default);
   app.use('/api/v1/admin', (await import('./routes/admin.routes')).default);
 
@@ -146,6 +150,7 @@ export async function createApp(): Promise<Application> {
       throw new Error('Flutter web build is missing. Run flutter build web first.');
     }
     serveDetectorAssets(app, webRoot);
+    serveWebStartupAssets(app, webRoot);
     app.use(express.static(webRoot, {
       setHeaders: (res, filePath) => {
         if (/\.(html|js|json)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');

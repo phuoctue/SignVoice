@@ -11,12 +11,13 @@ import { AppError } from '../common/errors/AppError';
 import { ReviewQuiz } from '../models/ReviewQuiz.model';
 import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.model';
 import { LearningEvent } from '../models/LearningEvent.model';
+import {NotificationDevice, UserNotification} from '../models/Notification.model';
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
 export async function safeUser(user: IUser) {
   return {
     _id: user.id, id: user.id, email: user.email, displayName: user.displayName,
-    avatarUrl: user.avatarUrl, accountType: user.accountType, isGuest: user.isGuest,
+    avatarUrl: user.avatarUrl ?? '', accountType: user.accountType, isGuest: user.isGuest,
     status: user.status, createdAt: user.createdAt, updatedAt: user.updatedAt,
     ...await authorizationFor(user),
   };
@@ -45,7 +46,7 @@ export async function clearOwnedData(userId: Types.ObjectId, session: ClientSess
   const conversations = await Conversation.deleteMany({userId}, {session});
   const history = await SearchHistory.deleteMany({userId}, {session});
   await UserSettings.deleteOne({userId}, {session});
-  for (const model of [TopicEnrollment, WordProgress, PersonalWord, ReviewQuiz, LearningEvent]) {
+  for (const model of [TopicEnrollment, WordProgress, PersonalWord, ReviewQuiz, LearningEvent, NotificationDevice, UserNotification]) {
     await model.collection.deleteMany({userId}, {session});
   }
   return {favorites: removedFavorites.deletedCount, conversations: conversations.deletedCount, searchHistory: history.deletedCount};

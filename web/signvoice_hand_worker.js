@@ -42,6 +42,96 @@ let earlyPreview = false, independentEncode = false, targetHands = 2, startupMs 
 let encoding = false, pendingEncode = null, encoderCanvas, encoderContext;
 let temporalHistory = false, history = [], liveObservations = false;
 let diagnosticPixels = false, diagnosticBusy = false, diagnosticCount = 0, diagnosticAt = -Infinity, diagnosticOrigin = null;
+let verifySmallTracks = false, createVerifier, verifier, verifierPending, verifierError = null;
+let verifiedAt = -Infinity, verificationTracks = [];
+let verificationPending=false, verificationAttempt=-Infinity, verificationGeneration=0;
+let verificationInferenceMs=null, verificationRoundtripMs=null;
+
+function createPixelVerifier(files, model) {
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./signvoice_hand_verifier.js?v=1',self.location.href));
+    let pending=null;
+    const timer=setTimeout(()=>{worker.terminate();reject(new Error('Pixel verifier startup timeout'));},10000);
+    worker.onerror=error=>{
+      clearTimeout(timer);worker.terminate();
+      const failure=new Error(error.message || 'Pixel verifier failed');
+      reject(failure);pending?.reject(failure);pending=null;
+    };
+    worker.onmessage=({data})=>{
+      if(data.type==='ready') {
+        clearTimeout(timer);
+        resolve({init_ms:data.init_ms,detect:bitmap=>new Promise((yes,no)=>{
+          const deadline=setTimeout(()=>{worker.terminate();no(new Error('Pixel verifier frame timeout'));pending=null;},2000);
+          pending={resolve:value=>{clearTimeout(deadline);yes(value);},reject:error=>{clearTimeout(deadline);no(error);}};
+          try{worker.postMessage({type:'frame',frame:bitmap},[bitmap]);}
+          catch(error){bitmap.close();pending.reject(error);pending=null;}
+        })});
+      } else if(data.type==='result') {pending?.resolve(data);pending=null;}
+      else if(data.type==='error') {
+        const error=new Error(data.reason);clearTimeout(timer);worker.terminate();reject(error);pending?.reject(error);pending=null;
+      }
+    };
+    worker.postMessage({type:'init',files,model});
+  });
+}
+
+// Periodically revalidate every track, including tracks above the old size gate.
+// IMAGE searches current pixels without reusing VIDEO tracking rectangles.
+function verifyTracks(found, timestamp, aspect) {
+  const radius = hand => Math.max(...hand.map(p=>Math.hypot(p.x-hand[0].x,(p.y-hand[0].y)*aspect)));
+  const status = {enabled:verifySmallTracks, ready:!!verifier, scheduled:false, pending:verificationPending,
+    scope:'all_tracks',considered_tracks:found.landmarks.length,checked_tracks:verificationTracks.length,
+    init_ms:verifier?.init_ms ?? null,inference_ms:verificationInferenceMs,roundtrip_ms:verificationRoundtripMs,
+    last_result_timestamp_ms:Number.isFinite(verifiedAt)?verifiedAt:null,
+    result_age_ms:Number.isFinite(verifiedAt)?timestamp-verifiedAt:null,rejected:0,error:verifierError};
+  if (!verifySmallTracks || !found.landmarks.length) return status;
+  if (!verifier && !verifierPending && !verifierError) {
+    verifierPending = createVerifier().then(value=>{verifier=value;})
+      .catch(error=>{verifierError=String(error).slice(0,160);})
+      .finally(()=>{verifierPending=null;});
+  }
+  const matches = (a,b) => {
+    const tolerance=Math.max(.025,.5*Math.max(radius(a),radius(b)));
+    return Math.hypot(a[0].x-b[0].x,(a[0].y-b[0].y)*aspect)<tolerance &&
+      a.reduce((sum,p,i)=>sum+Math.hypot(p.x-b[i].x,(p.y-b[i].y)*aspect),0)/21<tolerance;
+  };
+  const stable = (a,b) => Math.hypot(a[0].x-b[0].x,(a[0].y-b[0].y)*aspect)<.025 &&
+    a.reduce((sum,p,i)=>sum+Math.hypot(p.x-b[i].x,(p.y-b[i].y)*aspect),0)/21<.025;
+  if (verifier && !verificationPending && timestamp-verificationAttempt>=500) {
+    verificationAttempt=timestamp;verificationPending=true;status.scheduled=true;
+    const generation=verificationGeneration;
+    const began=performance.now();
+    const snapshot=new OffscreenCanvas(pixels.width,pixels.height);
+    snapshot.getContext('2d').drawImage(pixels,0,0);
+    const observed=found.landmarks.map(hand=>hand.map(p=>({...p})));
+    Promise.resolve().then(()=>verifier.detect(snapshot.transferToImageBitmap())).then(result=>{
+      if(generation!==verificationGeneration)return;
+      const fresh=result.landmarks.slice();
+      verificationInferenceMs=result.processing_ms ?? null;verificationRoundtripMs=performance.now()-began;
+      verificationTracks=observed.map(hand=>{
+        const index=fresh.findIndex(other=>matches(hand,other));
+        const old=verificationTracks.find(track=>stable(hand,track.hand));
+        const misses=index>=0?0:(old && timestamp-verifiedAt<=1000?old.misses:0)+1;
+        if(index>=0) fresh.splice(index,1);
+        return {hand,misses};
+      });
+      verifiedAt=timestamp;verifierError=null;
+    }).catch(error=>{
+      if(generation!==verificationGeneration)return;
+      // Unavailable validation is not evidence against a real hand.
+      verificationTracks=[];verifiedAt=-Infinity;
+      verifierError=String(error).slice(0,160);verifier=null;
+    }).finally(()=>{verificationPending=false;});
+  }
+  if(timestamp>=verifiedAt && timestamp-verifiedAt<=750) {
+    const keep=found.landmarks.map((hand,i)=>({hand,i})).filter(({hand})=>
+      !verificationTracks.some(track=>track.misses>=2 && stable(hand,track.hand)));
+    status.rejected=found.landmarks.length-keep.length;
+    found.handedness=keep.map(({i})=>found.handedness[i]);
+    found.landmarks=keep.map(({hand})=>hand);
+  }
+  return status;
+}
 // PNG snapshots are opt-in, local worker messages only. No extra network calls.
 // Snapshot a separate canvas synchronously; later camera frames cannot overwrite it.
 function captureDiagnostic(meta, raw) {
@@ -103,6 +193,7 @@ self.onmessage = async ({data}) => {
     temporalHistory = data.temporal_history === true;
     liveObservations = data.live_observations === true;
     diagnosticPixels = data.diagnostic_pixels === true;
+    verifySmallTracks = data.verify_small_tracks === true;
     try {
       // Download model and selected WASM concurrently, rather than making each
       // large transfer wait for the previous resource over a public tunnel.
@@ -119,6 +210,7 @@ self.onmessage = async ({data}) => {
         return {files, HandLandmarker};
       });
       const [{files, HandLandmarker}, model] = await Promise.all([runtimeDownload, modelDownload]);
+      createVerifier = () => createPixelVerifier(files,model);
       if (data.startup_progress === true) progress('model');
       modelHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', model))].map(x => x.toString(16).padStart(2, '0')).join('');
       assetLoadMs = performance.now()-initBegin;
@@ -160,7 +252,7 @@ self.onmessage = async ({data}) => {
       startupMs = performance.now()-initBegin;
       detectorInitMs = performance.now()-detectorBegin;
       send({type: 'ready', delegate, renderer, init_ms:startupMs, asset_load_ms:assetLoadMs,
-        detector_init_ms:detectorInitMs, recovery_enabled:!!recovery});
+        detector_init_ms:detectorInitMs, recovery_enabled:!!recovery,track_verification_enabled:verifySmallTracks});
     } catch (error) {
       // Both local delegates failed; service CPU detection remains available.
       send({type: 'unavailable', reason: String(error).slice(0, 240)});
@@ -212,7 +304,10 @@ async function processFrame(image, timestamp, captureSource) {
     const sourceHeight = image.displayHeight || image.height;
     const width = Math.min(sourceWidth, 640);
     const height = Math.round(sourceHeight * width / sourceWidth);
-    if (pixels.width !== width || pixels.height !== height) history = [];
+    if (pixels.width !== width || pixels.height !== height || timestamp<verifiedAt) {
+      history = [];verificationTracks=[];verifiedAt=-Infinity;
+      verificationGeneration++;verificationAttempt=-Infinity;
+    }
     if (pixels.width !== width) pixels.width = width;
     if (pixels.height !== height) pixels.height = height;
     context.drawImage(image, 0, 0, width, height);
@@ -243,6 +338,7 @@ async function processFrame(image, timestamp, captureSource) {
       });
       failures = found.landmarks.length > primaryCount ? 0 : Math.min(failures+1, 8);
     }
+    const trackVerification=verifyTracks(found,timestamp,height/width);
     if (found.landmarks.length === 2) failures = 0;
     if (found.landmarks.length) { previous = found.landmarks; previousAt = timestamp; }
     const now = performance.now();
@@ -252,10 +348,12 @@ async function processFrame(image, timestamp, captureSource) {
     // Paint measured joints immediately. JPEG encoding and the service transport
     // must not delay the local overlay; inference still receives matching pixels.
     const meta = {type: 'tracking', timestamp, capture_source: captureSource, recovery_ran: retried,
-      recovered_hands: found.landmarks.length-primaryCount, landmarks, width, height,
+      recovered_hands: Math.max(0,found.landmarks.length-primaryCount), landmarks, width, height,
       hand_observation: {schema: 'mediapipe_hand_3d_v1', sdk: '0.10.32', platform:'web', delegate:delegate.toLowerCase(), model_sha256: modelHash,
         init_ms:startupMs, asset_load_ms:assetLoadMs, detector_init_ms:detectorInitMs,
-        raw_hands:raw.landmarks.length, rejected_hands:Math.max(0,raw.landmarks.length-primaryCount),
+        raw_hands:raw.landmarks.length, rejected_hands:Math.max(0,raw.landmarks.length-primaryCount)+trackVerification.rejected,
+        track_verification:trackVerification,
+        input_pipeline:verifySmallTracks?'video_track_verification_v2':'video_primary_v1',
         processing_ms:now-begin, fps:stamps.length>1 ? 1000*(stamps.length-1)/(now-stamps[0]) : 0, recovery_enabled:!!recovery,
         timestamp_ms: timestamp, width, height,
         landmarks: found.landmarks.map(hand => hand.map(p => [p.x, p.y, p.z])),

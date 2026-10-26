@@ -4,6 +4,8 @@ import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/user_avatar.dart';
+import 'featured_dictionary.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,7 +18,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && AppScope.of(context).persisted) {
+      if (mounted &&
+          AppScope.of(context).persisted &&
+          !AppScope.of(context).hasFreshHomeHistory) {
         AppScope.of(context).loadHistory(search: '');
       }
     });
@@ -40,21 +44,18 @@ class _HomeScreenState extends State<HomeScreen> {
         IconButton(
           tooltip: 'Thông báo',
           icon: const Icon(Icons.notifications_none),
-          onPressed: () =>
-              toast(context, 'Chức năng thông báo chưa được hỗ trợ.'),
+          onPressed: () => Navigator.pushNamed(context, '/notifications'),
         ),
         Padding(
           padding: const EdgeInsets.only(right: 14),
           child: InkWell(
             onTap: () => openRoot(context, 'S25'),
             borderRadius: BorderRadius.circular(30),
-            child: CircleAvatar(
+            child: UserAvatar(
               radius: 18,
-              backgroundColor: AppColors.blue,
-              child: Text(
-                name.isEmpty ? 'S' : name[0],
-                style: const TextStyle(color: Colors.white),
-              ),
+              name: name,
+              url: state.avatarUrl,
+              color: AppColors.blue,
             ),
           ),
         ),
@@ -88,43 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 24),
           _SectionTitle('Khám phá từ điển', () => openRoot(context, 'S22')),
           const SizedBox(height: 10),
-          SizedBox(
-            height: 114,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: 4,
-              separatorBuilder: (_, index) => const SizedBox(width: 10),
-              itemBuilder: (context, i) => SizedBox(
-                width: 84,
-                child: AppCard(
-                  padding: const EdgeInsets.all(10),
-                  onTap: () {
-                    state.selectSign(signs[i]);
-                    openScreen(context, 'S23');
-                  },
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.back_hand_outlined,
-                        color: AppColors.blue,
-                        size: 30,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        signs[i].name,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
+          const FeaturedDictionary(),
           const SizedBox(height: 22),
           _SectionTitle('Lịch sử gần đây', () => openRoot(context, 'S20')),
           const SizedBox(height: 10),

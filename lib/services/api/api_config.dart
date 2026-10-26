@@ -10,6 +10,11 @@ class ApiConfig {
   static String mediaUrl(String value) =>
       signMediaUrl(value, Uri.base.resolve(baseUrl));
 
+  static String avatarMediaUrl(String value) =>
+      value.startsWith('/user-media/avatars/')
+      ? Uri.base.resolve(baseUrl).resolve(value).toString()
+      : value;
+
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 30);

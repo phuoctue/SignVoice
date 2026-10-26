@@ -97,3 +97,4 @@ ai_service/runtime_provenance.json
 *.mov
 *.pem
 *.key
+**/*firebase-adminsdk*.json

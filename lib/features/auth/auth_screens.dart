@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
@@ -30,26 +28,40 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  Timer? timer;
+  AuthProvider? auth;
+  bool scheduled = false;
   @override
-  void initState() {
-    super.initState();
-    timer = Timer(const Duration(milliseconds: 1400), () {
-      if (mounted) _restoreSession();
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AuthProvider>();
+    if (!identical(auth, provider)) {
+      auth?.removeListener(_restoreSession);
+      auth = provider;
+      auth!.addListener(_restoreSession);
+    }
+    _restoreSession();
   }
 
-  Future<void> _restoreSession() async {
-    final auth = context.read<AuthProvider>();
-    while (auth.isLoading && mounted) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+  void _restoreSession() {
+    if (!mounted ||
+        scheduled ||
+        auth!.isLoading ||
+        auth!.state == AuthState.initial) {
+      return;
     }
-    if (mounted) openRoot(context, auth.isAuthenticated ? 'S08' : 'S02');
+    scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      scheduled = false;
+      if (!auth!.isLoading && auth!.state != AuthState.initial) {
+        openRoot(context, auth!.isAuthenticated ? 'S08' : 'S02');
+      }
+    });
   }
 
   @override
   void dispose() {
-    timer?.cancel();
+    auth?.removeListener(_restoreSession);
     super.dispose();
   }
 
@@ -506,6 +518,7 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 12),
           AppButton(
             widget.register ? 'Tạo tài khoản' : 'Đăng nhập',
+            key: const ValueKey('auth-submit'),
             busy: busy,
             onPressed: submit,
           ),

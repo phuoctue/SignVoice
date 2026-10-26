@@ -5,6 +5,7 @@ import { UserSettings } from '../models/UserSettings.model';
 import { AuditLog, AuditAction, AuditSeverity } from '../models/AuditLog.model';
 import { hashPassword, verifyPassword } from '../utils/password.util';
 import { generateTokenPair, hashToken, verifyAccessToken, verifyRefreshToken, ITokenPair } from '../utils/jwt.util';
+import {NotificationDevice} from '../models/Notification.model';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
 import { authorizationFor } from './authorization.service';
@@ -451,6 +452,8 @@ export async function refreshTokens(
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
   });
+
+  await NotificationDevice.updateMany({userId: user._id, sessionFamily: payload.sid}, {$set: {sessionFamily: verifyAccessToken(tokens.accessToken).sid}});
 
   return tokens;
 }

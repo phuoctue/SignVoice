@@ -5,6 +5,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../services/api/api_client.dart';
 import '../../services/api/api_config.dart';
+import '../../services/media/sign_video_source.dart';
+import '../../services/media/video_source.dart';
+import '../../widgets/sign_video_surface.dart';
 
 typedef SequenceLoader = Future<Map<String, dynamic>> Function(String text);
 
@@ -348,6 +351,7 @@ class SignVideoDialog extends StatefulWidget {
 class _SignVideoDialogState extends State<SignVideoDialog>
     with WidgetsBindingObserver {
   VideoPlayerController? controller;
+  VideoSource? source;
   late int index;
   int generation = 0;
   bool advancing = false;
@@ -366,6 +370,8 @@ class _SignVideoDialogState extends State<SignVideoDialog>
     final previous = controller;
     controller = null;
     await previous?.dispose();
+    source?.dispose();
+    source = null;
     if (!mounted || version != generation) return;
     final url = widget.items[index]['videoUrl'] as String?;
     if (widget.items[index]['type'] != 'sign' || url == null) {
@@ -375,9 +381,15 @@ class _SignVideoDialogState extends State<SignVideoDialog>
       });
       return;
     }
-    final player = VideoPlayerController.networkUrl(Uri.parse(url));
-    controller = player;
     try {
+      final resource = await openSignVideo(url);
+      if (!mounted || version != generation) {
+        resource.dispose();
+        return;
+      }
+      source = resource;
+      final player = VideoPlayerController.networkUrl(resource.uri);
+      controller = player;
       await player.initialize().timeout(const Duration(seconds: 20));
       if (!mounted || version != generation) return;
       await player.setVolume(0);
@@ -432,6 +444,7 @@ class _SignVideoDialogState extends State<SignVideoDialog>
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     controller?.dispose();
+    source?.dispose();
     super.dispose();
   }
 
@@ -458,7 +471,7 @@ class _SignVideoDialogState extends State<SignVideoDialog>
               child: Center(
                 child: AspectRatio(
                   aspectRatio: controller!.value.aspectRatio,
-                  child: VideoPlayer(controller!),
+                  child: SignVideoSurface(controller!),
                 ),
               ),
             ),

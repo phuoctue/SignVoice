@@ -14,6 +14,16 @@ class AdminWorkspaceService {
     : _api = apiClient ?? ApiClient.instance;
   final ApiClient _api;
 
+  Future<List<AdminRecord>> featuredEntries() async =>
+      ((await _api.get(
+                '/dictionary/popular',
+                queryParameters: {'limit': '6'},
+                requiresAuth: false,
+              ))['data']
+              as List)
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+
   Future<AdminRecord> stats() async =>
       Map<String, dynamic>.from((await _api.get('/admin/stats'))['data']);
 

@@ -59,24 +59,30 @@ class DevicePermissionPage extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const SizedBox(height: 20),
-          PulseOrb(
-            icon: camera ? Icons.videocam_outlined : Icons.mic_none,
-            color: color,
-            animate: false,
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 156,
+            width: 156,
+            child: FittedBox(
+              child: PulseOrb(
+                icon: camera ? Icons.videocam_outlined : Icons.mic_none,
+                color: color,
+                animate: false,
+              ),
+            ),
           ),
           Heading('Cho phép sử dụng $device', center: true),
           const SizedBox(height: 16),
           BodyText(
             camera
-                ? 'Camera chỉ bật sau khi bạn đồng ý. Khi kết nối AI, khung hình được gửi tới service AI đã cấu hình để nhận diện ký hiệu. Tính năng này không bật microphone.'
-                : 'Microphone chỉ bật sau khi bạn đồng ý để chuyển lời nói thành văn bản. Dịch vụ nhận dạng của trình duyệt hoặc thiết bị có thể cần Internet. Đọc kết quả bằng loa không cần quyền microphone.',
+                ? 'Bật camera để nhận diện ký hiệu. Khung hình được gửi tới dịch vụ AI đã chọn.'
+                : 'Bật microphone để nhận lời nói và xem ký hiệu. Có thể cần Internet.',
             center: true,
           ),
           const SizedBox(height: 24),
           Notice(
             error ??
-                'Bấm Cho phép $device để tiếp tục. Trình duyệt hoặc thiết bị sẽ hỏi quyền nếu chưa cấp. Nếu đã cho phép trước đó, thông báo hệ thống có thể không hiện lại. Nếu từng chọn Chặn, hãy đổi quyền $device trong Cài đặt trang web rồi thử lại.',
+                'Chọn Cho phép khi thiết bị hỏi. Nếu bị chặn, hãy cấp quyền $device trong Cài đặt rồi thử lại.',
             color: error == null ? color : AppColors.red,
             icon: Icons.shield_outlined,
           ),

@@ -565,7 +565,16 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (loading) const LinearProgressIndicator(),
-          if (error != null) ...[Notice(error!), const SizedBox(height: 12)],
+          if (error != null) ...[
+            Notice(error!),
+            if (!loading && quiz == null)
+              TextButton.icon(
+                onPressed: load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Thử lại'),
+              ),
+            const SizedBox(height: 12),
+          ],
           if (!loading && result is Map)
             resultView(LearningRecord.from(result))
           else if (!loading && question != null) ...[

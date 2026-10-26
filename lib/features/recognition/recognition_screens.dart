@@ -521,14 +521,18 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
   bool playing = false;
   final speech = SpeechOutput();
   String? speechError;
+  bool needsVoice = false;
+  int playbackGeneration = 0;
   Future<void> play() async {
     final state = AppScope.of(context);
     if (state.sentenceText.isEmpty) {
       return;
     }
+    final generation = ++playbackGeneration;
     setState(() {
       playing = true;
       speechError = null;
+      needsVoice = false;
     });
     try {
       await speech.speak(
@@ -537,18 +541,38 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
         pitch: state.speechPitch,
       );
     } catch (error) {
-      if (mounted) {
-        setState(() => speechError = '$error');
+      if (mounted && generation == playbackGeneration) {
+        setState(() {
+          needsVoice = error is MissingVietnameseVoiceException;
+          speechError = error is SpeechOutputException ? error.message : 'Không phát được giọng nói. Kiểm tra âm lượng và giọng đọc trong Cài đặt rồi thử lại.';
+        });
       }
     } finally {
-      if (mounted) {
+      if (mounted && generation == playbackGeneration) {
         setState(() => playing = false);
       }
     }
   }
 
+  Future<void> stopPlayback() async {
+    playbackGeneration++;
+    await speech.stop();
+    if (mounted) setState(() => playing = false);
+  }
+
+  Future<void> installVoice() async {
+    final opened = await speech.openVoiceSettings();
+    if (mounted && !opened) {
+      toast(
+        context,
+        'Mở Cài đặt thiết bị → Chuyển văn bản thành giọng nói → Tiếng Việt.',
+      );
+    }
+  }
+
   @override
   void dispose() {
+    playbackGeneration++;
     speech.stop();
     super.dispose();
   }
@@ -600,6 +624,10 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
             icon: Icons.volume_up_outlined,
             color: AppColors.blue,
             animate: playing,
+            label: playing ? 'Dừng đọc' : 'Phát giọng nói',
+            onTap: state.sentence.isEmpty
+                ? null
+                : () => playing ? stopPlayback() : play(),
           ),
           BodyText(
             playing ? 'Đang đọc tiếng Việt...' : 'Bấm Phát để đọc văn bản',
@@ -618,21 +646,18 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton.filled(
-                tooltip: playing ? 'Tạm dừng' : 'Phát',
+                tooltip: playing ? 'Dừng đọc' : 'Phát',
                 iconSize: 32,
                 onPressed: state.sentence.isEmpty
                     ? null
                     : () async {
                         if (playing) {
-                          await speech.stop();
-                          if (mounted) {
-                            setState(() => playing = false);
-                          }
+                          await stopPlayback();
                         } else {
                           await play();
                         }
                       },
-                icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                icon: Icon(playing ? Icons.stop : Icons.play_arrow),
               ),
               const SizedBox(width: 16),
               IconButton.outlined(
@@ -647,6 +672,14 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
           Notice(
             speechError ?? 'Sử dụng giọng tiếng Việt được cài trên thiết bị.',
           ),
+          if (needsVoice && speech.canOpenVoiceSettings) ...[
+            const SizedBox(height: 12),
+            AppButton(
+              'Cài giọng tiếng Việt',
+              icon: Icons.download_outlined,
+              onPressed: installVoice,
+            ),
+          ],
         ],
       ),
     );

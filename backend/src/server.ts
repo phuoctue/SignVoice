@@ -10,6 +10,7 @@ try {
 import { createApp } from './app';
 import { env, validateEnv } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
+import {startNotificationDelivery} from './services/notification.service';
 
 /**
  * Start the server
@@ -40,9 +41,11 @@ async function startServer(): Promise<void> {
       console.log('');
     });
     app.locals.attachAiUpgrade?.(server);
+    const stopNotifications = startNotificationDelivery();
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
+      stopNotifications();
       console.log(`\n⚠️  ${signal} received, shutting down gracefully...`);
       
       server.close(async () => {

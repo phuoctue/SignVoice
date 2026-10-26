@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { User, AuthSession, AuditLog } from '../models';
 import { AppError } from '../common/errors/AppError';
 import { clearOwnedData, provePassword } from './user-data.service';
+import {removeOwnedAvatars} from './avatar-media.service';
 
 /** Delete only the authenticated account. All changes commit or roll back together. */
 export async function deleteOwnAccount(userId: Types.ObjectId, currentPassword?: string): Promise<void> {
@@ -19,4 +20,5 @@ export async function deleteOwnAccount(userId: Types.ObjectId, currentPassword?:
     }
     await AuditLog.deleteMany({ $or: [{ userId }, { resourceType: 'User', resourceId: userId }] }, { session });
   });
+  await removeOwnedAvatars(userId.toString()).catch(() => console.warn('Avatar cleanup deferred after account deletion.'));
 }

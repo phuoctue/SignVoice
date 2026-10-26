@@ -50,6 +50,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   StreamSubscription<LocalHandObservation>? _localSubscription;
+  StreamSubscription<CapturedFrame>? _pixelSubscription;
   final _localHands = ValueNotifier<LocalHandObservation?>(null);
   int _localReceived = -10000;
   Timer? _localStale;
@@ -134,7 +135,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     _localHands.value = null;
     _localTrackingActive = false;
     await localSubscription?.cancel();
+    final pixelSubscription = _pixelSubscription;
+    _pixelSubscription = null;
+    await pixelSubscription?.cancel();
     final camera = _camera, channel = _channel, subscription = _subscription;
+    if (camera is PixelDiagnosticCamera) {
+      (camera as PixelDiagnosticCamera).setPixelDiagnostic(false);
+    }
     _camera = null;
     _cameraReady = false;
     _channel = null;
@@ -180,6 +187,18 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       // Request actual device permission before depending on the AI server.
       final camera = widget.cameraFactory(front: _front);
       _camera = camera;
+      if (camera is PixelDiagnosticCamera) {
+        final pixels = camera as PixelDiagnosticCamera;
+        pixels.setPixelDiagnostic(
+          _diagnostic.recording && _diagnostic.includePixels,
+        );
+        _pixelSubscription = pixels.diagnosticPixels.listen((frame) {
+          if (!mounted || generation != _generation) return;
+          final previousCount = _diagnostic.pixels.length;
+          _diagnostic.addPixels(frame);
+          if (_diagnostic.pixels.length != previousCount) setState(() {});
+        });
+      }
       if (camera is HandTrackingModeCamera) {
         (camera as HandTrackingModeCamera).setTrackingMode(_mode);
       }
@@ -308,6 +327,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
             'client_sent_ms': _lastSend,
             for (final key in const ['format', 'width', 'height', 'encode_ms'])
               if (frame.metadata.containsKey(key)) key: frame.metadata[key],
+            if (_diagnostic.includePixels)
+              for (final key in const [
+                'hand_observation',
+                'hand_history',
+                'rotation',
+                'mirrored',
+              ])
+                if (frame.metadata.containsKey(key)) key: frame.metadata[key],
           });
         }
         channel.sink.add(frame.packet(_sequence++, _lastSend));
@@ -383,6 +410,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         'kind': 'observation_send',
         'timestamp_ms': stamp,
         'client_sent_ms': now,
+        if (_diagnostic.includePixels) 'observation': measured,
       });
     }
     _channel?.sink.add(
@@ -537,10 +565,37 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       return;
     }
     if (!_diagnostic.recording && _diagnostic.messages.isEmpty) {
-      _diagnostic.start();
+      var includePixels = false;
+      if (_camera is PixelDiagnosticCamera) {
+        final choice = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Ghi chẩn đoán camera'),
+            content: const Text(
+              'Kèm ảnh PNG để đối chiếu detector trên đúng ảnh đầu vào, '
+              'không có nét vẽ landmark. Lưu cục bộ trong JSON, tối đa '
+              '15 ảnh, khoảng 1 ảnh mỗi 2 giây; không phải video đầy đủ.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Chỉ landmark'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Kèm ảnh PNG'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || choice == null) return;
+        includePixels = choice;
+      }
+      _diagnostic.start(includePixels: includePixels);
       _diagnostic.add({
         'kind': 'session_start',
         'mode': _mode,
+        'include_pixels': includePixels,
         'client_started_ms': _clock.elapsedMilliseconds,
         'observation_pacing': _phaseObservationPacing && _mode == 'words'
             ? 'phase_15hz_v1'
@@ -888,7 +943,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
               onPressed: _opening || _diagnosticBusy ? null : _toggleDiagnostic,
               tooltip: _diagnostic.recording || _diagnostic.messages.isNotEmpty
                   ? 'Dừng và xuất chẩn đoán'
-                  : 'Ghi chẩn đoán (không ảnh)',
+                  : 'Ghi chẩn đoán',
               icon: Icon(
                 _diagnostic.recording || _diagnostic.messages.isNotEmpty
                     ? Icons.download
@@ -911,6 +966,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       body: SafeArea(
         child: Column(
           children: [
+            if (_diagnostic.recording && _diagnostic.includePixels)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Chẩn đoán: ${_diagnostic.pixels.length} ảnh PNG',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
             Expanded(
               child: Container(
                 margin: const EdgeInsets.fromLTRB(20, 20, 20, 18),

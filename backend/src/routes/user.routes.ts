@@ -14,10 +14,16 @@ import { AppError } from '../common/errors/AppError';
 import { deleteOwnAccount } from '../services/account-deletion.service';
 import { clearOwnedData, conversationDto, missing, provePassword, safeUser, userTransaction } from '../services/user-data.service';
 import { deleteAccountBody, idParams, profileBody, settingsBody } from '../validation/user-data.validation';
+import {saveAvatarImage} from '../services/avatar-media.service';
+import {userBootstrap} from '../services/user-bootstrap.service';
 
 const router = Router();
 router.use(requireAuth);
 router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+router.get('/bootstrap', validate(z.object({query: z.object({}).strict()})), async (req, res, next) => {
+  try {res.json({success: true, data: await userBootstrap(req.user!.id)});}
+  catch (error) {next(error);}
+});
 router.get('/profile', async (req, res, next) => {
   try {
     const user = await User.findById(req.user!.id);
@@ -30,7 +36,10 @@ router.patch('/profile', validate(z.object({body: profileBody})), async (req, re
     const user = await userTransaction(req.user!.id, async session => {
       const current = await User.findById(req.user!.id).select('+passwordHash').session(session);
       if (!current) throw missing();
-      const {email, displayName, avatarUrl, currentPassword} = req.body;
+      const {email, displayName, avatarUrl, avatarImage, currentPassword} = req.body;
+      if (avatarUrl?.startsWith('/user-media/') && !avatarUrl.startsWith(`/user-media/avatars/${req.user!.id}/`)) {
+        throw new AppError('Ảnh đại diện không thuộc tài khoản này.', 400, 'INVALID_AVATAR');
+      }
       if (email !== undefined && email !== current.email) {
         if (current.accountType !== AccountType.LOCAL) throw new AppError('Không thể đổi email của tài khoản liên kết hoặc dùng thử.', 400, 'EMAIL_CHANGE_NOT_ALLOWED');
         await provePassword(current, currentPassword);
@@ -39,6 +48,7 @@ router.patch('/profile', validate(z.object({body: profileBody})), async (req, re
       }
       if (displayName !== undefined) current.displayName = displayName;
       if (avatarUrl !== undefined) current.avatarUrl = avatarUrl || undefined;
+      if (avatarImage !== undefined) current.avatarUrl = await saveAvatarImage(req.user!.id.toString(), avatarImage);
       await current.save({session});
       return current;
     });

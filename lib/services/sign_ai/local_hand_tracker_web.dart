@@ -82,7 +82,7 @@ class BrowserHandTracker {
     _timestamp = timestamp;
     try {
       final worker = web.Worker(
-        Uri.base.resolve('signvoice_hand_worker.js?v=8.7').toString().toJS,
+        Uri.base.resolve('signvoice_hand_worker.js?v=8.9').toString().toJS,
         web.WorkerOptions(type: 'classic'),
       );
       _worker = worker;
@@ -196,6 +196,8 @@ class BrowserHandTracker {
           'live_observations': true,
           'startup_progress': true,
           'enable_recovery': false,
+          'verify_small_tracks': targetHands == 2 &&
+              const bool.fromEnvironment('CAMERA_VERIFY_SMALL_TRACKS'),
           'diagnostic_pixels': pixelDiagnostic,
         }.jsify(),
       );

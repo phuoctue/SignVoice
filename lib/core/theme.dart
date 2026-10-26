@@ -19,8 +19,8 @@ ThemeData makeTheme({required bool dark, required bool highContrast}) {
       ).copyWith(
         primary: highContrast
             ? (dark ? const Color(0xFF93C5FD) : const Color(0xFF1E40AF))
-            : AppColors.blue,
-        onPrimary: dark && highContrast ? AppColors.ink : Colors.white,
+            : (dark ? const Color(0xFF93B4FF) : AppColors.blue),
+        onPrimary: dark ? AppColors.ink : Colors.white,
         surface: dark ? const Color(0xFF1E293B) : Colors.white,
         onSurface: dark ? const Color(0xFFF8FAFC) : AppColors.ink,
         onSurfaceVariant: highContrast

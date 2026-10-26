@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/api/api_exception.dart';
 import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
+import 'learning_page_controller.dart';
 import 'learning_widgets.dart';
 
 class TopicLearningScreen extends StatefulWidget {
@@ -19,15 +20,23 @@ class TopicLearningScreen extends StatefulWidget {
 }
 
 class _TopicLearningScreenState extends State<TopicLearningScreen> {
-  LearningPage? data;
-  int page = 1, request = 0;
-  bool loading = true, saving = false;
+  late final LearningPageController controller;
+  LearningPage? get data => controller.data;
+  int get page => controller.page;
+  bool get loading => controller.loading;
+  String? get error => controller.error;
+  bool saving = false;
   late String stage = widget.study ? 'LEARNING' : 'ALL';
-  String? error;
   LearningService get service => context.read<LearningService>();
   @override
   void initState() {
     super.initState();
+    final source = service;
+    controller = LearningPageController(
+      loadPage: (page) =>
+          source.topic(widget.topicId, page: page, stage: stage),
+      errorMessage: 'Chưa tải được chủ đề. Hãy thử lại.',
+    )..addListener(_onPageChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) load();
     });
@@ -35,43 +44,13 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
 
   @override
   void dispose() {
-    request++;
+    controller.dispose();
     super.dispose();
   }
 
-  Future<void> load() async {
-    final current = ++request;
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final result = await service.topic(
-        widget.topicId,
-        page: page,
-        stage: stage,
-      );
-      if (!mounted || current != request) return;
-      if (page > result.pages) {
-        page = result.pages;
-        await load();
-        return;
-      }
-      setState(() {
-        data = result;
-      });
-    } catch (e) {
-      if (mounted && current == request) {
-        setState(
-          () => error = e is ApiException
-              ? e.message
-              : 'Chưa tải được chủ đề. Hãy thử lại.',
-        );
-      }
-    } finally {
-      if (mounted && current == request) setState(() => loading = false);
-    }
-  }
+  void _onPageChanged() => setState(() {});
+
+  Future<void> load({int? page}) => controller.load(page: page);
 
   Future<void> start() async {
     setState(() => saving = true);
@@ -137,8 +116,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
   }
 
   void changePage(int next) {
-    page = next;
-    load();
+    load(page: next);
   }
 
   Widget wordCard(LearningRecord word, bool enrolled) => Padding(
@@ -191,6 +169,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
             ),
           ),
           TextButton.icon(
+            key: ValueKey('learn-preview-${word['_id']}'),
             onPressed: () => showLearningWord(context, word),
             icon: const Icon(Icons.visibility_outlined),
             label: const Text('Xem ký hiệu & ví dụ'),
@@ -213,6 +192,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: AppButton(
                   learningLabels[value]!,
+                  key: ValueKey('learn-rate-${word['_id']}-$value'),
                   secondary: true,
                   color: learningColors[value],
                   icon: value == 'REMEMBERED'
@@ -275,6 +255,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               const SizedBox(height: 18),
               AppButton(
                 enrolled ? 'Tiếp tục học' : 'Bắt đầu học',
+                key: const ValueKey('learn-start'),
                 icon: Icons.play_arrow_rounded,
                 busy: saving,
                 onPressed: saving || result.total == 0 ? null : start,
@@ -303,8 +284,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                     ? (_) {}
                     : (v) {
                         stage = v;
-                        page = 1;
-                        load();
+                        load(page: 1);
                       },
               ),
               const SizedBox(height: 18),
@@ -317,7 +297,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
             if (enrolled && stage == 'REVIEW' && words.isNotEmpty) ...[
               const Notice(
-                'Ôn bằng quiz camera, tối đa 10 từ mỗi lượt. Ghi nhận kết quả cho từng từ rồi nộp bài. Từ chưa khớp được tổng hợp trong Thống kê & mục tiêu → Từ cần củng cố.',
+                'Ôn tối đa 10 ký hiệu mỗi lượt bằng camera. Từ chưa khớp được tổng hợp trong Thống kê & mục tiêu.',
               ),
               const SizedBox(height: 12),
               AppButton(

@@ -244,6 +244,9 @@ DictionaryEntrySchema.index(
 
 // Primary queries
 DictionaryEntrySchema.index({ status: 1, publishedAt: -1 }); // Published entries
+DictionaryEntrySchema.index({ status: 1, videoUrl: 1 });
+DictionaryEntrySchema.index({ status: 1, thumbnailUrl: 1 });
+DictionaryEntrySchema.index({ status: 1, imageUrls: 1 });
 DictionaryEntrySchema.index({ categoryId: 1, status: 1 }); // Category filtering
 DictionaryEntrySchema.index({ status: 1, viewCount: -1 }); // Popular entries
 DictionaryEntrySchema.index({ createdBy: 1, status: 1 }); // Staff's entries

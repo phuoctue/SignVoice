@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/user/user_data_service.dart';
 import '../services/api/api_exception.dart';
+import '../services/notifications/study_reminder.dart';
 
 enum ConversationDirection { signToSpeech, speechToText, text }
 
@@ -105,6 +106,7 @@ class AppState extends ChangeNotifier {
   bool isCurrent(int epoch) =>
       !_disposed && epoch == _epoch && _accountId != null;
   bool get persisted => service != null;
+  String? get accountId => _accountId;
   bool get ready => !persisted || _ready;
   bool _ready = false;
   bool guest = false;
@@ -118,12 +120,23 @@ class AppState extends ChangeNotifier {
   ThemeMode themeMode = ThemeMode.system;
   double fontScale = 1, speechSpeed = 1, speechPitch = 1;
   bool highContrast = false, autoSpeak = false;
+  bool notificationsEnabled = true;
+  StudyReminder studyReminder = const StudyReminder();
   bool cameraAllowed = false,
       microphoneAllowed = false,
       permissionCamera = true;
   bool online = true, syncing = false, saving = false;
   String? error;
   DateTime? lastSync;
+  DateTime? _historyLoadedAt;
+  bool get hasFreshHomeHistory =>
+      _historyLoadedAt != null &&
+      DateTime.now().difference(_historyLoadedAt!) <
+          const Duration(seconds: 10) &&
+      historyPage == 1 &&
+      historySearch.isEmpty &&
+      historyDirection == null &&
+      historyFavorite == null;
   int avatarColor = 0, historyPage = 1, historyPages = 1;
   String historySearch = '';
   String? historyDirection;
@@ -160,9 +173,12 @@ class AppState extends ChangeNotifier {
     highContrast = false;
     autoSpeak = false;
     avatarColor = 0;
+    notificationsEnabled = true;
+    studyReminder = const StudyReminder();
     cameraAllowed = false;
     microphoneAllowed = false;
     lastSync = null;
+    _historyLoadedAt = null;
     error = null;
     syncing = false;
     saving = false;
@@ -219,6 +235,10 @@ class AppState extends ChangeNotifier {
     highContrast = settings['highContrast'] == true;
     autoSpeak = settings['autoSpeak'] == true;
     avatarColor = (settings['avatarColor'] as num?)?.toInt() ?? 0;
+    notificationsEnabled = settings['notificationsEnabled'] != false;
+    studyReminder = StudyReminder.fromJson(
+      (settings['studyReminder'] as Map?)?.cast<String, dynamic>(),
+    );
   }
 
   Conversation _conversation(Map<String, dynamic> data) => Conversation(
@@ -240,22 +260,17 @@ class AppState extends ChangeNotifier {
       error = null;
     });
     try {
-      final data = await Future.wait<dynamic>([
-        service!.profile(),
-        service!.settings(),
-        service!.conversations(),
-        service!.favorites(),
-      ]);
+      final data = await service!.bootstrap();
       if (!isCurrent(epoch) || load != _loadEpoch) return false;
       if (revision != _revision) return false;
       update(() {
-        final profile = data[0] as Map<String, dynamic>;
+        final profile = data.profile;
         name = '${profile['displayName']}';
         email = '${profile['email'] ?? ''}';
         avatarUrl = '${profile['avatarUrl'] ?? ''}';
         accountType = '${profile['accountType']}';
-        _applySettings(data[1] as Map<String, dynamic>);
-        final conversations = data[2] as Map<String, dynamic>;
+        _applySettings(data.settings);
+        final conversations = data.conversations;
         history
           ..clear()
           ..addAll(
@@ -270,10 +285,11 @@ class AppState extends ChangeNotifier {
         historyFavorite = null;
         favorites
           ..clear()
-          ..addAll((data[3] as List).map((item) => '${item['entryId']}'));
+          ..addAll(data.favorites.map((item) => '${item['entryId']}'));
         _ready = true;
         online = true;
         lastSync = DateTime.now();
+        _historyLoadedAt = lastSync;
       });
       return true;
     } catch (failure) {
@@ -366,6 +382,7 @@ class AppState extends ChangeNotifier {
           ),
         );
         historyPage = page;
+        _historyLoadedAt = DateTime.now();
         historyPages = (result['pages'] as num).toInt();
         if (!more) {
           historySearch = search ?? '';
