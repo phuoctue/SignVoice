@@ -1,7 +1,7 @@
 import { administratorTransaction } from '../services/administrator-transaction.service';
 import { writeContent, removeContent, removeCategory } from '../services/content-management.service';
 import { Request, Response, NextFunction } from 'express';
-import { User, AccountType, UserRole } from '../models/User.model';
+import { User, AccountType, UserRole, AccountStatus } from '../models/User.model';
 import { Role } from '../models/Role.model';
 import { builtInPermissions, roleForPermissions, assertCanGrant } from '../services/authorization.service';
 import { UserSettings } from '../models/UserSettings.model';
@@ -10,6 +10,42 @@ import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { hashPassword } from '../utils/password.util';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
+import { AuthSession, SessionStatus } from '../models/AuthSession.model';
+import { AuditLog, AuditAction, AuditSeverity } from '../models/AuditLog.model';
+import { authorizationFor } from '../services/authorization.service';
+
+export async function resetUserPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.user!.id.equals(req.params.id)) throw new AppError('Hãy dùng Đổi mật khẩu cá nhân và xác nhận mật khẩu hiện tại.', 400, 'ADMIN_PASSWORD_SELF_RESET');
+    const passwordHash = await hashPassword(req.body.newPassword);
+    await administratorTransaction(async session => {
+      const actor = await User.findById(req.user!.id).session(session);
+      const actorSession = await AuthSession.findOne({ _id: req.sessionId, userId: req.user!.id }).session(session);
+      if (!actor?.isActive() || !actorSession?.isValid() || actor.passwordVersion !== actorSession.passwordVersion) {
+        throw new AppError('Phiên quản trị đã thay đổi. Vui lòng đăng nhập lại.', 401, 'AUTH_SESSION_INVALID');
+      }
+      const actorAuthorization = await authorizationFor(actor);
+      if (actor.isGuest || !actorAuthorization.permissions.includes('admin:access') || !actorAuthorization.permissions.includes('users:write')) {
+        throw new AppError('Bạn không còn quyền đặt lại mật khẩu tài khoản.', 403, ErrorCodes.AUTH_FORBIDDEN);
+      }
+      // Serialize against revocation while this privileged request commits.
+      const active = await AuthSession.updateOne({ _id: actorSession._id, status: SessionStatus.ACTIVE, passwordVersion: actor.passwordVersion },
+        { $set: { lastUsedAt: new Date() } }, { session });
+      if (!active.matchedCount) throw new AppError('Phiên quản trị đã hết hiệu lực.', 401, 'AUTH_SESSION_INVALID');
+      const user = await User.findById(req.params.id).session(session);
+      if (!user || user.status === AccountStatus.DELETED) throw new AppError('Tài khoản không tồn tại.', 404, ErrorCodes.NOT_FOUND);
+      assertCanGrant(actorAuthorization.permissions, (await authorizationFor(user)).permissions);
+      if (user.isGuest || user.accountType !== AccountType.LOCAL) throw new AppError('Chỉ tài khoản email có mật khẩu trong hệ thống mới đặt lại được tại đây.', 400, 'AUTH_PASSWORD_NOT_SUPPORTED');
+      await User.updateOne({ _id: user._id }, { $set: { passwordHash }, $inc: { passwordVersion: 1 },
+        $unset: { passwordResetTokenHash: 1, passwordResetExpiresAt: 1, passwordResetRequestedAt: 1 } }, { session });
+      await AuthSession.updateMany({ userId: user._id, status: SessionStatus.ACTIVE }, { $set: { status: SessionStatus.REVOKED, revokedAt: new Date() } }, { session });
+      await AuditLog.create([{ userId: actor._id, actorRole: actorAuthorization.role, action: AuditAction.PASSWORD_RESET,
+        severity: AuditSeverity.WARNING, resourceType: 'User', resourceId: user._id, details: { byAdministrator: true },
+        ipAddress: req.ip, userAgent: req.get('user-agent'), success: true }], { session });
+    });
+    res.json({ success: true, data: { message: 'Đã đặt lại mật khẩu. Tài khoản cần đăng nhập lại bằng mật khẩu mới.' } });
+  } catch (error) { next(error); }
+}
 
 function paging(req: Request) {
   const page = Number(req.query.page || 1), limit = Number(req.query.limit || 20);

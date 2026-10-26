@@ -27,6 +27,7 @@ const screenNames = <String, String>{
   'S24': 'Yêu thích',
   'S25': 'Cá nhân',
   'S26': 'Chỉnh sửa hồ sơ',
+  'change-password': 'Đổi mật khẩu',
   'S27': 'Cài đặt giọng nói',
   'S28': 'Giao diện & Trợ năng',
   'S29': 'Đồng bộ dữ liệu',

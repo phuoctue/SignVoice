@@ -78,6 +78,14 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           const SizedBox(height: 26),
+          if (!state.guest) ...[
+            IconTile(
+              icon: Icons.lock_reset,
+              title: 'Đổi mật khẩu',
+              onTap: () => openScreen(context, 'change-password'),
+            ),
+            const SizedBox(height: 10),
+          ],
           if (auth.isStaff && !auth.isAdmin) ...[
             IconTile(
               icon: Icons.fact_check_outlined,

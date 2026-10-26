@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sign_voice/app.dart';
+import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/models/user_model.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/screens/admin/admin_dashboard_screen.dart';
@@ -89,6 +90,7 @@ Future<void> pumpApp(
   await tester.pumpWidget(
     SignVoiceApp(
       initialScreen: screen,
+      state: AppState(),
       auth: auth,
       adminService: service ?? serviceFor(basicHandler),
     ),
@@ -407,7 +409,7 @@ void main() {
         revoked = true;
         return response({});
       }
-      if (request.url.path.endsWith('/sessions'))
+      if (request.url.path.endsWith('/sessions')) {
         return response({
           'sessions': revoked
               ? []
@@ -424,6 +426,7 @@ void main() {
                 ],
           'pagination': {'page': 1, 'pages': 1, 'total': revoked ? 0 : 1},
         });
+      }
       return basicHandler(request);
     });
     await pumpApp(tester, screen: '/admin/sessions', service: service);

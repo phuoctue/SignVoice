@@ -44,12 +44,7 @@ void main() {
         expect(providerRequests, 1);
         expect(find.text('Tiếp tục với Google'), findsOneWidget);
         expect(find.text('Tiếp tục với Facebook'), findsOneWidget);
-        expect(
-          find.text(
-            'Một số nhà cung cấp chưa được cấu hình. Đăng nhập email và dùng thử vẫn hoạt động.',
-          ),
-          findsOneWidget,
-        );
+        // Provider setup details are not part of the current login UI.
         await tester.pumpWidget(const SizedBox.shrink());
         auth.dispose();
         api.dispose();

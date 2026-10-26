@@ -6,6 +6,7 @@ import '../../services/admin/admin_workspace_service.dart';
 import '../../services/api/api_exception.dart';
 import '../../widgets/ui.dart';
 import 'admin_dashboard_screen.dart';
+import 'admin_password_dialog.dart';
 
 String adminError(Object error) => error is ApiException
     ? error.message
@@ -103,9 +104,34 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         builder: (_) => AdminEditorScreen(resource: resource, record: record),
       ),
     );
-    if (changed == true && mounted && context.read<AuthProvider>().accountEpoch == account) {
+    if (changed == true &&
+        mounted &&
+        context.read<AuthProvider>().accountEpoch == account) {
       _page = 1;
       await _load();
+    }
+  }
+
+  Future<void> _resetPassword(AdminRecord record) async {
+    final epoch = context.read<AuthProvider>().accountEpoch;
+    final activeService = service;
+    final changed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AdminPasswordDialog(
+        userId: recordId(record['_id']),
+        name: '${record['email'] ?? record['displayName']}',
+        service: activeService,
+      ),
+    );
+    if (changed == true &&
+        mounted &&
+        context.read<AuthProvider>().accountEpoch == epoch) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đã đặt lại mật khẩu. Người dùng cần đăng nhập lại.'),
+        ),
+      );
     }
   }
 
@@ -136,7 +162,11 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted || context.read<AuthProvider>().accountEpoch != account) return;
+    if (confirmed != true ||
+        !mounted ||
+        context.read<AuthProvider>().accountEpoch != account) {
+      return;
+    }
     setState(() => _mutating = true);
     try {
       await service.delete(resource, recordId(record['_id']));
@@ -354,11 +384,23 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
                                   onSelected: (value) {
                                     if (value == 'edit') {
                                       _edit(record);
+                                    } else if (value == 'password') {
+                                      _resetPassword(record);
                                     } else {
                                       _delete(record);
                                     }
                                   },
                                   itemBuilder: (_) => [
+                                    if (resource == 'users' &&
+                                        record['accountType'] == 'LOCAL' &&
+                                        record['isGuest'] != true &&
+                                        record['status'] != 'DELETED' &&
+                                        recordId(record['_id']) !=
+                                            auth.user?.id)
+                                      const PopupMenuItem(
+                                        value: 'password',
+                                        child: Text('Đặt lại mật khẩu'),
+                                      ),
                                     if (resource != 'sessions')
                                       const PopupMenuItem(
                                         value: 'edit',
@@ -434,7 +476,10 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   bool _loading = false, _saving = false, _optionsReady = false;
   late int _accountEpoch;
   late String? _accountId;
-  bool get _sameAccount => mounted && context.read<AuthProvider>().accountEpoch == _accountEpoch && context.read<AuthProvider>().user?.id == _accountId;
+  bool get _sameAccount =>
+      mounted &&
+      context.read<AuthProvider>().accountEpoch == _accountEpoch &&
+      context.read<AuthProvider>().user?.id == _accountId;
   String? _error;
   AdminRecord get record => widget.record ?? {};
   bool get editing => widget.record != null;
@@ -650,7 +695,9 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
     ),
   );
   Future<void> _save() async {
-    if (!_sameAccount || !_optionsReady || !_form.currentState!.validate()) return;
+    if (!_sameAccount || !_optionsReady || !_form.currentState!.validate()) {
+      return;
+    }
     final AdminRecord body;
     switch (resource) {
       case 'roles':
@@ -879,7 +926,11 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: _saving || !_optionsReady || !_sameAccount || !auth.can('$resource:write')
+                  onPressed:
+                      _saving ||
+                          !_optionsReady ||
+                          !_sameAccount ||
+                          !auth.can('$resource:write')
                       ? null
                       : _save,
                   icon: _saving

@@ -4,7 +4,7 @@ import { requireAuth, requireAdmin, requirePermission } from '../common/middlewa
 import * as management from '../controllers/admin-management.controller';
 import { validate } from '../common/middlewares/validate.middleware';
 import { adminListSchema, adminCreateUserSchema, adminUpdateUserSchema, adminIdSchema, adminSessionIdSchema,
-  adminCreateDictionarySchema, adminUpdateDictionarySchema, adminCreateCategorySchema, adminUpdateCategorySchema, adminCreateRoleSchema, adminUpdateRoleSchema } from '../validation/admin.validation';
+  adminCreateDictionarySchema, adminUpdateDictionarySchema, adminCreateCategorySchema, adminUpdateCategorySchema, adminCreateRoleSchema, adminUpdateRoleSchema, adminResetPasswordSchema } from '../validation/admin.validation';
 
 const router = Router();
 
@@ -45,6 +45,7 @@ router.get('/users/:id', requirePermission('users:read'), validate(adminIdSchema
  * @access Private (ADMIN)
  */
 router.patch('/users/:id', requirePermission('users:write'), validate(adminUpdateUserSchema), adminController.updateUser);
+router.post('/users/:id/password', requirePermission('users:write'), validate(adminResetPasswordSchema), management.resetUserPassword);
 
 /**
  * DELETE /api/v1/admin/users/:id
