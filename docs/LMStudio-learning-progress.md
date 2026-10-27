@@ -32,6 +32,24 @@ Nếu bật Require Authentication, tạo token trong LM Studio rồi điền v�
 
 ## Cách chạy và sử dụng
 
+### Máy hiện tại: chạy nền
+
+Đã cài llmster chính thức và model **Qwen3-4B-Instruct-2507 Q4_K_M** (SHA-256 đối chiếu nguồn tải). Backend vẫn dùng `http://127.0.0.1:1235/v1`; không cần đổi APK chỉ để bật LM Studio. Bionic là ứng dụng riêng, có thể dùng đồng thời; không cần mở cửa sổ Bionic để phục vụ API học tập.
+
+Sau khi bật lại máy, chạy tại gốc SignVoice:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-learning-lmstudio.ps1
+```
+
+Script nạp riêng model SignVoice với context 4096 và GPU off, giữ model đã nạp, kiểm tra API ở cổng 1235 và không dỡ các model khác. Dịch vụ chỉ lắng nghe loopback. Máy tính vẫn cần hoạt động để APK dùng phần AI. Script không tự cài tác vụ khởi động Windows.
+
+Kiểm tra ngày 27/10/2026: backend phân tích tiến độ và gợi ý ôn tập đều trả `source: lm-studio`. Đo lần đầu khoảng 59 giây cho phân tích, 28 giây cho gợi ý; HTTP nội bộ khi đã kết nối khoảng 6–10 ms. Thời gian sinh văn bản trên CPU khác với độ trễ đường truyền. Các yêu cầu AI trùng đang chạy được gộp trong ứng dụng, tách theo phiên tài khoản và thay đổi tiến độ; kết quả hoàn tất không được dùng làm cache AI lâu dài.
+
+APK mới dùng tác vụ nền để tránh giữ một kết nối HTTP suốt thời gian AI sinh văn bản: POST `/learning/analysis` hoặc `/learning/coach` với `{"async":true,"requestKey":"<32 ký tự hex>"}` nhận HTTP 202 ngay, rồi GET `/learning/ai-jobs/{id}` mỗi 3 giây. Lỗi mạng/gateway ngắn được thử lại với cùng tác vụ; đổi tài khoản hoặc tiến độ dừng lấy kết quả cũ. Chỉ tài khoản tạo tác vụ đọc được kết quả, luôn `no-store`. Tác vụ giữ tối đa 5 phút trong tiến trình backend; khởi động lại backend làm mất tác vụ đang chờ. Body `{}` vẫn giữ luồng API cũ để tương thích.
+
+### Cách chạy thông thường
+
 Sau khi chuẩn bị database, media và các công cụ theo [setup](SETUP_MAY_KHAC_LMSTUDIO.md):
 
 1. Bật LM Studio API và bảo đảm model SignVoice sẵn sàng.
@@ -55,8 +73,8 @@ LM Studio được tắt riêng khi không còn máy nào dùng. Chỉ cài Từ
 
 ## Luồng dữ liệu và giới hạn
 
-- `LearningService.coach()` → `POST /api/v1/learning/coach` → `learningAdvice(userId)` → LM Studio `/chat/completions`.
-- `LearningService.analyzeProgress()` → `POST /api/v1/learning/analysis` → `analyzeLearningProgress(userId)` → LM Studio. Body chỉ nhận `{}`, người dùng lấy từ token; giới hạn 3 yêu cầu/phút/tài khoản.
+- `LearningService.coach()` → `POST /api/v1/learning/coach` → tác vụ riêng → `learningAdvice(userId)` → LM Studio `/chat/completions`.
+- `LearningService.analyzeProgress()` → `POST /api/v1/learning/analysis` → tác vụ riêng → `analyzeLearningProgress(userId)` → LM Studio. Người dùng lấy từ token; không nhận userId/prompt từ client. Giới hạn phân tích 3 yêu cầu/phút/tài khoản; gợi ý 6 yêu cầu/phút/tài khoản.
 - Tiến độ lấy từ `learning_enrollments` và `learning_word_progress` của tài khoản trong token. Các trạng thái là `LEARNING`, `REMEMBERED`, `REVIEW`; từ đã nhớ đến lịch ôn được tính là cần ôn.
 - Gợi ý ôn nhận bốn tổng số tiến độ và tối đa 8 từ đã xuất bản. Phân tích nhận tổng trên **toàn bộ** chủ đề đang hoạt động đã bắt đầu, cùng tối đa 40 chủ đề cần chú ý; giao diện hiển thị tối đa 5 chủ đề trong khung kết quả. Tổng không bị giới hạn theo trang 10 chủ đề đang xem.
 - Tỷ lệ đã nhớ được backend tính bằng số từ đang ghi nhận nhớ/chưa đến lịch ôn chia tổng từ đã xuất bản trong các chủ đề đã bắt đầu. Các từ chưa đánh giá nằm ở đang học. Không gửi ID tài khoản, email, ảnh/video, token đăng nhập hoặc lịch sử hội thoại đến AI.

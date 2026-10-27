@@ -517,13 +517,55 @@ class VoicePlaybackScreen extends StatefulWidget {
   State<VoicePlaybackScreen> createState() => _VoicePlaybackScreenState();
 }
 
-class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
+class _VoicePlaybackScreenState extends State<VoicePlaybackScreen>
+    with WidgetsBindingObserver {
   bool playing = false;
   final speech = SpeechOutput();
   String? speechError;
   bool needsVoice = false;
   int playbackGeneration = 0;
+  bool checkingVoice = false, _returningFromSettings = false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _returningFromSettings) {
+      _returningFromSettings = false;
+      unawaited(checkVoice());
+    }
+    if (state == AppLifecycleState.paused) unawaited(stopPlayback());
+  }
+
+  Future<void> checkVoice() async {
+    if (checkingVoice || playing) return;
+    final generation = ++playbackGeneration;
+    setState(() => checkingVoice = true);
+    try {
+      final available = await speech.refreshVietnameseVoice();
+      if (!mounted || generation != playbackGeneration) return;
+      setState(() {
+        needsVoice = !available;
+        speechError = available
+            ? 'Đã nhận giọng tiếng Việt. Bấm Phát để nghe.'
+            : const MissingVietnameseVoiceException().message;
+      });
+    } catch (_) {
+      if (mounted && generation == playbackGeneration) {
+        setState(
+          () => speechError = 'Chưa kiểm tra được bộ đọc. Bấm Phát để thử lại.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => checkingVoice = false);
+    }
+  }
+
   Future<void> play() async {
+    if (checkingVoice) return;
     final state = AppScope.of(context);
     if (state.sentenceText.isEmpty) {
       return;
@@ -561,6 +603,7 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
   }
 
   Future<void> installVoice() async {
+    _returningFromSettings = true;
     final opened = await speech.openVoiceSettings();
     if (mounted && !opened) {
       toast(
@@ -572,6 +615,7 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     playbackGeneration++;
     speech.stop();
     super.dispose();
@@ -678,6 +722,14 @@ class _VoicePlaybackScreenState extends State<VoicePlaybackScreen> {
               'Cài giọng tiếng Việt',
               icon: Icons.download_outlined,
               onPressed: installVoice,
+            ),
+            TextButton(
+              onPressed: checkingVoice ? null : checkVoice,
+              child: Text(
+                checkingVoice
+                    ? 'Đang kiểm tra giọng…'
+                    : 'Kiểm tra lại giọng đã cài',
+              ),
             ),
           ],
         ],

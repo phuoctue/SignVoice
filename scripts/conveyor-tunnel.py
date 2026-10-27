@@ -16,13 +16,18 @@ def main():
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--log', type=Path, required=True)
+    parser.add_argument('--session-id')
     args = parser.parse_args()
     proc = None
-    state = {'phase': 'starting', 'wrapper_pid': os.getpid()}
+    state = {'phase': 'starting', 'wrapper_pid': os.getpid(), 'session_id': args.session_id}
 
     def save():
         for attempt in range(5):
             try:
+                if args.session_id and args.state.exists():
+                    existing = json.loads(args.state.read_text(encoding='utf-8-sig'))
+                    if existing.get('session_id') != args.session_id:
+                        return  # A previous wrapper must not overwrite a newer launch.
                 temporary = args.state.with_suffix('.tmp')
                 temporary.write_text(json.dumps(state), encoding='utf-8')
                 temporary.replace(args.state)
@@ -49,11 +54,16 @@ def main():
                 continue
             buffer = (buffer + re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', chunk))[-64000:]
             args.log.write_text(buffer, encoding='utf-8')
+            if 'exceeded your continuous connection time limit' in buffer.lower():
+                state.update(phase='expired', error='Conveyor continuous connection time limit reached; reconnect the tunnel.')
+                save()
+                break
             origins = re.findall(r'https://[a-zA-Z0-9-]+\.conveyor\.cloud', buffer)
             if origins and state.get('origin') != origins[-1]:
                 state.update(phase='ready', origin=origins[-1])
                 save()
-        state['phase'] = 'exited'
+        if state.get('phase') != 'expired':
+            state['phase'] = 'exited'
     except Exception as error:
         state.update(phase='error', error=str(error))
     finally:

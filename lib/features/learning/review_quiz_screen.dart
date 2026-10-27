@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../services/api/api_exception.dart';
-import '../../services/api/api_config.dart';
 import '../../services/learning/learning_service.dart';
 import '../../services/sign_ai/camera_capture.dart';
 import '../../services/sign_ai/media_access_error.dart';
@@ -49,6 +48,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
   bool loading = true, busy = false, startingCamera = false;
   bool stoppingCamera = false;
   bool cameraReady = false, framePending = false, previewReady = false;
+  bool attempted = false;
   String? error, cameraError, confirmed;
   LearningService get service => context.read<LearningService>();
   List<LearningRecord> get questions => (quiz?['questions'] as List? ?? [])
@@ -84,6 +84,10 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
       index = unanswered >= 0
           ? unanswered
           : (list.isEmpty ? 0 : list.length - 1);
+      final saved = list.isEmpty
+          ? ''
+          : '${list[index]['recognizedLabel'] ?? ''}';
+      confirmed = saved.isEmpty ? null : saved;
     } catch (e) {
       if (mounted) {
         error = e is ApiException ? e.message : 'Chưa tải được bài ôn tập.';
@@ -101,6 +105,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
       startingCamera = true;
       cameraError = null;
       confirmed = null;
+      attempted = false;
       hands = null;
     });
     SignCamera? created;
@@ -256,8 +261,11 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
         }
         final value = message['confirmed'] as String?;
         final count = (message['hands'] as num?)?.toInt() ?? 0;
-        if (count != hands || (confirmed == null && value != null)) {
+        if (!attempted ||
+            count != hands ||
+            (confirmed == null && value != null)) {
           setState(() {
+            attempted = true;
             hands = count;
             if (confirmed == null && value != null && value.trim().isNotEmpty) {
               confirmed = value;
@@ -328,16 +336,20 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
     if (stoppingCamera) return;
     setState(() {
       stoppingCamera = true;
-      confirmed = null;
       cameraError = null;
     });
     await _stopCamera();
     if (mounted) setState(() => stoppingCamera = false);
   }
 
-  Future<void> _recordAndAdvance() async {
+  Future<void> _recordAndAdvance({bool skip = false}) async {
     final list = questions;
-    if (busy || list.isEmpty || confirmed == null) return;
+    if (busy ||
+        stoppingCamera ||
+        list.isEmpty ||
+        (confirmed == null && !(skip && attempted))) {
+      return;
+    }
     final isLastQuestion = index == list.length - 1;
     setState(() {
       busy = true;
@@ -348,7 +360,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
       final value = await service.saveQuizCapture(
         widget.quizId,
         entryId: '${current['entryId']}',
-        recognizedLabel: confirmed!,
+        recognizedLabel: skip ? '' : confirmed!,
       );
       if (!mounted) return;
       setState(() {
@@ -393,33 +405,22 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
   }
 
   Widget _cameraPanel(LearningRecord question) {
-    final sample = '${question['thumbnailUrl'] ?? ''}';
-    final images = question['imageUrls'] as List? ?? const [];
-    final reference = sample.isNotEmpty
-        ? sample
-        : (images.isEmpty ? '' : '${images.first}');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: AspectRatio(
-            aspectRatio: previewReady ? camera!.aspectRatio : 4 / 3,
+            aspectRatio: previewReady ? camera!.aspectRatio : 2,
             child: previewReady
                 ? camera!.preview()
                 : Container(
                     color: const Color(0xFF111827),
-                    child: reference.isNotEmpty
-                        ? Image.network(
-                            ApiConfig.mediaUrl(reference),
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => const _CameraPlaceholder(
-                              message: 'Mẫu ký hiệu',
-                            ),
-                          )
-                        : const _CameraPlaceholder(
-                            message: 'Bật camera để thực hiện ký hiệu',
-                          ),
+                    child: _CameraPlaceholder(
+                      message: confirmed == null
+                          ? 'Bật camera và chờ AI nhận diện ký hiệu trước khi lưu.'
+                          : 'Đã ghi nhận: $confirmed. Bạn có thể lưu kết quả.',
+                    ),
                   ),
           ),
         ),
@@ -513,7 +514,9 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
               children: [
                 Heading('${item['word']} · ${item['score']}/10', size: 18),
                 const SizedBox(height: 8),
-                BodyText('Camera nhận diện: ${item['recognizedLabel']}'),
+                BodyText(
+                  'Camera nhận diện: ${'${item['recognizedLabel'] ?? ''}'.isEmpty ? 'Chưa nhận diện (bỏ qua)' : item['recognizedLabel']}',
+                ),
                 const SizedBox(height: 8),
                 BodyText('${item['feedback']}'),
                 const SizedBox(height: 10),
@@ -611,7 +614,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
               const SizedBox(height: 12),
             ],
             const BodyText(
-              'Bạn có thể xem hình hoặc video mẫu, sau đó thực hiện ký hiệu trước camera. Kết quả được lưu khi chuyển câu.',
+              'Xem mẫu rồi mở camera và thực hiện ký hiệu. Khi AI hiện kết quả nhận diện, bạn có thể dừng camera và lưu. Video mẫu không phải kết quả camera.',
             ),
             const SizedBox(height: 16),
             AppButton(
@@ -620,8 +623,17 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
                   ? Icons.check
                   : Icons.arrow_forward,
               busy: busy,
-              onPressed: busy || recognized == null ? null : _recordAndAdvance,
+              onPressed: busy || stoppingCamera || recognized == null
+                  ? null
+                  : () => _recordAndAdvance(),
             ),
+            if (attempted && recognized == null)
+              TextButton(
+                onPressed: busy || stoppingCamera
+                    ? null
+                    : () => _recordAndAdvance(skip: true),
+                child: const Text('Bỏ qua — giữ từ này ở Ôn tập'),
+              ),
             if (index > 0)
               TextButton.icon(
                 onPressed: busy
@@ -660,10 +672,12 @@ class _CameraPlaceholder extends StatelessWidget {
             color: Colors.white70,
           ),
           const SizedBox(height: 10),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70),
+          Flexible(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
           ),
         ],
       ),

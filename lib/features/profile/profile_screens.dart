@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import 'account_data_actions.dart';
 import '../../services/api/api_config.dart';
+import '../../services/auth/google_sign_in_native.dart';
+import '../../models/user_model.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
@@ -21,8 +23,21 @@ const avatarColors = [
   AppColors.green,
 ];
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AuthProvider>().refreshUser();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -40,6 +55,13 @@ class ProfileScreen extends StatelessWidget {
       title: 'Cá nhân',
       showBack: false,
       tabIndex: 3,
+      actions: [
+        IconButton(
+          tooltip: 'Cập nhật tài khoản',
+          onPressed: auth.refreshUser,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -57,6 +79,7 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 const SizedBox(height: 12),
                 UserAvatar(
+                  accountId: state.accountId,
                   name: state.name,
                   url: state.avatarUrl,
                   color: avatarColors[state.avatarColor],
@@ -65,25 +88,23 @@ class ProfileScreen extends StatelessWidget {
                 Heading(state.name, center: true),
                 const SizedBox(height: 5),
                 BodyText(state.email, center: true),
+                if (auth.user != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '${auth.user!.customRoleName ?? (auth.isAdmin
+                            ? 'Quản trị viên'
+                            : auth.isStaff
+                            ? 'Nhân viên'
+                            : 'Người dùng')} · ${auth.user!.roleName}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
             ),
           const SizedBox(height: 26),
-          if (!state.guest) ...[
-            IconTile(
-              icon: Icons.lock_reset,
-              title: 'Đổi mật khẩu',
-              onTap: () => openScreen(context, 'change-password'),
-            ),
-            const SizedBox(height: 10),
-          ],
-          if (auth.isStaff && !auth.isAdmin) ...[
-            IconTile(
-              icon: Icons.fact_check_outlined,
-              title: 'Quản lý nội dung',
-              onTap: () => openScreen(context, 'staff'),
-            ),
-            const SizedBox(height: 10),
-          ],
           for (final item in items) ...[
             IconTile(
               icon: item.$2,
@@ -128,7 +149,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       email = TextEditingController(),
       avatar = TextEditingController(),
       password = TextEditingController();
-  bool initialized = false, loading = true, saving = false;
+  bool initialized = false,
+      loading = true,
+      saving = false,
+      linkingGoogle = false;
   String? error;
   AvatarSelection? selectedAvatar;
   bool picking = false;
@@ -153,7 +177,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       error = null;
     });
     try {
-      final data = state.service == null
+      final data = state.service == null || state.ready
           ? {
               'displayName': state.name,
               'email': state.email,
@@ -185,6 +209,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _save() async {
+    if (linkingGoogle) return;
     final state = AppScope.of(context);
     if (!form.currentState!.validate() ||
         (state.persisted && !state.isCurrent(epoch))) {
@@ -213,9 +238,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       });
       return;
     }
-    final preferencesSaved = await state.saveSettings({'avatarColor': color});
+    final preferencesSaved =
+        color == state.avatarColor ||
+        await state.saveSettings({'avatarColor': color});
     if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
-    await auth.refreshUser();
+    auth.applyAcknowledgedProfile(
+      userId: state.accountId ?? auth.user?.id ?? '',
+      displayName: state.name,
+      email: state.email,
+      avatarUrl: state.avatarUrl,
+    );
     if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
     setState(() {
       saving = false;
@@ -230,7 +262,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    if (saving || picking) return;
+    if (saving || picking || linkingGoogle) return;
     final state = AppScope.of(context);
     setState(() {
       picking = true;
@@ -256,9 +288,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  Future<void> _linkGoogle() async {
+    final auth = context.read<AuthProvider>();
+    if (saving || picking || linkingGoogle || auth.user?.googleLinked != false) {
+      return;
+    }
+    final account = auth.accountEpoch;
+    setState(() => linkingGoogle = true);
+    final ok = await auth.linkGoogle();
+    if (!mounted) return;
+    setState(() => linkingGoogle = false);
+    if (auth.accountEpoch != account) return;
+    if (context.mounted) {
+      toast(
+        context,
+        ok
+            ? 'Đã liên kết Google. Bạn có thể đăng nhập bằng Google từ lần sau.'
+            : auth.errorMessage ?? 'Không liên kết được Google.',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final auth = context.watch<AuthProvider>();
     return PopScope(
       canPop: !saving,
       child: AppPage(
@@ -277,6 +331,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               if (!loading && name.text.isNotEmpty) ...[
                 Center(
                   child: UserAvatar(
+                    accountId: state.accountId,
                     name: name.text,
                     url: avatar.text,
                     color: avatarColors[color],
@@ -357,8 +412,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 AppButton(
                   'Lưu thay đổi',
                   busy: saving,
-                  onPressed: saving || picking ? null : _save,
+                  onPressed: saving || picking || linkingGoogle ? null : _save,
                 ),
+                if (!state.guest &&
+                    auth.user?.accountType == AccountType.local) ...[
+                  const SizedBox(height: 28),
+                  const Heading('Đăng nhập & bảo mật', size: 18),
+                  const SizedBox(height: 12),
+                  if (NativeGoogleSignIn.supported) ...[
+                    IconTile(
+                      icon: Icons.link,
+                      title: auth.user!.googleLinked
+                          ? 'Đã liên kết Google'
+                          : linkingGoogle
+                          ? 'Đang liên kết Google…'
+                          : 'Liên kết Google',
+                      trailing: auth.user!.googleLinked
+                          ? const Icon(Icons.check_circle_outline)
+                          : null,
+                      onTap:
+                          saving ||
+                              picking ||
+                              linkingGoogle ||
+                              auth.user!.googleLinked
+                          ? null
+                          : _linkGoogle,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  IconTile(
+                    icon: Icons.lock_reset,
+                    title: 'Đổi mật khẩu',
+                    onTap: saving || picking || linkingGoogle
+                        ? null
+                        : () => openScreen(context, 'change-password'),
+                  ),
+                ],
               ],
             ],
           ),

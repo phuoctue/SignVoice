@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../services/user/user_data_service.dart';
 import '../services/api/api_exception.dart';
 import '../services/notifications/study_reminder.dart';
+import '../services/user/avatar_image_cache.dart';
 
 enum ConversationDirection { signToSpeech, speechToText, text }
 
@@ -195,6 +197,7 @@ class AppState extends ChangeNotifier {
     required bool asGuest,
     String? displayName,
     String? userEmail,
+    String? userAvatarUrl,
   }) {
     final changed = _accountId != accountId;
     if (changed) {
@@ -203,15 +206,18 @@ class AppState extends ChangeNotifier {
       _revision++;
       _reset();
       _accountId = accountId;
+      avatarImages.bind(accountId);
     }
     guest = asGuest;
     if (displayName != null) name = displayName;
     if (userEmail != null) email = userEmail;
+    if (changed && userAvatarUrl != null) avatarUrl = userAvatarUrl;
     if (!_disposed) notifyListeners();
     if (changed && persisted) unawaited(synchronize());
   }
 
   void unbindAccount() {
+    unawaited(avatarImages.clear());
     _epoch++;
     _loadEpoch++;
     _revision++;
@@ -333,6 +339,25 @@ class AppState extends ChangeNotifier {
       email = '${profile['email'] ?? email}';
       avatarUrl = '${profile['avatarUrl'] ?? avatarUrl}';
     });
+    final image = body['avatarImage'];
+    if (_accountId != null && body['avatarUrl'] == '' && avatarUrl.isEmpty) {
+      unawaited(avatarImages.removeImage(_accountId!));
+    }
+    if (_accountId != null &&
+        image is String &&
+        image.startsWith('data:image/')) {
+      try {
+        unawaited(
+          avatarImages.seed(
+            _accountId!,
+            avatarUrl,
+            base64Decode(image.split(',').last),
+          ),
+        );
+      } on FormatException {
+        /* Optional cache only. */
+      }
+    }
   });
   Future<bool> saveSettings(Map<String, dynamic> body) {
     final epoch = _epoch;

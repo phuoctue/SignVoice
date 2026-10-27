@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../services/auth/auth_service.dart';
+import '../../services/auth/google_sign_in_native.dart';
 import '../../services/api/api_exception.dart';
 
 import '../../core/navigation.dart';
@@ -303,6 +304,22 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     if (!kIsWeb) {
+      if (provider == 'google' && NativeGoogleSignIn.supported) {
+        setState(() => busy = true);
+        final auth = context.read<AuthProvider>();
+        try {
+          final ok = await auth.loginWithGoogle();
+          if (!mounted) return;
+          if (ok) {
+            openRoot(context, 'S08');
+          } else {
+            toast(context, auth.errorMessage ?? 'Không đăng nhập được Google.');
+          }
+        } finally {
+          if (mounted) setState(() => busy = false);
+        }
+        return;
+      }
       toast(
         context,
         'OAuth hiện hỗ trợ trên web. Vui lòng đăng nhập email trong ứng dụng.',

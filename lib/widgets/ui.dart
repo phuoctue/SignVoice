@@ -57,7 +57,7 @@ class AppPage extends StatelessWidget {
                 ? SingleChildScrollView(padding: padding, child: child)
                 : Padding(padding: padding, child: child),
           ),
-          if (footer != null)
+          if (footer != null && tabIndex != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: footer!,
@@ -65,9 +65,18 @@ class AppPage extends StatelessWidget {
         ],
       ),
     ),
-    bottomNavigationBar: tabIndex == null
+    // Keep transient snackbars above a fixed action instead of covering it.
+    bottomNavigationBar: tabIndex != null
+        ? AppNavigationBar(selectedIndex: tabIndex!)
+        : footer == null
         ? null
-        : AppNavigationBar(selectedIndex: tabIndex!),
+        : SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              child: footer!,
+            ),
+          ),
   );
 }
 
@@ -76,8 +85,9 @@ class AppNavigationBar extends StatelessWidget {
   final int selectedIndex;
   @override
   Widget build(BuildContext context) {
-    final isAdmin = context.watch<AuthProvider>().isAdmin;
-    final screens = ['S08', 'S22', 'S20', 'S25', if (isAdmin) 'admin'];
+    final auth = context.watch<AuthProvider>();
+    final canManage = auth.isStaff;
+    final screens = ['S08', 'S22', 'S20', 'S25', if (canManage) 'admin'];
     return NavigationBar(
       selectedIndex: selectedIndex < screens.length ? selectedIndex : 3,
       onDestinationSelected: (index) {
@@ -105,7 +115,7 @@ class AppNavigationBar extends StatelessWidget {
           selectedIcon: Icon(Icons.person),
           label: 'Cá nhân',
         ),
-        if (isAdmin)
+        if (canManage)
           const NavigationDestination(
             icon: Icon(Icons.admin_panel_settings_outlined),
             selectedIcon: Icon(Icons.admin_panel_settings),

@@ -2,5 +2,5 @@ import 'dart:typed_data';
 
 import 'video_source.dart';
 
-VideoSource createVideoSource(Uri original, Uint8List? bytes) =>
+Future<VideoSource> createVideoSource(Uri original, Uint8List? bytes) async =>
     VideoSource(original);

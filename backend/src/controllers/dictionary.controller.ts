@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as dictionaryService from '../services/dictionary.service';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
+import {addInlineThumbnails} from '../services/sign-media-preview.service';
 
 /**
  * Get published dictionary entries
@@ -23,7 +24,7 @@ export async function getEntries(req: Request, res: Response, next: NextFunction
     
     res.status(200).json({
       success: true,
-      data: result.entries,
+      data: await addInlineThumbnails(result.entries.map(entry => entry.toJSON())),
       pagination: {
         total: result.total,
         limit: limit ? parseInt(limit as string) : 20,
@@ -46,7 +47,7 @@ export async function getEntryById(req: Request, res: Response, next: NextFuncti
     
     res.status(200).json({
       success: true,
-      data: entry,
+      data: (await addInlineThumbnails([entry.toJSON()]))[0],
     });
   } catch (error) {
     next(error);
@@ -66,7 +67,7 @@ export async function getPopularEntries(req: Request, res: Response, next: NextF
     
     res.status(200).json({
       success: true,
-      data: entries,
+      data: await addInlineThumbnails(entries.map(entry => entry.toJSON())),
     });
   } catch (error) {
     next(error);

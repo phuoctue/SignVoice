@@ -20,6 +20,9 @@ class AuthProvider extends ChangeNotifier {
   bool _disposed = false;
   AuthState _state = AuthState.initial;
   UserModel? _user;
+  Future<void>? _userRefresh;
+  int? _userRefreshEpoch;
+  int _profileRevision = 0;
   String? _errorMessage;
   GuestTrialAccess? _trial;
   Timer? _trialTimer;
@@ -181,6 +184,26 @@ class AuthProvider extends ChangeNotifier {
   Future<Map<String, bool>> oauthProviders() => _authService.oauthProviders();
   Future<void> startOAuth(String provider) => _authService.startOAuth(provider);
   Future<bool> completeOAuth() => _authenticate(_authService.completeOAuth);
+  Future<bool> loginWithGoogle() => _authenticate(_authService.signInGoogle);
+  Future<bool> linkGoogle() async {
+    final epoch = _epoch, id = _user?.id;
+    _errorMessage = null;
+    try {
+      final user = await _authService.linkGoogle();
+      if (!_current(epoch) || _user?.id != id || user.id != id) return false;
+      _profileRevision++;
+      _user = user;
+      _notify();
+      return true;
+    } catch (error) {
+      if (_current(epoch)) {
+        _errorMessage = _message(error);
+        _notify();
+      }
+      return false;
+    }
+  }
+
   Future<bool> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -225,13 +248,35 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshUser() async {
-    if (!isAuthenticated) return;
-    final epoch = _epoch, id = _user!.id;
+  Future<void> refreshUser() {
+    if (!isAuthenticated) return Future.value();
+    if (_userRefresh != null && _userRefreshEpoch == _epoch) {
+      return _userRefresh!;
+    }
+    final epoch = _epoch;
+    late final Future<void> request;
+    request = _refreshUser(epoch, _user!.id).whenComplete(() {
+      if (identical(_userRefresh, request)) {
+        _userRefresh = null;
+        _userRefreshEpoch = null;
+      }
+    });
+    _userRefreshEpoch = epoch;
+    return _userRefresh = request;
+  }
+
+  Future<void> _refreshUser(int epoch, String id) async {
+    final profileRevision = _profileRevision;
     try {
       final result = await _authService.getCurrentUser();
       if (_current(epoch) && _user?.id == id) {
-        _user = result;
+        _user = profileRevision == _profileRevision
+            ? result
+            : result.copyWith(
+                displayName: _user!.displayName,
+                email: _user!.email,
+                avatarUrl: _user!.avatarUrl,
+              );
         _notify();
       }
     } on UnauthorizedException {
@@ -242,6 +287,24 @@ class AuthProvider extends ChangeNotifier {
         _notify();
       }
     }
+  }
+
+  /// Update display fields only after the profile endpoint acknowledged them.
+  /// Authorization, roles, status and account identity remain server controlled.
+  void applyAcknowledgedProfile({
+    required String userId,
+    required String displayName,
+    required String email,
+    required String avatarUrl,
+  }) {
+    if (!isAuthenticated || _user?.id != userId) return;
+    _profileRevision++;
+    _user = _user!.copyWith(
+      displayName: displayName,
+      email: email,
+      avatarUrl: avatarUrl,
+    );
+    _notify();
   }
 
   void clearError() {

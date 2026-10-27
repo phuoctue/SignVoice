@@ -149,8 +149,8 @@ class AdminWorkspaceService {
 }
 
 const adminPermissionLabels = {
-  'admin:access': 'Truy cập tab Quản trị',
-  'staff:access': 'Truy cập khu vực nhân viên',
+  'admin:access': 'Quản trị tài khoản, role và phiên đăng nhập (ADMIN)',
+  'staff:access': 'Truy cập tab Quản trị nội dung (STAFF)',
   'users:read': 'Xem tài khoản',
   'users:write': 'Thêm, sửa, xóa tài khoản và gán role',
   'roles:read': 'Xem role',

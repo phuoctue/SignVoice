@@ -9,7 +9,7 @@ export function assertCanGrant(actor: readonly string[], target: readonly string
 
 export const builtInPermissions: Record<UserRole, readonly Permission[]> = {
   ADMIN: permissions,
-  STAFF: ['staff:access','dictionary:read','dictionary:write','users:read'],
+  STAFF: ['staff:access','dictionary:read','dictionary:write','content:publish','categories:read','categories:write'],
   USER: [],
 };
 export function roleForPermissions(granted: readonly string[]): UserRole {

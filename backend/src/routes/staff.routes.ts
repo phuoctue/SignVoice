@@ -59,14 +59,14 @@ router.post('/content/:id/reject', requirePermission('dictionary:write'), valida
  * @desc Get users with basic filtering (for support)
  * @access Private (STAFF/ADMIN)
  */
-router.get('/users', requirePermission('users:read'), validate(listSchema), staffController.getUsers);
+router.get('/users', requirePermission('admin:access'), requirePermission('users:read'), validate(listSchema), staffController.getUsers);
 
 /**
  * GET /api/v1/staff/users/:id
  * @desc Get user details (for support)
  * @access Private (STAFF/ADMIN)
  */
-router.get('/users/:id', requirePermission('users:read'), validate(adminIdSchema), staffController.getUserDetails);
+router.get('/users/:id', requirePermission('admin:access'), requirePermission('users:read'), validate(adminIdSchema), staffController.getUserDetails);
 
 /**
  * GET /api/v1/staff/reports

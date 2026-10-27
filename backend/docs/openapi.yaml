@@ -835,6 +835,61 @@ components:
           format: date-time
 
 paths:
+  /api/v1/auth/google/native/challenge:
+    post:
+      tags: [Authentication]
+      summary: Issue five-minute one-use Android Google challenge
+      responses:
+        '200':
+          description: No-store public Web client ID, nonce and opaque challenge; never a client secret
+        '429': {description: Too many requests}
+        '503': {description: Google Web client ID unavailable}
+  /api/v1/auth/google/native/login:
+    post:
+      tags: [Authentication]
+      summary: Verify Android Google ID token and create persisted SignVoice sessions
+      description: Validates signature, Web audience, issuer, expiry, server nonce and verified email. Matching local email requires explicit authenticated linking.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challenge, idToken]
+              properties:
+                challenge: {type: string, pattern: '^[\w-]{43}$'}
+                idToken: {type: string, minLength: 1, maxLength: 16384}
+      responses:
+        '200': {description: Standard authentication response with user and application tokens}
+        '400': {description: Malformed, expired or consumed challenge}
+        '401': {description: Google identity invalid}
+        '403': {description: Account disabled}
+        '409': {description: Matching email requires authenticated linking}
+        '429': {description: Too many requests}
+  /api/v1/auth/google/native/link:
+    post:
+      tags: [Authentication]
+      security: [{bearerAuth: []}]
+      summary: Link a verified same-email Google identity to the current LOCAL account
+      description: Preserves account ID, password, role and learning data. Does not accept account IDs or roles from the client. Invalid provider proof does not revoke the current app session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challenge, idToken]
+              properties:
+                challenge: {type: string, pattern: '^[\w-]{43}$'}
+                idToken: {type: string, minLength: 1, maxLength: 16384}
+      responses:
+        '200': {description: Safe user DTO with googleLinked and current authorization}
+        '400': {description: Invalid proof, expired challenge, wrong email or ineligible account}
+        '401': {description: SignVoice session required}
+        '409': {description: Identity already linked or account changed concurrently}
+        '429': {description: Too many requests}
   /api/v1/auth/oauth/providers:
     get:
       tags: [ Authentication ]
@@ -2475,9 +2530,37 @@ paths:
       summary: Advisory review plan using LM Studio, with a labeled offline fallback
       operationId: getLearningAdvice
       security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                async: {type: boolean, enum: [true]}
+                requestKey: {type: string, pattern: '^[a-f0-9]{32}$'}
+            examples:
+              synchronous: {value: {}}
+              background: {value: {async: true, requestKey: '0123456789abcdef0123456789abcdef'}}
       responses:
         '200': { description: Source, advice and actual progress summary; never changes ratings }
-        '429': { description: Six advice requests per minute per IP }
+        '202': { description: 'Private background job ID and state; async requires requestKey. Poll GET /learning/ai-jobs/{id}.' }
+        '429': { description: Six advice requests per minute per account or background worker busy }
+  /api/v1/learning/ai-jobs/{id}:
+    get:
+      tags: [Dictionary]
+      summary: Poll a short-lived learning AI job belonging to the authenticated account
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: No-store pending, completed with result DTO, or failed with a sanitized message}
+        '401': {description: Current valid account session required}
+        '404': {description: Job expired, server restarted, or job belongs to another account}
   /api/v1/learning/analysis:
     post:
       tags: [Dictionary]
@@ -2488,9 +2571,15 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                async: {type: boolean, enum: [true]}
+                requestKey: {type: string, pattern: '^[a-f0-9]{32}$'}
             example: {}
       responses:
+        '202': {description: 'Private background job ID and state; async requires requestKey. Poll GET /learning/ai-jobs/{id}.'}
         '200':
           description: Read-only snapshot, topic summaries and a labeled AI or deterministic analysis
           content:
@@ -2526,7 +2615,7 @@ paths:
                             remembered: { type: integer }
                             review: { type: integer }
                             rememberedPercent: { type: integer }
-        '400': { description: Only an empty JSON object is accepted }
+        '400': { description: Only an empty object or async flag with requestKey is accepted }
         '401': { description: Authentication required }
         '429': { description: Three analysis requests per minute per account }
   /api/v1/learning/topics/{id}/quiz:

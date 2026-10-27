@@ -7,6 +7,7 @@ import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
 import { Role } from '../models/Role.model';
 import { roleForPermissions, authorizationFor, assertCanGrant, builtInPermissions } from '../services/authorization.service';
+import {accountStats, contentStats} from '../services/dashboard-stats.service';
 
 /**
  * GET /api/v1/admin/users
@@ -337,61 +338,30 @@ export async function activateUser(
  * Get system statistics and analytics
  */
 export async function getSystemStats(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const [
-      totalUsers,
-      activeUsers,
-      guestUsers,
-      staffUsers,
-      adminUsers,
-      newUsersThisMonth,
-      newUsersThisWeek,
-      totalContent,
-      publishedContent,
-      pendingContent,
-      activeSessions,
-    ] = await Promise.all([
-      User.countDocuments({ isGuest: false }),
-      User.countDocuments({ status: AccountStatus.ACTIVE, isGuest: false }),
-      User.countDocuments({ isGuest: true }),
-      User.countDocuments({ role: UserRole.STAFF }),
-      User.countDocuments({ role: UserRole.ADMIN }),
-      User.countDocuments({ createdAt: { $gte: thirtyDaysAgo }, isGuest: false }),
-      User.countDocuments({ createdAt: { $gte: sevenDaysAgo }, isGuest: false }),
-      DictionaryEntry.countDocuments(),
-      DictionaryEntry.countDocuments({ status: 'PUBLISHED' }),
-      DictionaryEntry.countDocuments({ status: 'DRAFT' }),
-      AuthSession.countDocuments({ status: SessionStatus.ACTIVE, expiresAt: { $gt: now } }),
+    const granted = req.user!.permissions;
+    const accountAccess = granted.includes('admin:access') && granted.includes('users:read');
+    const sessionAccess = granted.includes('admin:access') && granted.includes('sessions:read');
+    const contentAccess = granted.includes('dictionary:read');
+    const [users, content, activeSessions] = await Promise.all([
+      accountAccess ? accountStats(now) : null,
+      contentAccess ? contentStats() : null,
+      sessionAccess ? AuthSession.countDocuments({ status: SessionStatus.ACTIVE, expiresAt: { $gt: now } }) : 0,
     ]);
 
     res.status(200).json({
       success: true,
       data: {
-        users: {
-          total: totalUsers,
-          active: activeUsers,
-          guest: guestUsers,
-          staff: staffUsers,
-          admin: adminUsers,
-          newThisMonth: newUsersThisMonth,
-          newThisWeek: newUsersThisWeek,
-        },
-        content: {
-          total: totalContent,
-          published: publishedContent,
-          pending: pendingContent,
-        },
-        sessions: {
+        ...(accountAccess ? {users} : {}),
+        ...(contentAccess ? {content} : {}),
+        ...(sessionAccess ? {sessions: {
           active: activeSessions,
-        },
+        }} : {}),
         timestamp: now.toISOString(),
       },
     });

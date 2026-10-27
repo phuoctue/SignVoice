@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/admin/admin_workspace_service.dart';
 import '../../widgets/ui.dart';
 import '../learning/learning_widgets.dart';
+import '../../services/media/managed_media.dart';
 
 class FeaturedDictionary extends StatefulWidget {
   const FeaturedDictionary({super.key});
@@ -32,6 +33,7 @@ class _FeaturedDictionaryState extends State<FeaturedDictionary> {
       final result = await context
           .read<AdminWorkspaceService>()
           .featuredEntries();
+      primeImagePreviews(result);
       if (mounted) setState(() => entries = result);
     } catch (_) {
       if (mounted) setState(() => error = 'Chưa tải được từ điển.');

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,6 +25,11 @@ class NotificationService extends ChangeNotifier {
   bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   bool permissionGranted = false, exact = false, pushReady = false;
+  int scheduledReminderCount = 0;
+  DateTime? nextReminder;
+  bool reminderChannelBlocked = false;
+  String? pushError;
+  static const _settings = MethodChannel('signvoice/notifications');
   int inboxRevision = 0;
   void refreshInbox() {
     inboxRevision++;
@@ -34,6 +40,8 @@ class NotificationService extends ChangeNotifier {
   String timezone = 'Asia/Ho_Chi_Minh';
   Future<void>? _initializing;
   Future<void> _queue = Future.value();
+  Future<void> _pushQueue = Future.value();
+  Future<void>? _pushInitializing;
   Future<void> _ownerWrites = Future.value();
   StreamSubscription<String>? _tokens;
   StreamSubscription<RemoteMessage>? _messages, _opened;
@@ -95,13 +103,63 @@ class NotificationService extends ChangeNotifier {
     if (launch?.didNotificationLaunchApp == true) {
       _open(launch?.notificationResponse?.payload);
     }
-    await _initializePush();
     _notify();
+  }
+
+  Future<void> openDeviceSettings({bool battery = false}) async {
+    if (supported) {
+      await _settings.invokeMethod<void>(
+        battery ? 'openBatterySettings' : 'openNotificationSettings',
+      );
+    }
+  }
+
+  void _enqueuePush(int generation) {
+    _pushQueue = _pushQueue
+        .then((_) async {
+          if (_disposed || generation != _generation || !state.ready) return;
+          if (!pushReady) {
+            final initializing = _pushInitializing ??= _initializePush();
+            try {
+              await initializing;
+            } finally {
+              _pushInitializing = null;
+            }
+          }
+          if (_disposed || generation != _generation || !pushReady) return;
+          if (state.guest ||
+              state.accountId == null ||
+              !state.notificationsEnabled ||
+              !permissionGranted) {
+            await FirebaseMessaging.instance.setAutoInitEnabled(false);
+            // ignore: deprecated_member_use
+            await FirebaseMessaging.instance.deleteToken().timeout(
+              const Duration(seconds: 10),
+            );
+            return;
+          }
+          await FirebaseMessaging.instance.setAutoInitEnabled(true);
+          // ignore: deprecated_member_use
+          final token = await FirebaseMessaging.instance.getToken().timeout(
+            const Duration(seconds: 10),
+          );
+          if (!_disposed && generation == _generation && token != null) {
+            await state.service!.registerNotificationDevice(token, 'android');
+            pushError = null;
+          }
+        })
+        .catchError((Object _) {
+          if (!_disposed && generation == _generation) {
+            pushError = 'Chưa đăng ký được push. Nhắc học trên máy vẫn hoạt động độc lập.';
+          }
+        })
+        .whenComplete(_notify);
   }
 
   Future<void> _initializePush() async {
     try {
       await Firebase.initializeApp();
+      if (_disposed) return;
       // HTTP v1 targets registration tokens. Keep the compatible token API
       // until the server moves to the separate FID delivery API.
       // ignore: deprecated_member_use
@@ -113,7 +171,7 @@ class NotificationService extends ChangeNotifier {
           try {
             await state.service?.registerNotificationDevice(token, 'android');
           } catch (_) {
-            error = 'Chưa đăng ký được push. Hãy thử lại khi có mạng.';
+            pushError = 'Chưa đăng ký được push. Hãy thử lại khi có mạng.';
             _notify();
           }
         }
@@ -139,7 +197,15 @@ class NotificationService extends ChangeNotifier {
       _opened = FirebaseMessaging.onMessageOpenedApp.listen(
         (message) => _open(message.data['route'] as String?),
       );
-      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      final initial = await FirebaseMessaging.instance
+          .getInitialMessage()
+          .timeout(const Duration(seconds: 10));
+      if (_disposed) {
+        await _tokens?.cancel();
+        await _messages?.cancel();
+        await _opened?.cancel();
+        return;
+      }
       if (initial != null) _open(initial.data['route'] as String?);
       pushReady = true;
     } catch (_) {
@@ -147,7 +213,7 @@ class NotificationService extends ChangeNotifier {
       await _messages?.cancel();
       await _opened?.cancel();
       pushReady = false;
-      error =
+      pushError =
           'Chưa khởi tạo được push Firebase. Nhắc học trên máy vẫn dùng được.';
     }
   }
@@ -206,11 +272,8 @@ class NotificationService extends ChangeNotifier {
             !state.notificationsEnabled ||
             state.guest) {
           await _local.cancelAll();
-          if (pushReady) {
-            await FirebaseMessaging.instance.setAutoInitEnabled(false);
-            // ignore: deprecated_member_use
-            await FirebaseMessaging.instance.deleteToken();
-          }
+          scheduledReminderCount = 0;
+          nextReminder = null;
         }
         _owner = state.accountId;
         if (!state.ready ||
@@ -221,19 +284,48 @@ class NotificationService extends ChangeNotifier {
         }
         timezone = (await FlutterTimezone.getLocalTimezone()).identifier;
         tz.setLocalLocation(tz.getLocation(timezone));
-        // Keep the existing OS alarms while account data is loading/offline.
-        await _local.cancelAllPendingNotifications();
         final android = _local
             .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin
             >()!;
         permissionGranted = await android.areNotificationsEnabled() ?? false;
         exact = await android.canScheduleExactNotifications() ?? false;
-        if (!permissionGranted) return;
+        if (!permissionGranted) {
+          scheduledReminderCount = 0;
+          nextReminder = null;
+          return;
+        }
+        try {
+          final status = await _settings.invokeMapMethod<String, dynamic>(
+            'status',
+          );
+          reminderChannelBlocked = status?['channelBlocked'] == true;
+        } on MissingPluginException {
+          /* Older Android host; permission UI still works. */
+        }
         final reminder = state.studyReminder;
-        if (reminder.enabled) {
+        final days = reminder.enabled ? reminder.weekdays.toSet() : <int>{};
+        final plan = jsonEncode([
+          state.accountId,
+          reminder.toJson(),
+          timezone,
+          exact,
+        ]);
+        final preferences = await SharedPreferences.getInstance();
+        final pending = await _local.pendingNotificationRequests();
+        final installed = pending
+            .where((item) => item.id >= 7101 && item.id <= 7107)
+            .map((item) => item.id - 7100)
+            .toSet();
+        final unchanged =
+            preferences.getString('signvoice_alarm_plan') == plan &&
+            installed.length == days.length &&
+            installed.containsAll(days);
+        // Do not cancel an unchanged alarm on resume: an inexact alarm may still
+        // be waiting for Android to deliver it after its requested minute.
+        if (!unchanged) {
           // Follow the current device timezone when the user travels.
-          for (final weekday in reminder.weekdays) {
+          for (final weekday in days) {
             if (generation != _generation || _disposed) return;
             await _local.zonedSchedule(
               id: 7100 + weekday,
@@ -259,35 +351,51 @@ class NotificationService extends ChangeNotifier {
               payload: '/learn?tab=1',
             );
           }
-        }
-        if (pushReady && generation == _generation) {
-          await FirebaseMessaging.instance.setAutoInitEnabled(true);
-          // ignore: deprecated_member_use
-          final token = await FirebaseMessaging.instance.getToken();
-          if (token != null && generation == _generation) {
-            await state.service!.registerNotificationDevice(token, 'android');
+          for (var weekday = 1; weekday <= 7; weekday++) {
+            if (!days.contains(weekday)) {
+              await _local.cancel(id: 7100 + weekday);
+            }
           }
+          final actual = (await _local.pendingNotificationRequests())
+              .where((item) => item.id >= 7101 && item.id <= 7107)
+              .map((item) => item.id - 7100)
+              .toSet();
+          if (actual.length != days.length || !actual.containsAll(days)) {
+            throw StateError('Lịch chưa được cài trên máy.');
+          }
+          await preferences.setString('signvoice_alarm_plan', plan);
         }
+        scheduledReminderCount = days.length;
+        final upcoming =
+            days
+                .map(
+                  (day) =>
+                      reminder.nextForDay(day, tz.TZDateTime.now(tz.local)),
+                )
+                .toList()
+              ..sort();
+        nextReminder = upcoming.firstOrNull;
       } catch (_) {
-        error = 'Chưa đồng bộ được thông báo trên máy này. Kiểm tra mạng và thử lại.';
+        error = 'Chưa cài được lịch nhắc trên điện thoại. Hãy kiểm tra quyền và thử lại.';
       } finally {
+        if (generation == _generation && !_disposed) _enqueuePush(generation);
         _notify();
       }
     });
   }
 
-  Future<void> retry() async {
+  Future<void> retry({bool waitForPush = false}) async {
     error = null;
     if (supported && state.persisted && !_disposed) {
       try {
         await initialize();
-        if (!pushReady) await _initializePush();
       } catch (_) {
         error = 'Chưa khởi tạo được thông báo trên máy này.';
       }
       _signature = null;
       refresh();
       await _queue;
+      if (waitForPush) await _pushQueue;
     }
     _notify();
   }
@@ -310,6 +418,36 @@ class NotificationService extends ChangeNotifier {
       ),
       payload: '/learn?tab=1',
     );
+  }
+
+  Future<void> testScheduledReminder() async {
+    if (!await requestPermission(exactAlarm: true)) {
+      throw StateError('Hãy cho phép thông báo trong Cài đặt ứng dụng.');
+    }
+    await _local.zonedSchedule(
+      id: 7098,
+      title: 'Thử lịch nhắc học SignVoice',
+      body: 'Lịch nhắc trên điện thoại đã hoạt động.',
+      scheduledDate: tz.TZDateTime.now(tz.local)
+          .add(const Duration(minutes: 1)),
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'signvoice_study',
+          'Nhắc học',
+          icon: 'ic_stat_study',
+          importance: Importance.high,
+        ),
+      ),
+      androidScheduleMode: exact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: '/learn?tab=1',
+    );
+    if (!(await _local.pendingNotificationRequests()).any(
+      (item) => item.id == 7098,
+    )) {
+      throw StateError('Chưa cài được lịch thử.');
+    }
   }
 
   @override

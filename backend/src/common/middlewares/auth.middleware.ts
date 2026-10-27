@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Types } from 'mongoose';
-import { User, UserRole } from '../../models/User.model';
+import { User, UserRole, IUser } from '../../models/User.model';
 import { AuthSession, SessionType } from '../../models/AuthSession.model';
 import { verifyAccessToken, hashToken } from '../../utils/jwt.util';
 import { AppError } from '../errors/AppError';
@@ -20,7 +20,9 @@ declare global {
         isGuest: boolean;
         permissions: readonly string[];
         customRoleId?: string;
+        customRoleName?: string;
       };
+      authenticatedUser?: IUser;
       sessionId?: Types.ObjectId;
     }
   }
@@ -72,10 +74,10 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     
     // Check if session exists and is valid
     const tokenHash = hashToken(token);
-    const session = await AuthSession.findOne({
+    const [session, user] = await Promise.all([AuthSession.findOne({
       tokenHash, userId: payload.userId, sessionType: SessionType.ACCESS,
       sessionFamily: payload.sid,
-    });
+    }), User.findById(payload.userId)]);
     
     if (!session || !session.isValid()) {
       throw new AppError(
@@ -86,7 +88,6 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     }
     
     // Load user
-    const user = await User.findById(payload.userId);
     
     if (!user || !user.isActive()) {
       throw new AppError(
@@ -111,6 +112,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       isGuest: user.isGuest,
       ...authorization,
     };
+    req.authenticatedUser = user;
     req.sessionId = session._id;
     
     next();
@@ -124,6 +126,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    res.setHeader('Cache-Control', 'no-store');
     // First run authenticate
     await authenticate(req, res, (err) => {
       if (err) {
@@ -211,6 +214,15 @@ export const requireStaff = requirePermission('staff:access');
  * Admin only
  */
 export const requireAdmin = requirePermission('admin:access');
+
+/** Shared management dashboard; individual modules still enforce permissions. */
+export function requireManagement(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) return next(new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED));
+  if (!req.user.permissions.some(permission => permission === 'admin:access' || permission === 'staff:access')) {
+    return next(new AppError('Bạn không có quyền truy cập khu vực quản trị.', 403, ErrorCodes.AUTH_FORBIDDEN));
+  }
+  next();
+}
 
 export function requirePermission(permission: Permission) {
   return (req: Request, _res: Response, next: NextFunction): void => {

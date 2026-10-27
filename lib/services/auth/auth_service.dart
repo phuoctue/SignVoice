@@ -6,6 +6,7 @@ import '../storage/token_store.dart';
 import '../api/api_exception.dart';
 import 'guest_device_identity.dart';
 import 'guest_trial_access.dart';
+import 'google_sign_in_native.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -15,10 +16,54 @@ class AuthService {
   static AuthService? _instance;
   final ApiClient _apiClient;
   final TokenStore _tokenStorage;
+  final NativeGoogleSignIn _google;
 
-  AuthService({ApiClient? apiClient, TokenStore? tokenStorage})
-    : _apiClient = apiClient ?? ApiClient.instance,
-      _tokenStorage = tokenStorage ?? SecureTokenStorage.instance;
+  AuthService({
+    ApiClient? apiClient,
+    TokenStore? tokenStorage,
+    NativeGoogleSignIn? google,
+  }) : _apiClient = apiClient ?? ApiClient.instance,
+       _tokenStorage = tokenStorage ?? SecureTokenStorage.instance,
+       _google = google ?? const NativeGoogleSignIn();
+
+  Future<Map<String, String>> _googleProof(int epoch) async {
+    final response = await _apiClient.post(
+      '/auth/google/native/challenge',
+      requiresAuth: false,
+    );
+    _apiClient.checkSession(epoch);
+    final data = response['data'] as Map;
+    final token = await _google.signIn(
+      clientId: data['clientId'] as String,
+      nonce: data['nonce'] as String,
+    );
+    _apiClient.checkSession(epoch);
+    return {'challenge': data['challenge'] as String, 'idToken': token};
+  }
+
+  Future<UserModel> signInGoogle() async {
+    final epoch = _apiClient.beginAuthentication();
+    final proof = await _googleProof(epoch);
+    final response = await _apiClient.post(
+      '/auth/google/native/login',
+      body: proof,
+      requiresAuth: false,
+    );
+    return _saveAuthResponse(response, epoch);
+  }
+
+  Future<UserModel> linkGoogle() async {
+    final epoch = _apiClient.sessionEpoch;
+    final proof = await _googleProof(epoch);
+    final response = await _apiClient.post(
+      '/auth/google/native/link',
+      body: proof,
+    );
+    _apiClient.checkSession(epoch);
+    return UserModel.fromJson(
+      Map<String, dynamic>.from(response['data']['user']),
+    );
+  }
 
   ValueListenable<int> get sessionInvalidated => _apiClient.sessionInvalidated;
 
@@ -244,6 +289,7 @@ class AuthService {
     } finally {
       // Clear tokens even if request fails
       await _tokenStorage.clearAll();
+      await _google.clear();
     }
   }
 
@@ -253,6 +299,7 @@ class AuthService {
       await _apiClient.logout(allDevices: true);
     } finally {
       await _tokenStorage.clearAll();
+      await _google.clear();
     }
   }
 

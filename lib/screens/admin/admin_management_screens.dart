@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -64,6 +66,11 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
 
   Future<void> _load() async {
     final epoch = ++_loadEpoch;
+    final auth = context.read<AuthProvider>(),
+        account = context.read<AuthProvider>().accountEpoch;
+    if (resource == 'users' && auth.can('roles:read')) {
+      unawaited(_loadRoleLabels(epoch, account, auth));
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -75,24 +82,33 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         search: _search.text.trim(),
         status: _status,
       );
-      if (mounted &&
-          epoch == _loadEpoch &&
-          resource == 'users' &&
-          context.read<AuthProvider>().can('roles:read')) {
-        try {
-          final roles = await service.roles();
-          if (mounted && epoch == _loadEpoch) _roles = roles;
-        } catch (_) {
-          /* User list still works. */
-        }
+      if (mounted && epoch == _loadEpoch && auth.accountEpoch == account) {
+        setState(() => _data = result);
       }
-      if (mounted && epoch == _loadEpoch) setState(() => _data = result);
     } catch (error) {
       if (mounted && epoch == _loadEpoch) {
         setState(() => _error = adminError(error));
       }
     } finally {
       if (mounted && epoch == _loadEpoch) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadRoleLabels(
+    int epoch,
+    int account,
+    AuthProvider auth,
+  ) async {
+    try {
+      final roles = await service.roles();
+      if (mounted &&
+          epoch == _loadEpoch &&
+          auth.accountEpoch == account &&
+          auth.can('roles:read')) {
+        setState(() => _roles = roles);
+      }
+    } catch (_) {
+      // Account rows render immediately; auxiliary role labels can arrive later.
     }
   }
 
@@ -241,7 +257,9 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
             children: [
               Expanded(
                 child: Text(
-                  '${_data?.total ?? 0} ${resource == 'sessions' ? 'phiên' : 'mục'}',
+                  _data == null && _loading
+                      ? 'Đang tải…'
+                      : '${_data?.total ?? 0} ${resource == 'sessions' ? 'phiên' : 'mục'}',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),

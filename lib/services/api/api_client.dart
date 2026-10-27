@@ -21,6 +21,13 @@ class ApiClient {
   bool _loggingOut = false;
   int _sessionEpoch = 0;
   Future<void> _sessionWrites = Future<void>.value();
+  final _reads = <String, Future<dynamic>>{};
+  int _readGeneration = 0;
+  void _invalidateReads() {
+    _readGeneration++;
+    _reads.clear();
+  }
+
   int get sessionEpoch => _sessionEpoch;
   void checkSession(int epoch) {
     if (epoch != _sessionEpoch) {
@@ -33,6 +40,7 @@ class ApiClient {
   }
 
   int beginAuthentication() {
+    _invalidateReads();
     _refreshing = null;
     _loggingOut = false;
     return ++_sessionEpoch;
@@ -164,6 +172,7 @@ class ApiClient {
   Future<void> _invalidateSession({int? expectedEpoch}) async {
     if (expectedEpoch != null && expectedEpoch != _sessionEpoch) return;
     final epoch = ++_sessionEpoch;
+    _invalidateReads();
     _refreshing = null;
     try {
       await writeSession(epoch, _tokenStorage.clearAll);
@@ -199,6 +208,7 @@ class ApiClient {
       _sessionEpoch++;
     }
     _loggingOut = false;
+    _invalidateReads();
   }
 
   /// Finish any token rotation before revoking the current device session.
@@ -316,18 +326,72 @@ class ApiClient {
     String endpoint, {
     Map<String, String>? queryParameters,
     bool requiresAuth = true,
-  }) => _request(
-    'GET',
-    endpoint,
-    queryParameters: queryParameters,
-    requiresAuth: requiresAuth,
-  );
+  }) {
+    final query = queryParameters?.entries.toList()
+      ?..sort((a, b) => a.key.compareTo(b.key));
+    final key = jsonEncode([
+      _sessionEpoch,
+      _readGeneration,
+      requiresAuth,
+      _buildUrl(endpoint),
+      if (query != null) {for (final entry in query) entry.key: entry.value},
+    ]);
+    var request = _reads[key];
+    if (request == null) {
+      late final Future<dynamic> operation;
+      operation =
+          _request(
+            'GET',
+            endpoint,
+            queryParameters: queryParameters,
+            requiresAuth: requiresAuth,
+          ).whenComplete(() {
+            if (identical(_reads[key], operation)) _reads.remove(key);
+          });
+      request = operation;
+      if (_reads.length < 64) _reads[key] = operation;
+    }
+    // Share transport only; callers must never share mutable JSON objects.
+    // Completed responses are not cached, so each later read checks server ACLs.
+    return request.then(_copyJson);
+  }
+
+  static dynamic _copyJson(dynamic value) => switch (value) {
+    Map value => <String, dynamic>{
+      for (final entry in value.entries) entry.key as String: _copyJson(entry.value),
+    },
+    List value => [for (final item in value) _copyJson(item)],
+    _ => value,
+  };
+
+  Future<dynamic> _mutation(
+    String method,
+    String endpoint, {
+    dynamic body,
+    bool requiresAuth = true,
+    Duration? timeout,
+  }) async {
+    _invalidateReads();
+    try {
+      return await _request(
+        method,
+        endpoint,
+        body: body,
+        requiresAuth: requiresAuth,
+        timeout: timeout,
+      );
+    } finally {
+      // Reads started during a write must not be joined by its refresh.
+      _invalidateReads();
+    }
+  }
+
   Future<dynamic> post(
     String endpoint, {
     dynamic body,
     bool requiresAuth = true,
     Duration? timeout,
-  }) => _request(
+  }) => _mutation(
     'POST',
     endpoint,
     body: body,
@@ -338,19 +402,20 @@ class ApiClient {
     String endpoint, {
     dynamic body,
     bool requiresAuth = true,
-  }) => _request('PUT', endpoint, body: body, requiresAuth: requiresAuth);
+  }) => _mutation('PUT', endpoint, body: body, requiresAuth: requiresAuth);
   Future<dynamic> patch(
     String endpoint, {
     dynamic body,
     bool requiresAuth = true,
-  }) => _request('PATCH', endpoint, body: body, requiresAuth: requiresAuth);
+  }) => _mutation('PATCH', endpoint, body: body, requiresAuth: requiresAuth);
   Future<dynamic> delete(
     String endpoint, {
     dynamic body,
     bool requiresAuth = true,
-  }) => _request('DELETE', endpoint, body: body, requiresAuth: requiresAuth);
+  }) => _mutation('DELETE', endpoint, body: body, requiresAuth: requiresAuth);
 
   void dispose() {
+    _invalidateReads();
     _client.close();
     sessionInvalidated.dispose();
   }

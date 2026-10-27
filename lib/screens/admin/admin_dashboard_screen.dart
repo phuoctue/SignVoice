@@ -29,10 +29,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _error = null;
     });
     try {
-      await context.read<AuthProvider>().refreshUser();
-      if (!mounted) return;
-      final stats = await context.read<AdminWorkspaceService>().stats();
-      if (mounted) setState(() => _stats = stats);
+      final auth = context.read<AuthProvider>(),
+          epoch = context.read<AuthProvider>().accountEpoch;
+      final service = context.read<AdminWorkspaceService>();
+      final results = await Future.wait<dynamic>([
+        auth.refreshUser(),
+        service.stats(),
+      ]);
+      if (mounted && auth.accountEpoch == epoch && auth.isStaff) {
+        setState(() => _stats = results[1] as AdminRecord);
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _error = 'Không tải được thống kê. Hãy thử lại.');
@@ -64,7 +70,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           children: [
             Text('Dashboard', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
-            const Text('Quản lý hệ thống và nội dung'),
+            Text(
+              auth.isAdmin
+                  ? 'Quản lý hệ thống và nội dung'
+                  : 'Quản lý từ điển, danh mục và duyệt nội dung',
+            ),
             const SizedBox(height: 18),
             if (_loading) const LinearProgressIndicator(),
             if (_error != null)
@@ -77,7 +87,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  if (auth.can('users:read'))
+                  if (auth.isAdmin && auth.can('users:read'))
                     _stat(
                       'Tài khoản',
                       _stats!['users']['total'],
@@ -100,7 +110,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       Icons.edit_note,
                     ),
                   ],
-                  if (auth.can('sessions:read'))
+                  if (auth.isAdmin && auth.can('sessions:read'))
                     _stat(
                       'Phiên hoạt động',
                       _stats!['sessions']['active'],
@@ -112,7 +122,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             Text('Quản lý', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 10),
             for (final module in adminModules.entries)
-              if (auth.can('${module.key}:read'))
+              if (auth.can('${module.key}:read') &&
+                  (auth.isAdmin ||
+                      !const [
+                        'users',
+                        'roles',
+                        'sessions',
+                      ].contains(module.key)))
                 Card(
                   child: ListTile(
                     leading: Icon(

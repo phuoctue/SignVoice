@@ -26,6 +26,7 @@ try {
   try {
     & flutter build apk --release --target-platform $TargetPlatform "--dart-define=API_BASE_URL=$ApiBaseUrl" "--dart-define=AI_SERVICE_URL=$AiServiceUrl"
     if ($LASTEXITCODE) { throw 'Android build failed. Read the error above before installing an older APK.' }
+    & (Join-Path $PSScriptRoot 'verify-android-apk.ps1') -ApkPath (Join-Path $projectRoot 'build\app\outputs\flutter-apk\app-release.apk') -TargetPlatform $TargetPlatform
   } finally { Pop-Location }
 } finally {
   $env:JAVA_TOOL_OPTIONS = $previousOptions

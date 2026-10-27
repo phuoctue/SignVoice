@@ -53,6 +53,8 @@ class UserModel {
   final AccountStatus status;
 
   final bool isGuest;
+  @JsonKey(defaultValue: false)
+  final bool googleLinked;
   final DateTime? guestConvertedAt;
 
   final DateTime? lastLoginAt;
@@ -73,6 +75,7 @@ class UserModel {
     this.permissions = const [],
     required this.status,
     required this.isGuest,
+    this.googleLinked = false,
     this.guestConvertedAt,
     this.lastLoginAt,
     this.lastLoginIp,
@@ -105,7 +108,9 @@ class UserModel {
           'staff:access',
           'dictionary:read',
           'dictionary:write',
-          'users:read',
+          'content:publish',
+          'categories:read',
+          'categories:write',
         ].contains(permission);
   }
 
@@ -134,6 +139,7 @@ class UserModel {
     List<String>? permissions,
     AccountStatus? status,
     bool? isGuest,
+    bool? googleLinked,
     DateTime? guestConvertedAt,
     DateTime? lastLoginAt,
     String? lastLoginIp,
@@ -152,6 +158,7 @@ class UserModel {
       permissions: permissions ?? this.permissions,
       status: status ?? this.status,
       isGuest: isGuest ?? this.isGuest,
+      googleLinked: googleLinked ?? this.googleLinked,
       guestConvertedAt: guestConvertedAt ?? this.guestConvertedAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
       lastLoginIp: lastLoginIp ?? this.lastLoginIp,

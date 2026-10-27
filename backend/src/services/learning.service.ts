@@ -5,6 +5,7 @@ import { TopicEnrollment, WordProgress } from '../models/Learning.model';
 import { AppError } from '../common/errors/AppError';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import {addInlineThumbnails} from './sign-media-preview.service';
 
 export const PAGE_SIZE = 10;
 export function objectId(value: string) {
@@ -77,7 +78,9 @@ export async function topicWords(userId: Types.ObjectId, topicId: Types.ObjectId
     else if (row._id === 'REVIEW') summary.review += row.count;
     else summary.learning += row.count;
   }
-  return { topic: { ...topic, learnerCount: learners }, enrolled: !!enrollment, summary, items: data.items.map(withAvailableMedia), pagination: pagination(page, data.count[0]?.total || 0) };
+  return { topic: { ...topic, learnerCount: learners }, enrolled: !!enrollment, summary,
+    items: await addInlineThumbnails(data.items.map(withAvailableMedia)),
+    pagination: pagination(page, data.count[0]?.total || 0) };
 }
 
 export async function exploreTopics(userId: Types.ObjectId, page: number, search = '') {
@@ -99,7 +102,7 @@ export async function exploreTopics(userId: Types.ObjectId, page: number, search
     { $sort: { sortOrder: 1, _id: 1 } },
     { $facet: { items: [{ $skip: (page - 1) * PAGE_SIZE }, { $limit: PAGE_SIZE }], count: [{ $count: 'total' }] } },
   ]);
-  return { items: result[0].items.map((topic: Record<string, unknown>) => ({ ...topic, imageUrl: availableMedia(topic.imageUrl) })), pagination: pagination(page, result[0].count[0]?.total || 0) };
+  return { items: await addInlineThumbnails(result[0].items.map((topic: Record<string, unknown>) => ({ ...topic, imageUrl: availableMedia(topic.imageUrl) })), 'imageUrl'), pagination: pagination(page, result[0].count[0]?.total || 0) };
 }
 
 /** Shared owner-scoped counts before pagination, also used by personal analysis. */

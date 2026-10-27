@@ -4,15 +4,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/auth_provider.dart';
-import 'providers/staff_provider.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/admin/admin_management_screens.dart';
 import 'services/admin/admin_workspace_service.dart';
-import 'screens/staff/staff_dashboard_screen.dart';
 import 'screens/staff/staff_workspace_screen.dart';
 import 'services/user/user_data_service.dart';
 import 'services/staff/staff_workspace_service.dart';
-import 'services/staff/staff_service.dart';
 
 import 'core/app_state.dart';
 import 'core/app_route.dart';
@@ -111,6 +108,7 @@ class _SignVoiceAppState extends State<SignVoiceApp>
           asGuest: user.isGuest,
           displayName: user.displayName,
           userEmail: user.email ?? '',
+          userAvatarUrl: user.avatarUrl,
         );
       } else {
         state.enter(
@@ -133,6 +131,7 @@ class _SignVoiceAppState extends State<SignVoiceApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (_notificationsStarted && lifecycle == AppLifecycleState.resumed) {
+      auth.refreshUser();
       notifications.refreshInbox();
       notifications.retry();
     }
@@ -332,12 +331,19 @@ class AccessGate extends StatelessWidget {
         ? 'dictionary:read'
         : '$resource:read';
     if ((isAdminRoute &&
-            (!auth.isAdmin ||
-                (screenId != 'admin' && !auth.can(permission)))) ||
+            (!auth.isStaff ||
+                (screenId != 'admin' &&
+                    (!auth.can(permission) ||
+                        (const [
+                              'users',
+                              'roles',
+                              'sessions',
+                            ].contains(resource) &&
+                            !auth.isAdmin))))) ||
         ((screenId == 'staff' || screenId.startsWith('/staff/')) &&
             (!auth.isStaff ||
                 (screenId.startsWith('/staff/users') &&
-                    !auth.can('users:read')) ||
+                    (!auth.isAdmin || !auth.can('users:read'))) ||
                 (screenId.startsWith('/staff/content') &&
                     !auth.can('dictionary:read'))))) {
       return Scaffold(
@@ -357,14 +363,7 @@ class AccessGate extends StatelessWidget {
       );
     }
     if (screenId == 'staff') {
-      return ChangeNotifierProvider(
-        create: (_) => StaffProvider(
-          staffService: StaffService(
-            apiClient: context.read<StaffWorkspaceService>().api,
-          ),
-        ),
-        child: const StaffDashboardScreen(),
-      );
+      return const AdminDashboardScreen();
     }
     if (screenId == '/notifications' || screenId == '/study-reminder') {
       final page = screenId == '/notifications'

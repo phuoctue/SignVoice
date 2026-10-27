@@ -139,10 +139,11 @@ try {
             }
             $tunnelLog = Join-Path $runtimeRoot 'conveyor.log'
             $tunnelState = Join-Path $runtimeRoot 'conveyor-state.json'
-            @{ phase='starting' } | ConvertTo-Json | Set-Content -LiteralPath $tunnelState -Encoding UTF8
+            $tunnelSession = [guid]::NewGuid().ToString('N')
+            @{ phase='starting'; session_id=$tunnelSession } | ConvertTo-Json | Set-Content -LiteralPath $tunnelState -Encoding UTF8
             $tunnelScript = Join-Path $PSScriptRoot 'conveyor-tunnel.py'
             $newTunnelWrapper = Start-Process -FilePath $aiPython -WindowStyle Hidden -PassThru -WorkingDirectory $workspaceRoot `
-                -ArgumentList @("`"$tunnelScript`"",'--executable',"`"$conveyor`"",'--port',"$Port",'--state',"`"$tunnelState`"",'--log',"`"$tunnelLog`"") `
+                -ArgumentList @("`"$tunnelScript`"",'--executable',"`"$conveyor`"",'--port',"$Port",'--state',"`"$tunnelState`"",'--log',"`"$tunnelLog`"",'--session-id',$tunnelSession) `
                 -RedirectStandardOutput (Join-Path $runtimeRoot 'conveyor-wrapper.log') `
                 -RedirectStandardError (Join-Path $runtimeRoot 'conveyor.error.log')
             $tunnelDeadline = (Get-Date).AddSeconds(60); $issuedOrigin = $null
@@ -150,8 +151,8 @@ try {
                 $newTunnelWrapper.Refresh()
                 if ($newTunnelWrapper.HasExited) { throw 'Conveyor exited. Check .runtime/conveyor.log and conveyor.error.log.' }
                 $status = Get-Content -LiteralPath $tunnelState -Raw | ConvertFrom-Json
-                if ($status.phase -in @('error','exited')) { throw 'Conveyor stopped. Check .runtime/conveyor.log; use config -s once if sign-in is required.' }
-                if ($status.phase -eq 'ready') {
+                if ($status.session_id -eq $tunnelSession -and $status.phase -in @('error','exited','expired')) { throw 'Conveyor stopped or its session expired. Check .runtime/conveyor.log; use config -s once if sign-in is required.' }
+                if ($status.session_id -eq $tunnelSession -and $status.phase -eq 'ready') {
                     $issuedOrigin = $status.origin
                     $newTunnel = Get-Process -Id $status.process_id
                     break

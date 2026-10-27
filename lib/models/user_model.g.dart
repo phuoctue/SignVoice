@@ -22,6 +22,7 @@ UserModel _$UserModelFromJson(Map<String, dynamic> json) => UserModel(
       [],
   status: $enumDecode(_$AccountStatusEnumMap, json['status']),
   isGuest: json['isGuest'] as bool,
+  googleLinked: json['googleLinked'] as bool? ?? false,
   guestConvertedAt: json['guestConvertedAt'] == null
       ? null
       : DateTime.parse(json['guestConvertedAt'] as String),
@@ -45,6 +46,7 @@ Map<String, dynamic> _$UserModelToJson(UserModel instance) => <String, dynamic>{
   'permissions': instance.permissions,
   'status': _$AccountStatusEnumMap[instance.status]!,
   'isGuest': instance.isGuest,
+  'googleLinked': instance.googleLinked,
   'guestConvertedAt': instance.guestConvertedAt?.toIso8601String(),
   'lastLoginAt': instance.lastLoginAt?.toIso8601String(),
   'lastLoginIp': instance.lastLoginIp,

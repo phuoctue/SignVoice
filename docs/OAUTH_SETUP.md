@@ -1,10 +1,27 @@
 # Google/Facebook OAuth setup
 
-This implementation supports Flutter **web** in the same browser that starts login.
+This implementation supports Flutter **web** in the same browser that starts login,
+and Google sign-in on **Android** through Credential Manager.
 It uses Node.js + Express + TypeScript and the existing SignVoice JWT/AuthSession database.
-It has not been verified against a live Google/Meta account: no credentials were supplied.
-Native Android/iOS OAuth SDK/deep-link token handoff is outside this web flow; use email or guest
-in the native app. Opening a browser cannot authenticate a separate native cookie store.
+Live Google/Meta account sign-in still requires verification on the target device.
+Android sends a Google ID token to the server for verification and receives normal SignVoice
+sessions. The Android flow does not use browser cookies or a Conveyor callback.
+
+## Android Google configuration
+
+- Create a Web OAuth client and an Android OAuth client in the **same Google Cloud project**.
+- Set the Web client ID/secret in the backend environment below. Never package its secret in the APK.
+- Android client: package `com.example.sign_voice`, SHA-1 of the certificate signing the installed APK.
+  Rebuilding with the same key or changing Conveyor does not change this SHA-1. A different signing
+  key (including Play App Signing) requires its matching Android client configuration.
+- Keep Google Play Services enabled; add test users while the consent screen is in Testing.
+- Existing email accounts: log in by email, open **Cá nhân → Chỉnh sửa hồ sơ → Liên kết Google**, choose the same
+  verified email. This preserves the account ID, password, learning data and assigned role.
+  Matching email alone never silently merges accounts.
+- `/auth/google/native/challenge` issues a five-minute, one-use nonce challenge. Native login/link
+  verify Google's signature, Web audience, issuer, expiry, nonce and verified email on the server.
+- Conveyor changes still require updating the APK API/AI endpoints. The web login callback must
+  also be updated in Google Cloud; Android Credential Manager has no Conveyor redirect URI.
 
 ## Environment variables
 

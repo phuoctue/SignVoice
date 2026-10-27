@@ -4,6 +4,23 @@
 
 Đơn vị vận hành: **SignVoice**. Người phụ trách: **Phạm Phước Tuệ**. Liên hệ: **phuoctue0312@gmail.com**.
 
+## Cập nhật trên máy hiện tại — 27/10/2026
+
+- **Cá nhân → Chỉnh sửa hồ sơ → Đăng nhập & bảo mật** chứa Liên kết Google và Đổi mật khẩu. Đã kiểm tra lại luồng đổi mật khẩu cho USER/STAFF/ADMIN.
+- LM Studio chạy nền bằng **llmster**, model Qwen3-4B-Instruct-2507 Q4_K_M, API nội bộ `http://127.0.0.1:1235/v1`. Bật lại sau khi khởi động máy bằng `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-learning-lmstudio.ps1`. Không cần mở Bionic, không cần build lại APK chỉ để bật AI. [Hướng dẫn LM Studio](docs/LMStudio-learning-progress.md#máy-hiện-tại-chạy-nền).
+- Phân tích và gợi ý đã trả lời bằng model thật; các yêu cầu AI trùng đang chạy được gộp, không chia sẻ giữa tài khoản hoặc tiến độ đã thay đổi. 31 kiểm thử liên quan đạt; phân tích mã các file sửa đạt.
+- Sửa lỗi chờ phân tích lâu qua điện thoại: APK gửi tác vụ nền và lấy trạng thái bằng yêu cầu ngắn, có thử lại khi mạng/gateway gián đoạn. Kết quả chỉ trả cho chủ tài khoản; giới hạn tác vụ và tự hết hạn sau 5 phút. Đạt 304 kiểm thử Flutter (1 bỏ qua) và 225 kiểm thử backend trên MongoDB tạm; giữ tương thích API gọi đồng bộ cũ.
+- Phiên Conveyor trước đã hết hạn; phiên mới: `https://littleorangephone74.conveyor.cloud`. APK cần dùng đúng link mới. Google Android giữ nguyên client và SHA-1; nếu dùng Google trên web, thêm callback của tên miền mới trong Google Cloud.
+- APK mới nhất: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-ARM64-analysis-fixed-20261027.apk` (38,6 MiB), có luồng tác vụ nền sửa lỗi chờ phân tích lâu, giữ chữ ký cũ, đạt kiểm tra ABI/model tay/16 KB và không chứa Google client secret. SHA-256: `349D5AE4DE105E0D2D7166F4D52FC9D28FB55A95F60DC45BA37D006DE5134291`.
+
+## Tối ưu API và Google Android — 26/10/2026
+
+- API dùng lại kết nối, gộp các GET trùng đang chạy và giảm truy cập kho khóa Android; không lưu cache quyền. Thống kê dùng hai truy vấn tổng hợp thay cho mười truy vấn đếm. Dashboard tải song song; danh sách tài khoản hiển thị ngay khi có dữ liệu, không chờ danh sách role. JSON GET lớn được nén, dữ liệu cá nhân vẫn `no-store`.
+- Google Android dùng Credential Manager và ID token được backend xác minh cùng nonce một lần, hết hạn sau 5 phút. Tài khoản email có sẵn cần vào **Cá nhân → Chỉnh sửa hồ sơ → Liên kết Google**, chọn cùng email, rồi dùng Google đăng nhập từ lần sau; giữ nguyên ID, mật khẩu, quyền và dữ liệu học. Liên kết Google và Đổi mật khẩu được gom trong mục Đăng nhập & bảo mật ở cuối màn hình chỉnh sửa.
+- Cấu hình Google cần Web client và Android client cùng project. Android client dùng package `com.example.sign_voice` và SHA-1 của khóa ký APK; đổi Conveyor không đổi SHA-1. Thay URL Conveyor cần build lại endpoint API/AI, đồng thời cập nhật callback của luồng web. Xem [hướng dẫn OAuth](docs/OAUTH_SETUP.md).
+- Kiểm tra tự động: 299 Flutter tests đạt, 1 bỏ qua; 220 backend tests đạt trên MongoDB tạm. Đo truy vấn thống kê tại máy: trung vị khoảng 334 ms trước và 41 ms sau (không bao gồm xác thực/HTTP/Conveyor). Đăng nhập Google bằng tài khoản thật cần xác nhận tiếp trên điện thoại.
+- APK ARM64: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-ARM64-api-google-20261026.apk` (38,6 MiB), cùng chữ ký bản trước; kiểm tra ABI, zipalign/ELF 16 KB, model tay và không chứa Google client secret đạt. SHA-256: `CFFE276435F6B4836D9CCB24CDFDAC04C8CD6EE28A779CC6ACD5F8C90A54C866`. API/AI dùng `https://lastaquatrail42.conveyor.cloud`; đường hầm vẫn có độ trễ mạng riêng.
+
 ## Trạng thái hoàn thiện ngày 24/10/2026
 
 Đã đối chiếu `.agents/tasks/verification_note.txt` với các route đang chạy và hoàn thiện luồng USER, STAFF, ADMIN cùng dữ liệu backend. File ghi chú cũ mô tả một phiên bản trước; các màn hình hiện hành dùng lại biểu mẫu và màn hình chung thay vì tạo đủ từng tên file trong danh sách đó.
@@ -54,7 +71,7 @@ Bản sao trước khi ghép nằm trong Git stash `2e4aebeb7e9ccb8cbd29b875aed8
 - Đo thực tế cùng đường Conveyor: JavaScript chính từ **4.116.569 byte xuống 1.163.116 byte truyền qua mạng** (~72%); tải riêng file từ **4,86 xuống 3,39 giây**. Đây là phép đo trước thay đổi HTML cuối, không phải thời gian mở toàn ứng dụng.
 - Đồng bộ tài khoản gồm `/auth/me` và dữ liệu khởi động: trung vị 3 lần đo mỗi cách từ **4,86 xuống 2,39 giây**, số request từ **5 xuống 2** trên tài khoản QA mới. Tài khoản được xóa sau đo; không lưu token/mật khẩu trong báo cáo. Có thể đo lại bằng `node backend/scripts/measure-startup.cjs` khi backend public chạy ở cổng 3001.
 - Conveyor vẫn có độ trễ: lần đo `/health/live` khoảng **1,65 giây tới byte đầu**, so với local khoảng **0,007 giây**. Máy tính, backend, AI và tunnel vẫn cần bật. Chưa đo thời gian mở trên điện thoại thật; tốc độ còn phụ thuộc mạng, thiết bị và dữ liệu tài khoản.
-- Sau mỗi lần build Web, khởi động lại backend để nạp đúng các file đã nén: `scripts/start-signvoice.ps1 Public -SkipBuild -PublicOrigin 'https://differentshinyleaf12.conveyor.cloud'`. Khi chỉ build chưa xong, không dùng `-SkipBuild` để phát hành bản cũ.
+- Sau mỗi lần build Web, khởi động lại backend để nạp đúng các file đã nén: `scripts/start-signvoice.ps1 Public -SkipBuild` (đọc cấu hình public đã lưu). Khi chỉ build chưa xong, không dùng `-SkipBuild` để phát hành bản cũ.
 
 Log kiểm tra và số đo: `.runtime/startup-*.log`, `.runtime/startup-api-comparison.json`. Không đổi chất lượng video, dữ liệu hoặc bộ nhận diện camera **181 từ**.
 
@@ -193,7 +210,8 @@ flutter run -d <device-id> --dart-define=API_BASE_URL=http://10.0.2.2:3000/api/v
 Để cài thử trên điện thoại Android ARM64 qua Conveyor, build **release** thay vì dùng bản debug:
 
 ```powershell
-.\scripts\build-ai-android.ps1 -SdkPath 'E:\Android\Sdk' -ApiBaseUrl 'https://differentshinyleaf12.conveyor.cloud/api/v1' -AiServiceUrl 'https://differentshinyleaf12.conveyor.cloud/sign-ai'
+$signVoiceOrigin = (Get-Content -Encoding UTF8 '.runtime/public-settings.json' -Raw | ConvertFrom-Json).publicOrigin
+.\scripts\build-ai-android.ps1 -SdkPath 'E:\Android\Sdk' -ApiBaseUrl "$signVoiceOrigin/api/v1" -AiServiceUrl "$signVoiceOrigin/sign-ai"
 ```
 
 Kết quả ở `build/app/outputs/flutter-apk/app-release.apk`. Cài đè bản mới để nhận thay đổi; URL Conveyor đổi thì cần build lại APK với địa chỉ mới. Bản này vẫn dùng khóa debug theo cấu hình hiện có để cài thử, chưa phải bản ký để phát hành CH Play. Backend, AI và tunnel vẫn phải chạy khi dùng chức năng trực tuyến.
@@ -343,3 +361,34 @@ Kết quả đợt này: `flutter analyze` sạch; 195 Flutter tests đạt, 1 t
 - Chỉnh sửa văn bản ngay trong khung kết quả, có Lưu/Hủy và kiểm tra nội dung trống; bàn phím không bị footer chiếm chỗ.
 - TTS thử `vi-VN`, `vi` và giọng Việt mà engine liệt kê. Khi thiết bị thiếu giọng Việt, nút **Cài giọng tiếng Việt** mở trình cài dữ liệu/cài đặt TTS Android; chọn tải Tiếng Việt rồi quay lại bấm Phát. Không tự tải giọng hoặc chuyển văn bản sang dịch vụ ngoài. Máy chưa có engine/giọng phù hợp vẫn cần cài dữ liệu trên thiết bị.
 - 8 test mới cho hướng dẫn, sửa trực tiếp và TTS/recovery; toàn bộ 203 tests đạt, 1 test cũ bỏ qua. Log: `.runtime/speech-ui-*.log`.
+
+### Tối ưu APK qua Conveyor ngày 26/10/2026
+
+- Ảnh xem trước JPEG được gửi kèm trong API từ điển/chủ đề (tối đa 20 ảnh, mỗi ảnh 96 KB), giữ nguyên ảnh gốc. APK dùng chung cache media 16 MB trong RAM và tối đa 64 MB trên bộ nhớ đệm riêng, hết hạn sau một ngày. Clip ký hiệu nhỏ được tải bằng một GET, phát từ file và dùng lại khi mở lại; media bên ngoài vẫn dùng player streaming.
+- Bấm Đã nhớ/Ôn tập hiển thị trạng thái đang lưu ngay; sau khi API xác nhận thì cập nhật thẻ/số đếm và báo thành công. Đối soát trang chạy nền, không làm trống danh sách và không chặn thông báo lưu thành công. Lỗi ghi không được báo thành công.
+- Dừng camera giữ kết quả AI để lưu quiz; các câu có `entryId` khác nhau không dùng lại video mẫu câu trước. Bỏ ảnh mẫu lặp lại ở vị trí camera chưa mở, ghi rõ cách nhận diện/lưu. Có thể chủ động bỏ qua sau khi thử camera nhưng chưa nhận diện; câu đó nhận 0 điểm và giữ ở Ôn tập. Bộ nhận diện vẫn giữ 181 từ.
+- Kiểm tra: 36 Flutter tests liên quan, 18 backend tests trên MongoDB tạm đạt. Đo qua Conveyor: từng ảnh/video trước sửa mất khoảng 1,4–2,1 giây/lượt; API mới trả danh sách kèm 6 ảnh trang chủ trong khoảng 2,3 giây, không còn lượt tải riêng cho 6 ảnh này. Đây là số đo trên máy phát triển qua tunnel, chưa phải đo lại trên điện thoại thật. Lần tải mới vẫn phụ thuộc Conveyor/mạng.
+- Backend cần chạy bản đã build mới để gửi preview; client tương thích API cũ nhưng ảnh đầu tiên sẽ còn cần request riêng. Log/số đo nằm trong `.runtime/apk-optimization-*.log`, `.runtime/media-before.json` và `.runtime/media-after.json`.
+
+- Bổ sung tối ưu từ điển: cache tối đa 8 trang trong phiên (đọc ngay tối đa 2 phút, làm mới nền sau 10 giây), gộp request trùng, xóa cache khi đổi tài khoản hoặc ghi tiến độ thành công. Tải trước danh mục từ trang chủ, tab học, trang kế tiếp và clip đầu tiên; danh sách dựng các thẻ gần vùng đang xem. Tiếp tục chủ đề đã tham gia không gọi đăng ký học lại.
+- API nén gzip cho các lượt đọc từ điển/chủ đề hỗ trợ nén, giữ nguyên `no-store` cho dữ liệu riêng. Trang chủ đề đo được giảm từ 213.937 xuống 118.862 byte truyền. Kiểm thử trực tiếp bằng service Flutter qua Conveyor: danh mục/chủ đề tải mới 2.973/2.088 ms, đọc lại cache 1/0 ms; 4 lần đọc chỉ gọi 2 GET. Đây là số đo truy xuất dữ liệu trên máy phát triển, chưa phải thời gian dựng giao diện trên điện thoại; tải mới vẫn phụ thuộc mạng/tunnel.
+- Bản bổ sung: 90 kiểm thử Flutter (gồm 1 lượt kiểm tra trực tiếp qua Conveyor) và 23 backend tests đạt; analyze không có vấn đề, build thành công. APK `E:\WorkSpace\SignVoice\SignVoice-Conveyor-dictionary-v2-20261026.apk` đã kiểm tra chữ ký giống bản trước và zipalign 16 KB. Log: `.runtime/dictionary-*.log`, `.runtime/dictionary-cache-live.json`, `.runtime/dictionary-perf-after.json`.
+
+### Video, lịch nhắc và hồ sơ trên Android — 26/10/2026
+
+- Văn bản → Ký hiệu tải trước tối đa hai clip gần vị trí xem, chỉ một lượt tải trước chạy cùng lúc. Chuyển nhanh bỏ hàng đợi cũ, giải phóng video trả về muộn; ảnh xem trước dùng chung cache và giữ trong lúc video đang tải.
+- Giữ lịch Android không thay đổi khi mở lại ứng dụng, tránh hủy lời nhắc đang chờ rồi chuyển sang tuần sau. Đặt lịch trên máy độc lập với đăng ký push; kiểm tra lại các lịch đã cài. Màn hình lịch hiển thị lần nhắc tiếp theo, quyền nhắc đúng giờ, kênh bị tắt và nút thử nhắc sau một phút.
+- Đọc lại giọng Việt và kết nối lại bộ đọc khi trở về từ cài đặt; tìm bộ đọc tiếng Việt trong các bộ đã cài trước khi báo không dùng được. Không tự phát tiếng sau khi quay về cài đặt.
+- Avatar hiện ngay từ thông tin đăng nhập, cache riêng theo tài khoản tối đa 512 KB và xóa khi đăng xuất. Dùng hồ sơ đã đồng bộ khi mở trình sửa; đổi ảnh không gọi lưu màu không đổi hoặc lấy lại hồ sơ lần nữa.
+- Kiểm tra: 278 Flutter tests đạt, 1 bỏ qua; analyze không có vấn đề. Log: `.runtime/mobile-reliability-*.log`. Chưa đo trực tiếp trên điện thoại thật; lịch nhắc vẫn cần quyền và cài đặt hoạt động nền phù hợp trên máy.
+- APK đã build và kiểm tra chữ ký/zipalign 16 KB: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-mobile-fixes-20261026.apk` (57,4 MB), dùng cùng chữ ký với bản trước và URL Conveyor hiện tại. SHA-256: `B651015019D6AD29F53CCA0C31B7504BC06957559B45CD956DC1AD49C187441F`.
+
+### Rà soát trước bản APK tiếp theo — 26/10/2026
+
+- Sửa thêm cache avatar: lượt tải ảnh cũ hoàn thành muộn không được ghi đè ảnh vừa đổi hoặc khôi phục cache sau khi xóa ảnh.
+- Đạt 280 Flutter tests (1 bỏ qua), toàn bộ 205 backend tests trên MongoDB tạm và 5 Android JVM tests; phân tích mã Flutter/backend đạt. Log: `.runtime/preflight-*.log`.
+- 4 kiểm thử tích hợp trên Android giả lập API 35 đạt: video phát từ file cache, avatar lưu/đọc qua plugin thật, Android phát lời nhắc hẹn một phút khi ứng dụng chạy nền, kiểm tra lại giọng Việt. Kết quả này chưa thay thế việc thử trên điện thoại thật. Chi tiết: `.runtime/preflight-android-results.json`.
+- Kiểm tra release phát hiện APK ARM64 còn chứa thư viện MediaPipe của ABI khác, khiến Android x86 nhận cài nhưng thiếu Flutter engine phù hợp. Gradle hiện lọc ABI theo `target-platform`; script build chạy `scripts/verify-android-apk.ps1` để chặn ABI ngoài mục tiêu hoặc thiếu `libapp.so`/`libflutter.so`. Bản universal dùng đủ ARMv7, ARM64 và x86_64. Tham khảo [quy tắc ABI của Android](https://developer.android.com/ndk/guides/abis).
+- Bản universal kiểm tra nhiều CPU, dùng phiên Conveyor trước: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-preflight-20261026.apk` (95,9 MB), đã cài và mở bản release trên giả lập, kiểm tra chữ ký giống bản trước, zipalign 16 KB và URL Conveyor ở cả ba ABI. SHA-256: `652F675E7CA388E50E29C58D9E6E753D5D57D3457E892ADB95D221AF1201997D`. Ảnh mở ứng dụng: `.runtime/preflight-release-screen.png`.
+- Conveyor đã hết giới hạn kết nối liên tục ở phiên cũ; kết nối lại được cấp `https://earlysparklyglass16.conveyor.cloud`. Wrapper hiện đánh dấu phiên hết hạn và dùng mã phiên để tránh tiến trình cũ ghi đè trạng thái khởi động mới. Backend/API và AI ở link mới đã trả HTTP 200. Conveyor vẫn là môi trường chạy thử có giới hạn phiên.
+- APK dùng cho điện thoại ARM64: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-ARM64-verified-20261026.apk` **38,0 MB**, chỉ đóng gói ARM64 và đã xác minh API/AI trỏ tới link Conveyor mới, chữ ký giữ nguyên, zipalign 16 KB đạt. SHA-256: `7E4227A05F3FF97B57CBDD8D6115537B28360C153EEFFA787C4B8B9D6A8934C9`. Bản universal lớn hơn được dùng để mở thử release trên giả lập x86_64; bản ARM64 cần kiểm tra tiếp trên điện thoại thật.

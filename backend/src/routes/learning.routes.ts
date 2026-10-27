@@ -8,6 +8,7 @@ import { PersonalWord, TopicEnrollment, WordProgress } from '../models/Learning.
 import { exploreTopics, enrolledTopics, objectId, pagination, regexLiteral, topicOrFail, topicWords, PAGE_SIZE } from '../services/learning.service';
 import { learningAdvice } from '../services/learning-coach.service';
 import { analyzeLearningProgress } from '../services/learning-analysis.service';
+import {startLearningAiJob,getLearningAiJob} from '../services/learning-ai-jobs.service';
 import { learningHistory } from '../services/learning-history.service';
 import { LearningEvent } from '../models/LearningEvent.model';
 import { learningInsights, learningToday, learningDayWords } from '../services/learning-insights.service';
@@ -121,12 +122,22 @@ router.post('/quizzes/:id/submit', quizLimit, wrap(async (req, res) => {
   return res.json({ success: true, data: await submitReviewQuiz(req.user!.id, objectId(req.params.id)) });
 }));
 
-router.post('/coach', rateLimit({ windowMs: 60000, limit: 6 }), wrap(async (req, res) => {
+const aiRequestSchema=z.object({async:z.literal(true).optional(),requestKey:z.string().regex(/^[a-f0-9]{32}$/).optional()}).strict()
+  .refine(value=>value.async ? !!value.requestKey : !value.requestKey);
+router.get('/ai-jobs/:id', wrap(async (req,res)=>{
+  const id=parse(z.string().uuid(),req.params.id);
+  return res.json({success:true,data:getLearningAiJob(req.user!.id,id)});
+}));
+
+router.post('/coach', rateLimit({ windowMs: 60000, limit: 6, keyGenerator:req=>String(req.user!.id) }), wrap(async (req, res) => {
+  const body=parse(aiRequestSchema,req.body);
+  if(body.async)return res.status(202).json({success:true,data:startLearningAiJob(req.user!.id,'coach',body.requestKey!)});
   return res.json({ success: true, data: await learningAdvice(req.user!.id) });
 }));
 
 router.post('/analysis', rateLimit({ windowMs: 60000, limit: 3, keyGenerator: req => String(req.user!.id) }), wrap(async (req, res) => {
-  parse(z.object({}).strict(), req.body);
+  const body=parse(aiRequestSchema,req.body);
+  if(body.async)return res.status(202).json({success:true,data:startLearningAiJob(req.user!.id,'analysis',body.requestKey!)});
   return res.json({ success: true, data: await analyzeLearningProgress(req.user!.id) });
 }));
 

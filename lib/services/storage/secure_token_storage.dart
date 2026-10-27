@@ -8,16 +8,28 @@ import 'token_store.dart';
 /// Native tokens use secure storage; browsers keep access tokens in memory
 /// and send the refresh token in a server-issued HttpOnly cookie.
 class SecureTokenStorage implements TokenStore {
-  SecureTokenStorage._();
-  static final instance = SecureTokenStorage._();
-  final _secureStorage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  SecureTokenStorage({FlutterSecureStorage? secureStorage})
+    : _secureStorage =
+          secureStorage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
+  static final instance = SecureTokenStorage();
+  final FlutterSecureStorage _secureStorage;
   SharedPreferences? _prefs;
   String? _webAccessToken;
+  String? _nativeAccessToken;
+  bool _accessLoaded = false;
+  int _generation = 0;
+  Future<String?>? _accessRead;
+  Future<void>? _initializing;
 
-  Future<void> init() async {
-    if (_prefs != null) return;
+  Future<void> init() => _initializing ??= _init().catchError((Object error) {
+    _initializing = null;
+    throw error;
+  });
+
+  Future<void> _init() async {
     _prefs = await SharedPreferences.getInstance();
     // Remove tokens written by the old, unencrypted implementation.
     await _prefs!.remove(ApiConfig.accessTokenKey);
@@ -29,6 +41,10 @@ class SecureTokenStorage implements TokenStore {
       _webAccessToken = token;
     } else {
       await _secureStorage.write(key: ApiConfig.accessTokenKey, value: token);
+      _generation++;
+      _nativeAccessToken = token;
+      _accessLoaded = true;
+      _accessRead = null;
     }
     return true;
   }
@@ -36,9 +52,25 @@ class SecureTokenStorage implements TokenStore {
   @override
   Future<String?> getAccessToken() async {
     await init();
-    return kIsWeb
-        ? _webAccessToken
-        : _secureStorage.read(key: ApiConfig.accessTokenKey);
+    if (kIsWeb) return _webAccessToken;
+    while (!_accessLoaded) {
+      final generation = _generation;
+      final read = _accessRead ??= _secureStorage.read(
+        key: ApiConfig.accessTokenKey,
+      );
+      try {
+        final value = await read;
+        if (generation != _generation) continue;
+        _nativeAccessToken = value;
+        _accessLoaded = true;
+      } catch (_) {
+        if (generation != _generation) continue;
+        rethrow;
+      } finally {
+        if (identical(_accessRead, read)) _accessRead = null;
+      }
+    }
+    return _nativeAccessToken;
   }
 
   Future<bool> saveRefreshToken(String token) async {
@@ -91,9 +123,15 @@ class SecureTokenStorage implements TokenStore {
 
   Future<void> clearTokens() async {
     _webAccessToken = null;
+    _generation++;
+    _nativeAccessToken = null;
+    _accessLoaded = true;
+    _accessRead = null;
     if (!kIsWeb) {
-      await _secureStorage.delete(key: ApiConfig.accessTokenKey);
-      await _secureStorage.delete(key: ApiConfig.refreshTokenKey);
+      await Future.wait([
+        _secureStorage.delete(key: ApiConfig.accessTokenKey),
+        _secureStorage.delete(key: ApiConfig.refreshTokenKey),
+      ]);
     }
   }
 

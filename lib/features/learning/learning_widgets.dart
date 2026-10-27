@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -9,6 +11,7 @@ import '../../widgets/ui.dart';
 import '../../widgets/sign_video_surface.dart';
 import '../../services/media/sign_video_source.dart';
 import '../../services/media/video_source.dart';
+import '../../services/media/managed_media.dart';
 
 const learningLabels = {
   'LEARNING': 'Đang học',
@@ -21,7 +24,7 @@ const learningColors = {
   'REVIEW': Color(0xFFB86E00),
 };
 
-class SignPhoto extends StatelessWidget {
+class SignPhoto extends StatefulWidget {
   const SignPhoto(
     this.source, {
     super.key,
@@ -36,7 +39,20 @@ class SignPhoto extends StatelessWidget {
   final double? width;
   final BoxFit fit;
   @override
+  State<SignPhoto> createState() => _SignPhotoState();
+}
+
+class _SignPhotoState extends State<SignPhoto> {
+  Future<Uint8List>? _loading;
+  @override
+  void didUpdateWidget(SignPhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source) _loading = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final SignPhoto(:source, :word, :height, :width, :fit) = widget;
     Widget fallback({bool loading = false}) {
       final message = loading ? 'Đang tải ảnh' : 'Chưa có ảnh';
       return Semantics(
@@ -89,21 +105,49 @@ class SignPhoto extends StatelessWidget {
         image = fallback();
       }
     } else {
-      image = Image.network(
-        ApiConfig.mediaUrl(url),
+      final uri = Uri.parse(ApiConfig.mediaUrl(url));
+      final decodeWidth = width == null
+          ? 640
+          : (width * MediaQuery.devicePixelRatioOf(context)).ceil().clamp(
+              64,
+              640,
+            );
+      Widget memory(Uint8List bytes) => Image.memory(
+        bytes,
         fit: fit,
-        cacheWidth: width == null
-            ? 640
-            : (width! * MediaQuery.devicePixelRatioOf(context)).ceil().clamp(
-                64,
-                640,
-              ),
+        cacheWidth: decodeWidth,
         gaplessPlayback: true,
         semanticLabel: 'Ảnh ký hiệu $word',
         errorBuilder: (_, _, _) => fallback(),
-        loadingBuilder: (_, child, progress) =>
-            progress == null ? child : fallback(loading: true),
       );
+      final cached = isManagedMedia(uri) ? managedMediaBytes.peek(uri) : null;
+      if (cached != null) {
+        image = memory(cached);
+      } else if (isManagedMedia(uri)) {
+        _loading ??= managedMediaBytes.load(uri);
+        image = FutureBuilder<Uint8List>(
+          future: _loading,
+          builder: (_, snapshot) => snapshot.hasData
+              ? memory(snapshot.data!)
+              : fallback(loading: !snapshot.hasError),
+        );
+      } else {
+        image = Image.network(
+          uri.toString(),
+          fit: fit,
+          cacheWidth: width == null
+              ? 640
+              : (width * MediaQuery.devicePixelRatioOf(context)).ceil().clamp(
+                  64,
+                  640,
+                ),
+          gaplessPlayback: true,
+          semanticLabel: 'Ảnh ký hiệu $word',
+          errorBuilder: (_, _, _) => fallback(),
+          loadingBuilder: (_, child, progress) =>
+              progress == null ? child : fallback(loading: true),
+        );
+      }
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -235,6 +279,15 @@ class _LearningWordContentState extends State<LearningWordContent>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    primeImagePreviews([widget.word]);
+    _frame = _previewFrame(widget.word);
+    unawaited(prefetchSignVideo('${widget.word['videoUrl'] ?? ''}'));
+  }
+
+  int _previewFrame(LearningRecord word) {
+    final images = word['imageUrls'] as List? ?? [];
+    final index = images.indexOf(word['thumbnailUrl']);
+    return index < 0 ? 0 : index;
   }
 
   @override
@@ -248,7 +301,12 @@ class _LearningWordContentState extends State<LearningWordContent>
   @override
   void didUpdateWidget(covariant LearningWordContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.word['_id'] != widget.word['_id']) {
+    if ((oldWidget.word['_id'] ??
+            oldWidget.word['entryId'] ??
+            oldWidget.word['videoUrl']) !=
+        (widget.word['_id'] ??
+            widget.word['entryId'] ??
+            widget.word['videoUrl'])) {
       _generation++;
       _video?.dispose();
       _source?.dispose();
@@ -256,7 +314,9 @@ class _LearningWordContentState extends State<LearningWordContent>
       _video = null;
       _loadingVideo = false;
       _videoError = null;
-      _frame = 0;
+      _frame = _previewFrame(widget.word);
+      primeImagePreviews([widget.word]);
+      unawaited(prefetchSignVideo('${widget.word['videoUrl'] ?? ''}'));
     }
   }
 
@@ -293,7 +353,7 @@ class _LearningWordContentState extends State<LearningWordContent>
         return;
       }
       _source = source;
-      controller = VideoPlayerController.networkUrl(source.uri);
+      controller = source.createController();
       _video = controller;
       await controller.initialize().timeout(const Duration(seconds: 20));
       if (!mounted || _video != controller) return;

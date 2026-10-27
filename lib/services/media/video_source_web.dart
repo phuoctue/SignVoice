@@ -5,7 +5,7 @@ import 'package:web/web.dart' as web;
 
 import 'video_source.dart';
 
-VideoSource createVideoSource(Uri original, Uint8List? bytes) {
+Future<VideoSource> createVideoSource(Uri original, Uint8List? bytes) async {
   if (bytes == null) return VideoSource(original);
   final blob = web.Blob(
     [bytes.toJS].toJS,

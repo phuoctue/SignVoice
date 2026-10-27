@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as adminController from '../controllers/admin.controller';
-import { requireAuth, requireAdmin, requirePermission } from '../common/middlewares/auth.middleware';
+import { requireAuth, requireAdmin, requireManagement, requirePermission } from '../common/middlewares/auth.middleware';
 import * as management from '../controllers/admin-management.controller';
 import { validate } from '../common/middlewares/validate.middleware';
 import { adminListSchema, adminCreateUserSchema, adminUpdateUserSchema, adminIdSchema, adminSessionIdSchema,
@@ -8,8 +8,9 @@ import { adminListSchema, adminCreateUserSchema, adminUpdateUserSchema, adminIdS
 
 const router = Router();
 
-// All routes require ADMIN role
-router.use(requireAuth, requireAdmin);
+// Shared dashboard/content tools. Account, role and session administration stays ADMIN-only.
+router.use(requireAuth, requireManagement);
+router.use(['/users', '/roles', '/sessions'], requireAdmin);
 router.get('/roles', requirePermission('roles:read'), management.listRoles);
 router.post('/roles', requirePermission('roles:write'), validate(adminCreateRoleSchema), management.createRole);
 router.patch('/roles/:id', requirePermission('roles:write'), validate(adminUpdateRoleSchema), management.updateRole);

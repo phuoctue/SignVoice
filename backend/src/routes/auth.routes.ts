@@ -4,6 +4,8 @@ import * as oauthController from '../controllers/oauth.controller';
 import { validate } from '../common/middlewares/validate.middleware';
 import { requireAuth } from '../common/middlewares/auth.middleware';
 import { rateLimit } from 'express-rate-limit';
+import {z} from 'zod';
+import * as nativeGoogle from '../controllers/native-google.controller';
 import {
   registerSchema,
   loginSchema,
@@ -23,6 +25,10 @@ router.get('/oauth/providers', oauthController.providers);
 router.get('/oauth/:provider/start', oauthLimiter, oauthController.start);
 router.get('/oauth/:provider/callback', oauthLimiter, oauthController.callback);
 router.post('/oauth/complete', oauthLimiter, oauthController.complete);
+const nativeGoogleProof=z.object({body:z.object({challenge:z.string().regex(/^[\w-]{43}$/),idToken:z.string().min(1).max(16384)}).strict()});
+router.post('/google/native/challenge',oauthLimiter,nativeGoogle.challenge);
+router.post('/google/native/login',oauthLimiter,validate(nativeGoogleProof),nativeGoogle.login);
+router.post('/google/native/link',oauthLimiter,requireAuth,validate(nativeGoogleProof),nativeGoogle.link);
 
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

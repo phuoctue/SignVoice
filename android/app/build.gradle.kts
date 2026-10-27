@@ -5,6 +5,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val signVoiceTargetAbis = providers.gradleProperty("target-platform")
+    .orElse("android-arm,android-arm64,android-x64").get().split(",").map { target ->
+        when (target.trim()) {
+            "android-arm" -> "armeabi-v7a"
+            "android-arm64" -> "arm64-v8a"
+            "android-x64" -> "x86_64"
+            else -> error("Unsupported Android target: $target")
+        }
+    }
+val signVoiceSplitPerAbi = providers.gradleProperty("split-per-abi").orElse("false").get().toBoolean()
+
 android {
     // Bundle exactly the same verified hand model as the web detector.
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("handModelAssets").get().asFile)
@@ -31,6 +42,14 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // MediaPipe bundles several ABIs. Package only ABIs for which this
+        // build also supplies Flutter's engine and AOT application library.
+        if (!signVoiceSplitPerAbi) {
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(signVoiceTargetAbis)
+            }
+        }
     }
 
     buildTypes {
@@ -38,6 +57,7 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles("proguard-rules.pro")
         }
     }
 }
@@ -59,6 +79,9 @@ val bundleHandModel by tasks.registering(Copy::class) {
 tasks.named("preBuild").configure { dependsOn(bundleHandModel) }
 
 dependencies {
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("com.google.mediapipe:tasks-vision:0.10.32")
     testImplementation("junit:junit:4.13.2")

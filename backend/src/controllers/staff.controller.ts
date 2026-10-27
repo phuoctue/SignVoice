@@ -289,37 +289,39 @@ export async function updateReport(
  * Get staff dashboard statistics
  */
 export async function getStaffStats(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
+    const accountAccess = req.user!.permissions.includes('admin:access') && req.user!.permissions.includes('users:read');
+    const contentAccess = req.user!.permissions.includes('dictionary:read');
     const [
       pendingContent,
       publishedContent,
       totalUsers,
       recentUsers,
     ] = await Promise.all([
-      DictionaryEntry.countDocuments({ status: 'DRAFT' }),
-      DictionaryEntry.countDocuments({ status: 'PUBLISHED' }),
-      User.countDocuments({ isGuest: false }),
-      User.countDocuments({
+      contentAccess ? DictionaryEntry.countDocuments({ status: 'DRAFT' }) : 0,
+      contentAccess ? DictionaryEntry.countDocuments({ status: 'PUBLISHED' }) : 0,
+      accountAccess ? User.countDocuments({ isGuest: false }) : 0,
+      accountAccess ? User.countDocuments({
         isGuest: false,
         createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-      }),
+      }) : 0,
     ]);
 
     res.status(200).json({
       success: true,
       data: {
-        content: {
+        ...(contentAccess ? {content: {
           pending: pendingContent,
           published: publishedContent,
-        },
-        users: {
+        }} : {}),
+        ...(accountAccess ? {users: {
           total: totalUsers,
           recentWeek: recentUsers,
-        },
+        }} : {}),
       },
     });
   } catch (error) {

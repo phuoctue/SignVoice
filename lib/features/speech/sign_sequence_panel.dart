@@ -7,6 +7,8 @@ import '../../services/api/api_client.dart';
 import '../../services/api/api_config.dart';
 import '../../services/media/sign_video_source.dart';
 import '../../services/media/video_source.dart';
+import '../../services/media/sign_video_prefetch.dart';
+import '../learning/learning_widgets.dart' show SignPhoto;
 import '../../widgets/sign_video_surface.dart';
 
 typedef SequenceLoader = Future<Map<String, dynamic>> Function(String text);
@@ -58,6 +60,14 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
   bool loading = false;
   String? error;
   int request = 0;
+  SignVideoPrefetch _prefetch = SignVideoPrefetch();
+
+  @override
+  void dispose() {
+    request++;
+    _prefetch.dispose();
+    super.dispose();
+  }
 
   List<Map<String, dynamic>> playbackItems(List<Map<String, dynamic>> items) =>
       [
@@ -76,6 +86,8 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
   void didUpdateWidget(covariant SignSequencePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.text != widget.text) {
+      _prefetch.dispose();
+      _prefetch = SignVideoPrefetch();
       request++;
       segments = null;
       error = null;
@@ -96,6 +108,12 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
         () => segments = (data['segments'] as List)
             .map((value) => Map<String, dynamic>.from(value as Map))
             .toList(),
+      );
+      _prefetch.warm(
+        playbackItems(segments!)
+            .where((item) => item['type'] == 'sign')
+            .take(2)
+            .map((item) => '${item['videoUrl'] ?? ''}'),
       );
     } catch (_) {
       if (mounted && version == request) {
@@ -317,12 +335,11 @@ class _SignReferenceImagesState extends State<SignReferenceImages> {
           controller: pages,
           itemCount: widget.urls.length,
           onPageChanged: (value) => setState(() => index = value),
-          itemBuilder: (_, i) => Image.network(
+          itemBuilder: (_, i) => SignPhoto(
             widget.urls[i],
+            word: '${widget.word}, ảnh ${i + 1}',
+            height: 240,
             fit: BoxFit.contain,
-            semanticLabel: 'Mẫu ${widget.word}, ảnh ${i + 1}',
-            errorBuilder: (_, _, _) =>
-                const Center(child: Text('Không tải được ảnh mẫu.')),
           ),
         ),
       ),
@@ -340,18 +357,38 @@ class SignVideoDialog extends StatefulWidget {
     required this.items,
     required this.initialIndex,
     this.playSequence = false,
+    this.videoLoader = openSignVideo,
+    this.prefetch = prefetchSignVideo,
   });
   final List<Map<String, dynamic>> items;
   final int initialIndex;
   final bool playSequence;
+  final Future<VideoSource> Function(String) videoLoader;
+  final Future<void> Function(String) prefetch;
   @override
   State<SignVideoDialog> createState() => _SignVideoDialogState();
 }
 
+class _SignPlayback {
+  _SignPlayback(this.source) : player = source.createController();
+  final VideoSource source;
+  final VideoPlayerController player;
+  Future<void>? _disposing;
+  Future<void> dispose() => _disposing ??= _release();
+  Future<void> _release() async {
+    try {
+      await player.dispose();
+    } finally {
+      source.dispose();
+    }
+  }
+}
+
 class _SignVideoDialogState extends State<SignVideoDialog>
     with WidgetsBindingObserver {
-  VideoPlayerController? controller;
-  VideoSource? source;
+  _SignPlayback? _playback;
+  VideoPlayerController? get controller => _playback?.player;
+  late final _prefetch = SignVideoPrefetch(load: widget.prefetch);
   late int index;
   int generation = 0;
   bool advancing = false;
@@ -367,34 +404,58 @@ class _SignVideoDialogState extends State<SignVideoDialog>
 
   Future<void> open() async {
     final version = ++generation;
-    final previous = controller;
-    controller = null;
+    final previous = _playback;
+    _playback = null;
     await previous?.dispose();
-    source?.dispose();
-    source = null;
     if (!mounted || version != generation) return;
     final url = widget.items[index]['videoUrl'] as String?;
     if (widget.items[index]['type'] != 'sign' || url == null) {
+      _prefetch.warm(const []);
       setState(() {
         loading = false;
         error = 'Chưa có video cho đoạn này. Bấm tiếp để xem đoạn sau.';
       });
       return;
     }
+    _prefetch.warm(
+      widget.items
+          .skip(index + 1)
+          .take(2)
+          .where((item) => item['type'] == 'sign')
+          .map((item) => '${item['videoUrl'] ?? ''}'),
+    );
+    var accepting = true;
+    _SignPlayback? playback;
     try {
-      final resource = await openSignVideo(url);
-      if (!mounted || version != generation) {
-        resource.dispose();
-        return;
-      }
-      source = resource;
-      final player = VideoPlayerController.networkUrl(resource.uri);
-      controller = player;
+      final resource = await widget
+          .videoLoader(url)
+          .then((resource) {
+            if (!accepting || !mounted || version != generation) {
+              resource.dispose();
+              return null;
+            }
+            return resource;
+          })
+          .timeout(const Duration(seconds: 20));
+      if (resource == null) return;
+      playback = _SignPlayback(resource);
+      _playback = playback;
+      final player = playback.player;
       await player.initialize().timeout(const Duration(seconds: 20));
       if (!mounted || version != generation) return;
       await player.setVolume(0);
       await player.setLooping(false);
       player.addListener(() {
+        if (mounted &&
+            version == generation &&
+            player.value.hasError &&
+            error == null) {
+          setState(() {
+            loading = false;
+            error = 'Không phát được video. Bạn có thể thử lại.';
+          });
+          return;
+        }
         if (mounted &&
             version == generation &&
             widget.playSequence &&
@@ -407,7 +468,10 @@ class _SignVideoDialogState extends State<SignVideoDialog>
           });
         }
       });
-      await player.play();
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
+          WidgetsBinding.instance.lifecycleState == null) {
+        await player.play();
+      }
       if (mounted && version == generation) {
         setState(() {
           loading = false;
@@ -415,7 +479,10 @@ class _SignVideoDialogState extends State<SignVideoDialog>
         });
       }
     } catch (_) {
+      accepting = false;
+      await playback?.dispose();
       if (mounted && version == generation) {
+        _playback = null;
         setState(() {
           loading = false;
           error = 'Không phát được video. Bạn có thể thử lại.';
@@ -425,6 +492,7 @@ class _SignVideoDialogState extends State<SignVideoDialog>
   }
 
   void move(int delta) {
+    if (index + delta < 0 || index + delta >= widget.items.length) return;
     setState(() {
       index += delta;
       advancing = false;
@@ -442,14 +510,15 @@ class _SignVideoDialogState extends State<SignVideoDialog>
   @override
   void dispose() {
     generation++;
+    _prefetch.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    controller?.dispose();
-    source?.dispose();
+    unawaited(_playback?.dispose());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
     title: Text(
       '${index + 1}/${widget.items.length}: ${widget.items[index]['text']}',
     ),
@@ -458,23 +527,62 @@ class _SignVideoDialogState extends State<SignVideoDialog>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (loading)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            )
-          else if (error != null)
-            Text(error!)
-          else if (controller != null) ...[
+          if (widget.items[index]['type'] == 'sign')
             SizedBox(
               height: MediaQuery.sizeOf(context).height * .35,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: controller!.value.aspectRatio,
-                  child: SignVideoSurface(controller!),
-                ),
-              ),
+              child:
+                  controller?.value.isInitialized == true &&
+                      !loading &&
+                      error == null
+                  ? Center(
+                      child: AspectRatio(
+                        aspectRatio: controller!.value.aspectRatio,
+                        child: SignVideoSurface(controller!),
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        SignPhoto(
+                          widget.items[index]['thumbnailUrl'] as String? ??
+                              (widget.items[index]['imageUrls'] as List?)
+                                  ?.whereType<String>()
+                                  .firstOrNull,
+                          word: '${widget.items[index]['text']}',
+                          height: MediaQuery.sizeOf(context).height * .35,
+                        ),
+                        if (loading)
+                          const Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Card(
+                              child: Padding(
+                                padding: EdgeInsets.all(12),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('Đang tải video…'),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
             ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(error!),
+            ),
+          if (!loading && error == null && controller != null) ...[
             VideoProgressIndicator(controller!, allowScrubbing: true),
             Wrap(
               children: [

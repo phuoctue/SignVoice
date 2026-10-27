@@ -14,6 +14,7 @@ import { serveDetectorAssets } from './detector-assets';
 import {serveWebStartupAssets} from './web-startup-assets';
 import { servePublicInformation } from './public-information';
 import {createAvatarMediaRouter} from './services/avatar-media.service';
+import {dictionaryCompression} from './common/middlewares/dictionary-compression';
 
 /**
  * Create and configure Express application
@@ -124,6 +125,7 @@ export async function createApp(): Promise<Application> {
   });
 
   // API routes
+  app.use('/api/v1', dictionaryCompression);
   servePublicInformation(app);
   app.use('/api/v1/auth', (await import('./routes/auth.routes')).default);
   app.use('/api/v1/guest-trial', (await import('./routes/guest-trial.routes')).default);

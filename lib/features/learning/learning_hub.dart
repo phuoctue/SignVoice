@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -31,12 +33,17 @@ class _LearningHubState extends State<LearningHub> {
   LearningPage? get data => controller.data;
   LearningRecord? advice;
   final search = TextEditingController();
+  Timer? _warmup;
   LearningService get service => context.read<LearningService>();
   @override
   void initState() {
     super.initState();
     final source = service;
     controller = LearningPageController(
+      cachedPage: (page) => source.cachedPage(
+        ['topics', 'progress', 'my-words'][tab],
+        {'page': '$page', if (tab == 1) 'stage': 'ALL' else 'search': query},
+      ),
       loadPage: (page) => switch (tab) {
         0 => source.topics(page: page, search: query),
         1 => source.progress(page: page),
@@ -51,22 +58,41 @@ class _LearningHubState extends State<LearningHub> {
 
   @override
   void dispose() {
+    _warmup?.cancel();
     analysisRequest++;
     controller.dispose();
     search.dispose();
     super.dispose();
   }
 
-  void _onPageChanged() => setState(() {});
+  void _onPageChanged() {
+    setState(() {});
+    if (controller.loading || controller.error != null) return;
+    _warmup?.cancel();
+    if (tab > 1) return;
+    final source = service;
+    _warmup = Timer(const Duration(milliseconds: 800), () async {
+      try {
+        if (tab == 0) {
+          await source.progress();
+        } else {
+          await source.topics();
+        }
+      } catch (_) {
+        /* Prefetch must never block navigation or show errors. */
+      }
+    });
+  }
 
-  Future<void> load({int? page}) {
+  Future<void> load({int? page, bool force = false, bool background = false}) {
+    if (force) service.invalidatePages();
     analysisRequest++;
     setState(() {
       analysis = null;
       analysisError = null;
       analyzing = false;
     });
-    return controller.load(page: page);
+    return controller.load(page: page, background: background);
   }
 
   Future<void> openTopic(String id, {bool study = false}) async {
@@ -74,7 +100,7 @@ class _LearningHubState extends State<LearningHub> {
       context,
       '/learn/topic/$id${study ? '?study=1' : ''}',
     );
-    if (mounted) load();
+    if (mounted) load(background: true);
   }
 
   Future<void> coach() async {
@@ -319,7 +345,7 @@ class _LearningHubState extends State<LearningHub> {
     actions: [
       IconButton(
         tooltip: 'Làm mới',
-        onPressed: loading ? null : load,
+        onPressed: loading ? null : () => load(force: true),
         icon: const Icon(Icons.refresh),
       ),
       IconButton(
@@ -328,8 +354,11 @@ class _LearningHubState extends State<LearningHub> {
         icon: const Icon(Icons.favorite_border),
       ),
     ],
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    scroll: false,
+    padding: EdgeInsets.zero,
+    child: ListView(
+      key: PageStorageKey('learning-hub-$tab'),
+      padding: const EdgeInsets.all(20),
       children: [
         Row(
           children: [

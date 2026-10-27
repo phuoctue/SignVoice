@@ -17,6 +17,18 @@ function validEmail(value: unknown): value is string {
 }
 // Exported only to allow tests to replace external cryptographic/network boundaries.
 export const googleVerifier = new OAuth2Client();
+export async function verifyGoogleIdentity(idToken: string, clientId: string, nonce: string): Promise<ProviderIdentity> {
+  try {
+    const ticket = await googleVerifier.verifyIdToken({idToken, audience: clientId});
+    const p = ticket.getPayload();
+    if (!p || p.aud !== clientId || !['accounts.google.com', 'https://accounts.google.com'].includes(p.iss) ||
+        !Number.isFinite(p.exp) || p.exp <= Date.now()/1000 || typeof p.sub !== 'string' || !p.sub || p.sub.length > 255 ||
+        (p as typeof p & {nonce?: string}).nonce !== nonce || p.email_verified !== true || !validEmail(p.email)) throw new Error('Invalid identity');
+    return {subject:p.sub,email:p.email.toLowerCase(),displayName:typeof p.name === 'string' ? p.name : 'Google User'};
+  } catch {
+    throw new AppError('Không xác minh được tài khoản Google. Vui lòng thử lại.',401,'OAUTH_IDENTITY_INVALID');
+  }
+}
 export async function exchangeIdentity(provider: OAuthProvider, config: Config, code: string,
   nonce: string, verifier: string): Promise<ProviderIdentity> {
   try {
@@ -26,12 +38,7 @@ export async function exchangeIdentity(provider: OAuthProvider, config: Config, 
         body: new URLSearchParams({ code, client_id: config.clientId, client_secret: config.clientSecret,
           redirect_uri: config.callback, grant_type: 'authorization_code', code_verifier: verifier }) });
       if (typeof token.id_token !== 'string') throw new Error('Missing ID token');
-      const ticket = await googleVerifier.verifyIdToken({ idToken: token.id_token, audience: config.clientId });
-      const p = ticket.getPayload();
-      if (!p || p.aud !== config.clientId || !['accounts.google.com', 'https://accounts.google.com'].includes(p.iss) ||
-          !Number.isFinite(p.exp) || p.exp <= Date.now() / 1000 || typeof p.sub !== 'string' || !p.sub || p.sub.length > 255 ||
-          (p as typeof p & { nonce?: string }).nonce !== nonce || p.email_verified !== true || !validEmail(p.email)) throw new Error('Invalid ID token');
-      return { subject: p.sub, email: p.email.toLowerCase(), displayName: typeof p.name === 'string' ? p.name : 'Google User' };
+      return await verifyGoogleIdentity(token.id_token, config.clientId, nonce);
     }
     const graph = `https://graph.facebook.com/${config.graphVersion}`;
     const token = await json(`${graph}/oauth/access_token`, { method: 'POST',

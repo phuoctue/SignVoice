@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/user_avatar.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/learning/learning_service.dart';
 import 'featured_dictionary.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,6 +19,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  Timer? _dictionaryWarmup;
   @override
   void initState() {
     super.initState();
@@ -23,7 +29,24 @@ class _HomeScreenState extends State<HomeScreen> {
           !AppScope.of(context).hasFreshHomeHistory) {
         AppScope.of(context).loadHistory(search: '');
       }
+      if (!mounted) return;
+      _dictionaryWarmup = Timer(const Duration(seconds: 1), () async {
+        if (!mounted) return;
+        final auth = context.read<AuthProvider>();
+        if (!auth.isAuthenticated || auth.user?.isGuest != false) return;
+        try {
+          await context.read<LearningService>().topics();
+        } catch (_) {
+          /* Dictionary navigation retries normally. */
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _dictionaryWarmup?.cancel();
+    super.dispose();
   }
 
   @override
@@ -52,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => openRoot(context, 'S25'),
             borderRadius: BorderRadius.circular(30),
             child: UserAvatar(
+              accountId: state.accountId,
               radius: 18,
               name: name,
               url: state.avatarUrl,

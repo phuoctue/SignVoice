@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api/api_exception.dart';
 import '../../services/learning/learning_service.dart';
+import '../../services/media/sign_video_source.dart';
 import '../../widgets/ui.dart';
 import 'learning_page_controller.dart';
 import 'learning_widgets.dart';
@@ -26,6 +29,9 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
   bool get loading => controller.loading;
   String? get error => controller.error;
   bool saving = false;
+  String? ratingId, ratingStage;
+  Timer? _warmup;
+  String? _prefetched;
   late String stage = widget.study ? 'LEARNING' : 'ALL';
   LearningService get service => context.read<LearningService>();
   @override
@@ -33,6 +39,10 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
     super.initState();
     final source = service;
     controller = LearningPageController(
+      cachedPage: (page) => source.cachedPage('topics/${widget.topicId}', {
+        'page': '$page',
+        'stage': stage,
+      }),
       loadPage: (page) =>
           source.topic(widget.topicId, page: page, stage: stage),
       errorMessage: 'Chưa tải được chủ đề. Hãy thử lại.',
@@ -44,18 +54,42 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
 
   @override
   void dispose() {
+    _warmup?.cancel();
     controller.dispose();
     super.dispose();
   }
 
-  void _onPageChanged() => setState(() {});
+  void _onPageChanged() {
+    setState(() {});
+    final result = data;
+    if (loading || result == null || error != null) return;
+    final next = page + 1, filter = stage;
+    final video = result.items.firstOrNull?['videoUrl'] as String? ?? '';
+    final key = '$filter:$next:$video';
+    if (_prefetched == key) return;
+    _prefetched = key;
+    _warmup?.cancel();
+    final source = service;
+    _warmup = Timer(const Duration(milliseconds: 700), () async {
+      if (video.isNotEmpty) unawaited(prefetchSignVideo(video));
+      if (next > result.pages) return;
+      try {
+        await source.topic(widget.topicId, page: next, stage: filter);
+      } catch (_) {
+        /* The requested page can retry normally. */
+      }
+    });
+  }
 
-  Future<void> load({int? page}) => controller.load(page: page);
+  Future<void> load({int? page, bool force = false}) {
+    if (force) service.invalidatePages();
+    return controller.load(page: page);
+  }
 
   Future<void> start() async {
     setState(() => saving = true);
     try {
-      await service.start(widget.topicId);
+      if (data?.enrolled != true) await service.start(widget.topicId);
       if (mounted) {
         await Navigator.pushNamed(
           context,
@@ -100,18 +134,28 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
 
   Future<void> rate(LearningRecord word, String selectedStage) async {
     if (saving || word['stage'] != 'LEARNING') return;
-    setState(() => saving = true);
+    setState(() {
+      saving = true;
+      ratingId = '${word['_id']}';
+      ratingStage = selectedStage;
+    });
     try {
       await service.rate('${word['_id']}', selectedStage);
       if (!mounted) return;
-      await load();
-      if (mounted) toast(context, 'Đã lưu: ${learningLabels[selectedStage]}');
+      controller.applyStage('${word['_id']}', selectedStage, filter: stage);
+      toast(context, 'Đã lưu: ${learningLabels[selectedStage]}');
+      unawaited(controller.load(background: true));
     } catch (_) {
       if (mounted) {
         toast(context, 'Chưa lưu được đánh giá. Hãy kiểm tra mạng và thử lại.');
       }
     } finally {
-      if (mounted) setState(() => saving = false);
+      if (mounted) {
+        setState(() {
+          saving = false;
+          ratingId = ratingStage = null;
+        });
+      }
     }
   }
 
@@ -120,6 +164,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
   }
 
   Widget wordCard(LearningRecord word, bool enrolled) => Padding(
+    key: ValueKey('learning-word-${word['_id']}'),
     padding: const EdgeInsets.only(bottom: 12),
     child: AppCard(
       padding: const EdgeInsets.all(12),
@@ -194,6 +239,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                   learningLabels[value]!,
                   key: ValueKey('learn-rate-${word['_id']}-$value'),
                   secondary: true,
+                  busy: ratingId == '${word['_id']}' && ratingStage == value,
                   color: learningColors[value],
                   icon: value == 'REMEMBERED'
                       ? Icons.check_circle_outline
@@ -218,12 +264,15 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
       actions: [
         IconButton(
           tooltip: 'Làm mới',
-          onPressed: loading || saving ? null : load,
+          onPressed: loading || saving ? null : () => load(force: true),
           icon: const Icon(Icons.refresh),
         ),
       ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      scroll: false,
+      padding: EdgeInsets.zero,
+      child: ListView(
+        key: PageStorageKey('topic-${widget.topicId}-$stage-$page'),
+        padding: const EdgeInsets.all(20),
         children: [
           if (loading)
             const Padding(
@@ -234,7 +283,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
             Notice(error!),
             TextButton(onPressed: load, child: const Text('Thử lại')),
           ],
-          if (!loading && error == null && result != null) ...[
+          if (result != null) ...[
             if (!isStudy) ...[
               if (words.isNotEmpty)
                 SignPhoto(

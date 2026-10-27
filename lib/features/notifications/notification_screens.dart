@@ -105,6 +105,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ? 'Nhắc học lúc ${state.studyReminder.hour.toString().padLeft(2, '0')}:${state.studyReminder.minute.toString().padLeft(2, '0')}'
                       : 'Chọn giờ học để duy trì thói quen mỗi ngày.',
                 ),
+                if (device.supported &&
+                    state.studyReminder.enabled &&
+                    state.notificationsEnabled)
+                  ReminderDeviceStatus(device: device),
                 TextButton.icon(
                   onPressed: () =>
                       Navigator.pushNamed(context, '/study-reminder'),
@@ -141,6 +145,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               },
             ),
           if (device.error != null) Notice(device.error!),
+          if (device.pushError != null) Notice(device.pushError!),
           if (device.supported && device.permissionGranted)
             TextButton.icon(
               icon: const Icon(Icons.send_outlined),
@@ -150,7 +155,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   : () async {
                       setState(() => testingPush = true);
                       try {
-                        await device.retry();
+                        await device.retry(waitForPush: true);
                         final result = await state.service?.testPush();
                         if (context.mounted) {
                           toast(
@@ -238,10 +243,21 @@ class StudyReminderScreen extends StatefulWidget {
 
 class _StudyReminderScreenState extends State<StudyReminderScreen> {
   bool? notifications;
-  bool enabled = false, saving = false, testing = false;
+  bool enabled = false, saving = false;
   late TimeOfDay time;
   final days = <int>{};
   String? error;
+  bool get hasChanges {
+    final state = AppScope.of(context),
+        saved = AppScope.of(context).studyReminder;
+    return notifications != state.notificationsEnabled ||
+        enabled != saved.enabled ||
+        time.hour != saved.hour ||
+        time.minute != saved.minute ||
+        days.length != saved.weekdays.length ||
+        !days.containsAll(saved.weekdays);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -319,12 +335,23 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
       canPop: !saving,
       child: AppPage(
         title: 'Lịch học & thông báo',
+        footer: AppButton(
+          'Lưu cài đặt',
+          icon: Icons.check,
+          busy: saving,
+          onPressed: saving ? null : save,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const Heading('Lịch nhắc học', size: 22),
+            const SizedBox(height: 6),
+            const BodyText('Chọn giờ và ngày bạn muốn được nhắc.'),
+            const SizedBox(height: 14),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Nhận thông báo'),
+              subtitle: const Text('Cho phép ứng dụng gửi lời nhắc cho bạn.'),
               value: notifications!,
               onChanged: saving
                   ? null
@@ -334,7 +361,7 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Nhắc học theo lịch'),
               subtitle: const Text(
-                'Nhắc trên điện thoại cả khi ứng dụng đã đóng.',
+                'Lặp lại vào những ngày được chọn bên dưới.',
               ),
               value: enabled,
               onChanged: saving || !notifications!
@@ -350,7 +377,14 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.access_time),
                     title: const Text('Giờ học'),
-                    trailing: Text(time.format(context)),
+                    trailing: const Icon(Icons.edit_outlined, size: 20),
+                    subtitle: Text(
+                      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     enabled: !saving && enabled && notifications!,
                     onTap: () async {
                       final result = await showTimePicker(
@@ -363,6 +397,11 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
                     },
                   ),
                   const SizedBox(height: 10),
+                  const Text(
+                    'Lặp lại vào',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 6,
@@ -383,50 +422,237 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            BodyText(
-              device.supported
-                  ? 'Nhắc học theo giờ trên thiết bị. Từ mới và ôn tập được gửi qua Internet.'
-                  : 'Lịch được lưu vào tài khoản. Mở ứng dụng Android để nhận nhắc học trên điện thoại.',
-            ),
-            if (device.supported && enabled && !device.exact)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Notice(
-                  'Khi lưu, cho phép “Báo thức và lời nhắc” để nhắc đúng giờ. Nếu không cấp, hệ thống có thể nhắc trễ.',
-                ),
-              ),
             if (error != null) Notice(error!),
-            const SizedBox(height: 20),
-            AppButton(
-              'Lưu cài đặt',
-              busy: saving,
-              onPressed: saving ? null : save,
-            ),
-            if (device.supported)
-              TextButton.icon(
-                icon: const Icon(Icons.notifications_outlined),
-                label: Text(testing ? 'Đang gửi...' : 'Thử thông báo trên máy'),
-                onPressed: saving || testing
-                    ? null
-                    : () async {
-                        setState(() => testing = true);
-                        try {
-                          await device.testReminder();
-                        } catch (_) {
-                          if (context.mounted) {
-                            toast(
-                              context,
-                              'Chưa gửi được. Kiểm tra quyền thông báo của ứng dụng.',
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => testing = false);
-                        }
-                      },
+            if (hasChanges)
+              const Notice(
+                'Bạn có thay đổi chưa lưu. Bấm “Lưu cài đặt” để áp dụng lịch mới.',
+              ),
+            if (device.supported && enabled && notifications!)
+              ReminderDeviceStatus(
+                device: device,
+                controls: true,
+                showSchedule: !hasChanges,
+                enabled: !saving,
+              ),
+            if (!device.supported)
+              const BodyText(
+                'Lịch được lưu vào tài khoản. Mở ứng dụng Android để nhận lời nhắc trên điện thoại.',
+              ),
+            if (!notifications!)
+              const Notice(
+                'Thông báo đang tắt. Bật “Nhận thông báo” rồi lưu để nhận lời nhắc.',
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class ReminderDeviceStatus extends StatefulWidget {
+  const ReminderDeviceStatus({
+    super.key,
+    required this.device,
+    this.controls = false,
+    this.showSchedule = true,
+    this.enabled = true,
+  });
+  final NotificationService device;
+  final bool controls;
+  final bool showSchedule, enabled;
+  @override
+  State<ReminderDeviceStatus> createState() => _ReminderDeviceStatusState();
+}
+
+class _ReminderDeviceStatusState extends State<ReminderDeviceStatus> {
+  bool busy = false;
+  Future<void> run(Future<void> Function() action, String success) async {
+    if (busy || !widget.enabled) return;
+    setState(() => busy = true);
+    try {
+      await action();
+      if (mounted) toast(context, widget.device.error ?? success);
+    } catch (_) {
+      if (mounted) {
+        toast(
+          context,
+          'Chưa thực hiện được. Hãy kiểm tra quyền thông báo và thử lại.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final device = widget.device, controls = widget.controls;
+    final next = device.nextReminder;
+    final now = DateTime.now(), reminder = device.state.studyReminder;
+    final passedToday =
+        reminder.weekdays.contains(now.weekday) &&
+        (now.hour * 60 + now.minute >= reminder.hour * 60 + reminder.minute) &&
+        next != null &&
+        !DateUtils.isSameDay(next, now);
+    const weekdays = [
+      'Thứ Hai',
+      'Thứ Ba',
+      'Thứ Tư',
+      'Thứ Năm',
+      'Thứ Sáu',
+      'Thứ Bảy',
+      'Chủ nhật',
+    ];
+    final allowed = widget.enabled && !busy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        if (!device.permissionGranted)
+          const Notice('Chưa cho phép thông báo trên điện thoại.'),
+        if (device.reminderChannelBlocked)
+          const Notice(
+            'Mục “Nhắc học” đang bị tắt trong cài đặt thông báo của điện thoại.',
+          ),
+        if (device.permissionGranted && !device.exact)
+          const Notice(
+            'Chưa cho phép nhắc đúng giờ. Android có thể trì hoãn lịch đã đặt.',
+          ),
+        if (device.error != null) Notice(device.error!),
+        if (widget.showSchedule &&
+            device.scheduledReminderCount > 0 &&
+            next != null)
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.event_available_outlined, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Lần nhắc tiếp theo',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}',
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${weekdays[next.weekday - 1]}, ${next.day.toString().padLeft(2, '0')}/${next.month.toString().padLeft(2, '0')}',
+                ),
+                if (passedToday)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Giờ nhắc hôm nay đã qua. Ứng dụng sẽ nhắc vào ngày kế tiếp trong lịch.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        if (controls) ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: allowed
+                ? () => run(
+                    device.testScheduledReminder,
+                    device.exact
+                        ? 'Đã hẹn nhắc thử sau 1 phút. Bạn có thể tắt màn hình để kiểm tra.'
+                        : 'Đã hẹn thử. Android có thể nhắc trễ vì chưa cho phép nhắc đúng giờ.',
+                  )
+                : null,
+            icon: const Icon(Icons.timer_outlined),
+            label: Text(busy ? 'Đang kiểm tra…' : 'Thử nhắc sau 1 phút'),
+          ),
+          const SizedBox(height: 12),
+          ExpansionTile(
+            key: const ValueKey('reminder-support'),
+            tilePadding: EdgeInsets.zero,
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('Quyền & hỗ trợ'),
+            subtitle: const Text('Mở khi chưa nhận được lời nhắc'),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.notifications_outlined),
+                title: const Text('Thông báo trên điện thoại'),
+                subtitle: Text(
+                  device.permissionGranted && !device.reminderChannelBlocked
+                      ? 'Đã cho phép'
+                      : 'Cần bật quyền thông báo',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: allowed
+                    ? () => run(
+                        () => device.openDeviceSettings(),
+                        'Quay lại ứng dụng sau khi kiểm tra cài đặt.',
+                      )
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.alarm_outlined),
+                title: const Text('Nhắc đúng giờ'),
+                subtitle: Text(
+                  device.exact
+                      ? 'Đã cho phép'
+                      : 'Chưa cho phép · có thể nhắc trễ',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: allowed
+                    ? () => run(() async {
+                        await device.requestPermission(exactAlarm: true);
+                        await device.retry();
+                      }, 'Đã kiểm tra quyền nhắc đúng giờ.')
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.battery_saver_outlined),
+                title: const Text('Pin và hoạt động nền'),
+                subtitle: const Text('Kiểm tra nếu mất nhắc khi tắt màn hình'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: allowed
+                    ? () => run(
+                        () => device.openDeviceSettings(battery: true),
+                        'Cho phép SignVoice hoạt động nền trong cài đặt pin.',
+                      )
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.sync),
+                title: const Text('Kiểm tra lại lịch trên máy'),
+                onTap: allowed
+                    ? () => run(
+                        device.retry,
+                        'Đã kiểm tra lại lịch trên điện thoại.',
+                      )
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.send_outlined),
+                title: const Text('Thử thông báo ngay'),
+                subtitle: const Text(
+                  'Kiểm tra điện thoại có hiển thị thông báo',
+                ),
+                onTap: allowed
+                    ? () => run(
+                        device.testReminder,
+                        'Đã gửi thông báo thử trên điện thoại.',
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

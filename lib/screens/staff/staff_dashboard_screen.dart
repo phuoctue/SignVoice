@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/staff_provider.dart';
+import '../../widgets/ui.dart';
 
 /// Staff dashboard screen
 class StaffDashboardScreen extends StatefulWidget {
@@ -25,124 +27,134 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final stats = staffProvider.stats;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Bảng điều khiển'),
-      ),
+      appBar: AppBar(title: const Text('Khu vực nhân viên')),
+      bottomNavigationBar: const AppNavigationBar(selectedIndex: 4),
       body: RefreshIndicator(
         onRefresh: () => staffProvider.loadStats(),
         child: staffProvider.isLoading && stats == null
             ? const Center(child: CircularProgressIndicator())
             : staffProvider.errorMessage != null && stats == null
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('Lỗi: ${staffProvider.errorMessage}'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => staffProvider.loadStats(),
+                      child: const Text('Thử lại'),
+                    ),
+                  ],
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(
+                    'Thống kê',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Content stats
+                  if (stats != null) ...[
+                    Row(
                       children: [
-                        Text('Lỗi: ${staffProvider.errorMessage}'),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => staffProvider.loadStats(),
-                          child: const Text('Thử lại'),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Chờ duyệt',
+                            value: stats.content.pending.toString(),
+                            icon: Icons.pending_actions,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Đã xuất bản',
+                            value: stats.content.published.toString(),
+                            icon: Icons.check_circle,
+                            color: Colors.green,
+                          ),
                         ),
                       ],
                     ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Text(
-                        'Thống kê',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 16),
+                    const SizedBox(height: 12),
 
-                      // Content stats
-                      if (stats != null) ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                title: 'Chờ duyệt',
-                                value: stats.content.pending.toString(),
-                                icon: Icons.pending_actions,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _StatCard(
-                                title: 'Đã xuất bản',
-                                value: stats.content.published.toString(),
-                                icon: Icons.check_circle,
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
+                    // User stats
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Tổng người dùng',
+                            value: stats.users.total.toString(),
+                            icon: Icons.people,
+                            color: Colors.blue,
+                          ),
                         ),
-                        const SizedBox(height: 12),
-
-                        // User stats
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                title: 'Tổng người dùng',
-                                value: stats.users.total.toString(),
-                                icon: Icons.people,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _StatCard(
-                                title: 'Tuần này',
-                                value: stats.users.recentWeek.toString(),
-                                icon: Icons.person_add,
-                                color: Colors.purple,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Tuần này',
+                            value: stats.users.recentWeek.toString(),
+                            icon: Icons.person_add,
+                            color: Colors.purple,
+                          ),
                         ),
                       ],
-                      const SizedBox(height: 24),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
 
-                      // Quick actions
-                      Text(
-                        'Thao tác nhanh',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Column(
-                          children: [
-                            ListTile(
-                              leading: const Icon(Icons.rate_review),
-                              title: const Text('Xét duyệt nội dung'),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => Navigator.pushNamed(
-                                context,
-                                '/staff/content',
-                                arguments: {'filter': 'pending'},
-                              ),
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              leading: const Icon(Icons.library_books),
-                              title: const Text('Quản lý nội dung'),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => Navigator.pushNamed(context, '/staff/content'),
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              leading: const Icon(Icons.people_outline),
-                              title: const Text('Xem người dùng'),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => Navigator.pushNamed(context, '/staff/users'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                  // Quick actions
+                  Text(
+                    'Thao tác nhanh',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.rate_review),
+                          title: const Text('Xét duyệt nội dung'),
+                          trailing: const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                          ),
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            '/staff/content',
+                            arguments: {'filter': 'pending'},
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.library_books),
+                          title: const Text('Quản lý nội dung'),
+                          trailing: const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                          ),
+                          onTap: () =>
+                              Navigator.pushNamed(context, '/staff/content'),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.people_outline),
+                          title: const Text('Xem người dùng'),
+                          trailing: const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                          ),
+                          onTap: () =>
+                              Navigator.pushNamed(context, '/staff/users'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -172,10 +184,8 @@ class _StatCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(context).textTheme.headlineMedium
+                  ?.copyWith(color: color, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(

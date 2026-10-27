@@ -239,7 +239,7 @@ export async function getCurrentUser(req: Request, res: Response, next: NextFunc
     }
     
     const { User } = await import('../models/User.model');
-    const user = await User.findById(req.user.id).select('-passwordHash');
+    const user = req.authenticatedUser ?? await User.findById(req.user.id).select('-passwordHash');
     
     if (!user) {
       throw new AppError('User not found', 404, ErrorCodes.USER_NOT_FOUND);
@@ -252,12 +252,16 @@ export async function getCurrentUser(req: Request, res: Response, next: NextFunc
         email: user.email,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
+        googleLinked: !!user.googleProvider?.providerId,
         accountType: user.accountType,
         isGuest: user.isGuest,
         status: user.status,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        ...await authorizationFor(user),
+        ...(req.authenticatedUser ? {
+          role: req.user.role, permissions: req.user.permissions,
+          customRoleId: req.user.customRoleId, customRoleName: req.user.customRoleName,
+        } : await authorizationFor(user)),
       },
     });
   } catch (error) {
