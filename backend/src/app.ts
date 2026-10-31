@@ -131,6 +131,10 @@ export async function createApp(): Promise<Application> {
   app.use('/api/v1/guest-trial', (await import('./routes/guest-trial.routes')).default);
   app.use('/api/v1/dictionary', (await import('./routes/dictionary.routes')).default);
   app.use('/api/v1/learning', (await import('./routes/learning.routes')).default);
+  app.use('/api/v1/sign-collections', (await import('./routes/sign-collection.routes')).default);
+  app.use('/api/v1/shared-collections', (await import('./routes/sign-collection.routes')).sharedCollectionRouter);
+  app.use('/api/v1/sign-notes', (await import('./routes/sign-collection.routes')).signNoteRouter);
+  app.use('/api/v1/library', (await import('./routes/library-version.routes')).default);
   app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);
   app.use('/sign-media', (await import('./routes/sign-media.routes')).default);
   app.use('/user-media/avatars', createAvatarMediaRouter());
@@ -141,6 +145,7 @@ export async function createApp(): Promise<Application> {
   app.use('/api/v1/users', (await import('./routes/user.routes')).default);
   app.use('/api/v1/users', (await import('./routes/notification.routes')).default);
   app.use('/api/v1/staff', (await import('./routes/staff.routes')).default);
+  app.use('/api/v1/admin/collections', (await import('./routes/collection-moderation.routes')).default);
   app.use('/api/v1/admin', (await import('./routes/admin.routes')).default);
 
   // Share one origin for Flutter and API so JWT cookies also work over a tunnel.

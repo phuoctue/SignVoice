@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { rateLimit } from 'express-rate-limit';
-import { requireAuth } from '../common/middlewares/auth.middleware';
+import {requireActiveTrial} from '../common/middlewares/guest-trial.middleware';
+import { requireAuth, requirePermanentAccount } from '../common/middlewares/auth.middleware';
 import { AppError } from '../common/errors/AppError';
 import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { PersonalWord, TopicEnrollment, WordProgress } from '../models/Learning.model';
@@ -14,10 +15,17 @@ import { LearningEvent } from '../models/LearningEvent.model';
 import { learningInsights, learningToday, learningDayWords } from '../services/learning-insights.service';
 import { UserSettings } from '../models/UserSettings.model';
 import { userTransaction } from '../services/user-data.service';
-import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz } from '../services/review-quiz.service';
+import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz, hintReviewRecall, checkReviewRecall, assessReviewRecall } from '../services/review-quiz.service';
 
 const router = Router();
 router.use(requireAuth);
+router.use((req, res, next) => {
+  const publicPreview = req.method === 'GET' && (req.path === '/topics' ||
+    /^\/topics\/[a-f0-9]{24}$/i.test(req.path) && (!req.query.stage || req.query.stage === 'ALL'));
+  if (publicPreview) return next();
+  return requireActiveTrial(req, res, next);
+});
+router.use('/my-words', requirePermanentAccount);
 router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => { void fn(req, res).catch(next); };
 const pageSchema = z.coerce.number().int().min(1).max(10000).default(1);
@@ -49,9 +57,9 @@ router.patch('/goals', wrap(async (req, res) => {
 }));
 
 router.get('/history', wrap(async (req, res) => {
-  const query = parse(querySchema.extend({ entryId: z.string().regex(/^[a-f0-9]{24}$/i).optional() }).strict(), req.query);
+  const query = parse(querySchema.extend({ entryId: z.string().regex(/^[a-f0-9]{24}$/i).optional(), pageSize: z.coerce.number().int().refine(value => [10, 20, 50].includes(value)).default(10) }).strict(), req.query);
   return res.json({ success: true, data: await learningHistory(req.user!.id, query.page, query.search,
-    query.entryId ? objectId(query.entryId) : undefined) });
+    query.entryId ? objectId(query.entryId) : undefined, query.pageSize) });
 }));
 
 router.get('/topics', wrap(async (req, res) => {
@@ -103,8 +111,8 @@ router.patch('/words/:id/progress', wrap(async (req, res) => {
 
 const quizLimit = rateLimit({ windowMs: 60000, limit: 15 });
 router.post('/topics/:id/quiz', quizLimit, wrap(async (req, res) => {
-  parse(z.object({}).strict(), req.body);
-  return res.json({ success: true, data: await startReviewQuiz(req.user!.id, objectId(req.params.id)) });
+  const { format } = parse(z.object({ format: z.enum(['CAMERA', 'VIDEO_CHOICE', 'VIDEO_RECALL']).default('CAMERA') }).strict(), req.body);
+  return res.json({ success: true, data: await startReviewQuiz(req.user!.id, objectId(req.params.id), format) });
 }));
 router.get('/quizzes/:id', wrap(async (req, res) => {
   return res.json({ success: true, data: await getReviewQuiz(req.user!.id, objectId(req.params.id)) });
@@ -112,6 +120,19 @@ router.get('/quizzes/:id', wrap(async (req, res) => {
 router.patch('/quizzes/:id/answers', wrap(async (req, res) => {
   const { answers } = parse(z.object({ answers: z.array(z.string().trim().max(1000)).min(1).max(10) }).strict(), req.body);
   return res.json({ success: true, data: await saveReviewAnswers(req.user!.id, objectId(req.params.id), answers) });
+}));
+const recallWordId=z.string().regex(/^[a-f0-9]{24}$/i);
+router.post('/quizzes/:id/hint', wrap(async(req,res)=>{
+  const {entryId}=parse(z.object({entryId:recallWordId}).strict(),req.body);
+  return res.json({success:true,data:await hintReviewRecall(req.user!.id,objectId(req.params.id),entryId)});
+}));
+router.post('/quizzes/:id/check', wrap(async(req,res)=>{
+  const body=parse(z.object({entryId:recallWordId,answer:z.string().trim().max(200),skip:z.boolean().default(false)}).strict(),req.body);
+  return res.json({success:true,data:await checkReviewRecall(req.user!.id,objectId(req.params.id),body.entryId,body.answer,body.skip)});
+}));
+router.post('/quizzes/:id/assessment', wrap(async(req,res)=>{
+  const body=parse(z.object({entryId:recallWordId,assessment:z.enum(['SAME_MEANING','REVIEW'])}).strict(),req.body);
+  return res.json({success:true,data:await assessReviewRecall(req.user!.id,objectId(req.params.id),body.entryId,body.assessment)});
 }));
 router.patch('/quizzes/:id/captures', wrap(async (req, res) => {
   const body = parse(z.object({ entryId: z.string().regex(/^[a-f0-9]{24}$/i), recognizedLabel: z.string().trim().max(200) }).strict(), req.body);
@@ -124,6 +145,14 @@ router.post('/quizzes/:id/submit', quizLimit, wrap(async (req, res) => {
 
 const aiRequestSchema=z.object({async:z.literal(true).optional(),requestKey:z.string().regex(/^[a-f0-9]{32}$/).optional()}).strict()
   .refine(value=>value.async ? !!value.requestKey : !value.requestKey);
+router.post('/quizzes/:id/advice', rateLimit({ windowMs: 60000, limit: 3, keyGenerator: req => String(req.user!.id) }), wrap(async (req, res) => {
+  const body = parse(aiRequestSchema, req.body);
+  if (!body.async) throw new AppError('Nhận xét quiz cần tác vụ nền.', 400, 'INVALID_AI_REQUEST');
+  const id = objectId(req.params.id);
+  const quiz = await getReviewQuiz(req.user!.id, id);
+  if (!['VIDEO_CHOICE','VIDEO_RECALL'].includes(quiz.kind || '') || quiz.status !== 'COMPLETED') throw new AppError('Hãy hoàn tất quiz trước khi xem nhận xét AI.', 409, 'QUIZ_INCOMPLETE');
+  return res.status(202).json({ success: true, data: startLearningAiJob(req.user!.id, 'quiz', body.requestKey!, id) });
+}));
 router.get('/ai-jobs/:id', wrap(async (req,res)=>{
   const id=parse(z.string().uuid(),req.params.id);
   return res.json({success:true,data:getLearningAiJob(req.user!.id,id)});

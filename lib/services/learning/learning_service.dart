@@ -47,13 +47,19 @@ class LearningService {
   final _pages = <String, ({LearningPage page, DateTime saved})>{};
   final _pending = <String, Future<LearningPage>>{};
   final _pendingAi = <String, Future<LearningRecord>>{};
+  final _quizHandoff = <String, ({LearningRecord quiz, DateTime saved})>{};
+  final _collectionCache = <String, ({LearningRecord value, DateTime saved})>{};
+  final _collectionPending = <String, Future<LearningRecord>>{};
   int _cacheEpoch = -1, _revision = 0;
+  int _catalogEpoch = -1;
 
   String _pageKey(String path, Map<String, String> query) =>
       Uri(path: path, queryParameters: query).toString();
   void _checkCacheOwner() {
-    if (_cacheEpoch != _client.sessionEpoch) {
+    if (_cacheEpoch != _client.sessionEpoch ||
+        _catalogEpoch != _client.libraryChanged.value) {
       _cacheEpoch = _client.sessionEpoch;
+      _catalogEpoch = _client.libraryChanged.value;
       invalidatePages();
     }
   }
@@ -65,6 +71,9 @@ class LearningService {
     _pages.clear();
     _pending.clear();
     _pendingAi.clear();
+    _quizHandoff.clear();
+    _collectionCache.clear();
+    _collectionPending.clear();
   }
 
   LearningPage? cachedPage(String path, Map<String, String> query) {
@@ -171,10 +180,12 @@ class LearningService {
 
   Future<LearningPage> history({
     int page = 1,
+    int pageSize = 10,
     String search = '',
     String? entryId,
   }) => _page('history', {
     'page': '$page',
+    if (pageSize != 10) 'pageSize': '$pageSize',
     'search': search,
     'entryId': ?entryId,
   });
@@ -189,14 +200,218 @@ class LearningService {
   }
 
   Future<LearningRecord> startQuiz(String topicId) async {
+    _checkCacheOwner();
+    final epoch = _client.sessionEpoch;
     final response = await _client.post(
       '/learning/topics/$topicId/quiz',
-      body: {},
+      body: {'format': 'VIDEO_RECALL'},
     );
+    _client.checkSession(epoch);
+    final quiz = LearningRecord.from(response['data'] as Map);
+    _quizHandoff.clear();
+    _quizHandoff['${quiz['_id']}'] = (quiz: quiz, saved: DateTime.now());
+    return LearningRecord.from(quiz);
+  }
+
+  String collectionKey(String path, {int page = 1, String search = ''}) => Uri(
+    path: path,
+    queryParameters: {'page': '$page', 'search': search},
+  ).toString();
+  LearningRecord? cachedCollection(
+    String path, {
+    int page = 1,
+    String search = '',
+  }) {
+    _checkCacheOwner();
+    final entry =
+        _collectionCache[collectionKey(path, page: page, search: search)];
+    if (entry == null ||
+        DateTime.now().difference(entry.saved) > const Duration(minutes: 2)) {
+      return null;
+    }
+    return LearningRecord.from(jsonDecode(jsonEncode(entry.value)) as Map);
+  }
+
+  Future<LearningRecord> collectionRead(
+    String path, {
+    int page = 1,
+    String search = '',
+  }) async {
+    _checkCacheOwner();
+    final key = collectionKey(path, page: page, search: search),
+        epoch = _client.sessionEpoch,
+        revision = _revision;
+    final cached = _collectionCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.saved) < const Duration(seconds: 10)) {
+      return LearningRecord.from(jsonDecode(jsonEncode(cached.value)) as Map);
+    }
+    var request = _collectionPending[key];
+    if (request == null) {
+      late final Future<LearningRecord> fetch;
+      fetch =
+          () async {
+            final response = await _client.get(
+              path,
+              queryParameters: {'page': '$page', 'search': search},
+              requiresAuth:
+                  path != '/shared-collections' &&
+                  !path.startsWith('/shared-collections/'),
+            );
+            _client.checkSession(epoch);
+            _checkCacheOwner();
+            if (revision != _revision) {
+              throw ApiException(
+                message: 'Danh sách đã thay đổi. Hãy tải lại.',
+                code: 'COLLECTION_CHANGED',
+              );
+            }
+            final value = LearningRecord.from(response['data'] as Map);
+            primeImagePreviews(
+              (value['items'] as List? ?? []).map(
+                (item) => LearningRecord.from(item as Map),
+              ),
+            );
+            if (_collectionCache.length >= 24) {
+              _collectionCache.remove(_collectionCache.keys.first);
+            }
+            _collectionCache[key] = (value: value, saved: DateTime.now());
+            return value;
+          }().whenComplete(() {
+            if (identical(_collectionPending[key], fetch)) {
+              _collectionPending.remove(key);
+            }
+          });
+      _collectionPending[key] = request = fetch;
+    }
+    final value = await request;
+    return LearningRecord.from(jsonDecode(jsonEncode(value)) as Map);
+  }
+
+  Future<LearningRecord> _collectionWrite(
+    String method,
+    String path,
+    LearningRecord body,
+  ) async {
+    final response = await switch (method) {
+      'PATCH' => _client.patch(path, body: body),
+      'PUT' => _client.put(path, body: body),
+      'DELETE' => _client.delete(path, body: body),
+      _ => _client.post(path, body: body),
+    };
+    invalidatePages();
     return LearningRecord.from(response['data'] as Map);
   }
 
+  Future<LearningRecord> createCollection(
+    String name,
+    String description, {
+    String avatarImage = '',
+  }) => _collectionWrite('POST', '/sign-collections', {
+    'name': name,
+    'description': description,
+    'avatarImage': avatarImage,
+  });
+  Future<LearningRecord> updateCollection(
+    String id,
+    String name,
+    String description, {
+    String? avatarImage,
+  }) => _collectionWrite('PATCH', '/sign-collections/$id', {
+    'name': name,
+    'description': description,
+    'avatarImage': ?avatarImage,
+  });
+  Future<LearningRecord> deleteCollection(String id) =>
+      _collectionWrite('DELETE', '/sign-collections/$id', {});
+  Future<LearningRecord> saveCollectionWord(
+    String collectionId,
+    LearningRecord word, {
+    String? id,
+  }) => _collectionWrite(
+    id == null ? 'POST' : 'PATCH',
+    '/sign-collections/$collectionId/personal-words${id == null ? '' : '/$id'}',
+    word,
+  );
+  Future<LearningRecord> attachCollectionWords(
+    String collectionId,
+    List<String> wordIds,
+  ) => _collectionWrite(
+    'POST',
+    '/sign-collections/$collectionId/personal-words/attach',
+    {'wordIds': wordIds},
+  );
+  Future<LearningRecord> deleteCollectionWord(
+    String collectionId,
+    String wordId,
+  ) => _collectionWrite(
+    'DELETE',
+    '/sign-collections/$collectionId/personal-words/$wordId',
+    {},
+  );
+  Future<LearningRecord> collectionWord(
+    String collectionId,
+    String wordId,
+  ) async => LearningRecord.from(
+    (await _client.get(
+          '/sign-collections/$collectionId/personal-words/$wordId',
+        ))['data']
+        as Map,
+  );
+  Future<LearningRecord> addCollectionEntries(
+    String id,
+    List<String> entries,
+  ) => _collectionWrite('POST', '/sign-collections/$id/entries', {
+    'entryIds': entries,
+  });
+  Future<LearningRecord> removeCollectionEntry(String id, String entryId) =>
+      _collectionWrite('DELETE', '/sign-collections/$id/entries/$entryId', {});
+  Future<LearningRecord> shareCollection(String id, bool enabled) =>
+      _collectionWrite('POST', '/sign-collections/$id/share', {
+        'enabled': enabled,
+      });
+  Future<LearningRecord> importCollection(String code) =>
+      _collectionWrite('POST', '/sign-collections/import', {'code': code});
+  Future<LearningRecord> publishCollection(String id, bool enabled) =>
+      _collectionWrite('POST', '/sign-collections/$id/discovery', {
+        'enabled': enabled,
+      });
+  Future<LearningRecord> reportSharedCollection(
+    String code,
+    String category,
+    String details,
+  ) => _collectionWrite('POST', '/shared-collections/$code/reports', {
+    'category': category,
+    'details': details,
+  });
+  Future<LearningRecord> requestCollectionReview(String id) =>
+      _collectionWrite('POST', '/sign-collections/$id/moderation-review', {});
+  Future<LearningRecord> saveSignNote(String id, String text) =>
+      _collectionWrite('PUT', '/sign-notes/$id', {'text': text});
+  Future<LearningRecord> signNote(String id) async => LearningRecord.from(
+    (await _client.get('/sign-notes/$id'))['data'] as Map,
+  );
+  Future<LearningRecord> startCollectionQuiz(String id) async {
+    _checkCacheOwner();
+    final epoch = _client.sessionEpoch;
+    final response = await _client.post('/sign-collections/$id/quiz', body: {});
+    _client.checkSession(epoch);
+    final quiz = LearningRecord.from(response['data'] as Map);
+    _quizHandoff.clear();
+    _quizHandoff['${quiz['_id']}'] = (quiz: quiz, saved: DateTime.now());
+    return quiz;
+  }
+
   Future<LearningRecord> quiz(String id) async {
+    _checkCacheOwner();
+    // Consume the start response once, only for this authenticated session.
+    // Reopening or refreshing later still fetches authoritative server state.
+    final initial = _quizHandoff.remove(id);
+    if (initial != null &&
+        DateTime.now().difference(initial.saved) <
+            const Duration(seconds: 15)) {
+      return LearningRecord.from(initial.quiz);
+    }
     final response = await _client.get('/learning/quizzes/$id');
     return LearningRecord.from(response['data'] as Map);
   }
@@ -224,6 +439,39 @@ class LearningService {
     return LearningRecord.from(response['data'] as Map);
   }
 
+  Future<LearningRecord> quizHint(String id, String entryId) async {
+    final response = await _client.post(
+      '/learning/quizzes/$id/hint',
+      body: {'entryId': entryId},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> checkQuizAnswer(
+    String id,
+    String entryId,
+    String answer, {
+    bool skip = false,
+  }) async {
+    final response = await _client.post(
+      '/learning/quizzes/$id/check',
+      body: {'entryId': entryId, 'answer': answer, 'skip': skip},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> assessQuizAnswer(
+    String id,
+    String entryId,
+    String assessment,
+  ) async {
+    final response = await _client.post(
+      '/learning/quizzes/$id/assessment',
+      body: {'entryId': entryId, 'assessment': assessment},
+    );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
   Future<LearningRecord> submitQuiz(String id) async {
     final response = await _client.post(
       '/learning/quizzes/$id/submit',
@@ -234,6 +482,9 @@ class LearningService {
   }
 
   Future<LearningRecord> coach() => _advice('coach');
+
+  Future<LearningRecord> quizAdvice(String id) =>
+      _advice('quizzes/${Uri.encodeComponent(id)}/advice');
 
   Future<LearningRecord> analyzeProgress() => _advice('analysis');
 

@@ -27,7 +27,7 @@ class _GuestAccessGateState extends State<GuestAccessGate>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !widget.permanentOnly) {
-        context.read<AuthProvider>().loadGuestTrial();
+        context.read<AuthProvider>().loadGuestTrial(start: true);
       }
     });
   }
@@ -35,7 +35,7 @@ class _GuestAccessGateState extends State<GuestAccessGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !widget.permanentOnly) {
-      context.read<AuthProvider>().loadGuestTrial();
+      context.read<AuthProvider>().loadGuestTrial(start: true);
     }
   }
 
@@ -99,57 +99,69 @@ class _GuestAccessGateState extends State<GuestAccessGate>
           : expired
           ? 'Đã hết thời gian dùng thử'
           : 'Dùng thử 10 phút',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Icon(Icons.lock_clock_outlined, size: 58),
-          const SizedBox(height: 20),
-          Text(
-            widget.permanentOnly
-                ? 'Đăng nhập hoặc tạo tài khoản để lưu hội thoại, yêu thích và đồng bộ dữ liệu.'
-                : expired
-                ? 'Phiên dùng thử 10 phút đã kết thúc. Đăng nhập hoặc tạo tài khoản để tiếp tục. Bạn vẫn xem được từ điển công khai.'
-                : 'Bạn được thử một phiên 10 phút. Thời gian bắt đầu khi bấm nút bên dưới và vẫn tiếp tục khi rời trang hoặc tải lại.',
-          ),
-          const SizedBox(height: 18),
-          if (expired && draft.isNotEmpty) ...[
-            const Text('Bản nháp của bạn'),
-            SelectableText(draft),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: draft)),
-              icon: const Icon(Icons.copy),
-              label: const Text('Sao chép bản nháp'),
+      contentMaxWidth: 624,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.lock_clock_outlined, size: 48),
+            const SizedBox(height: 16),
+            Heading(
+              widget.permanentOnly
+                  ? 'Lưu dữ liệu với tài khoản của bạn'
+                  : expired
+                  ? 'Tiếp tục cùng SignVoice'
+                  : 'Đang kiểm tra phiên dùng thử',
+              center: true,
             ),
-          ],
-          if (!widget.permanentOnly && !expired)
+            const SizedBox(height: 20),
+            Text(
+              widget.permanentOnly
+                  ? 'Đăng nhập hoặc tạo tài khoản để lưu hội thoại, yêu thích và đồng bộ dữ liệu.'
+                  : expired
+                  ? 'Phiên dùng thử 10 phút đã kết thúc. Đăng nhập hoặc tạo tài khoản để tiếp tục. Bạn vẫn xem được từ điển công khai.'
+                  : 'Phiên 10 phút bắt đầu ngay khi bạn xác nhận vào dùng thử. Thời gian không đặt lại khi đổi trang hoặc tải lại.',
+            ),
+            const SizedBox(height: 18),
+            if (expired && draft.isNotEmpty) ...[
+              const Text('Bản nháp của bạn'),
+              SelectableText(draft),
+              TextButton.icon(
+                onPressed: () => Clipboard.setData(ClipboardData(text: draft)),
+                icon: const Icon(Icons.copy),
+                label: const Text('Sao chép bản nháp'),
+              ),
+            ],
+            if (!widget.permanentOnly && !expired && auth.trialLoading)
+              const LinearProgressIndicator(),
+            if (auth.trialError != null) ...[
+              Notice(auth.trialError!),
+              TextButton(
+                onPressed: auth.trialLoading
+                    ? null
+                    : () => auth.loadGuestTrial(start: true),
+                child: const Text('Thử lại'),
+              ),
+            ],
+            const SizedBox(height: 12),
             AppButton(
-              auth.trialLoading
-                  ? 'Đang kiểm tra…'
-                  : auth.trial == null
-                  ? 'Kiểm tra phiên dùng thử'
-                  : 'Bắt đầu phiên thử 10 phút',
-              onPressed: auth.trialLoading
-                  ? null
-                  : () => auth.loadGuestTrial(start: auth.trial != null),
+              'Đăng nhập',
+              fill: true,
+              onPressed: () => openScreen(context, 'S05'),
             ),
-          if (auth.trialError != null) ...[
-            Notice(auth.trialError!),
+            const SizedBox(height: 12),
+            AppButton(
+              'Tạo tài khoản',
+              fill: true,
+              outlined: true,
+              onPressed: () => openScreen(context, 'S06'),
+            ),
             TextButton(
-              onPressed: auth.trialLoading ? null : () => auth.loadGuestTrial(),
-              child: const Text('Thử lại'),
+              onPressed: () => openRoot(context, 'S22'),
+              child: const Text('Xem từ điển công khai'),
             ),
           ],
-          AppButton('Đăng nhập', onPressed: () => openScreen(context, 'S05')),
-          AppButton(
-            'Tạo tài khoản',
-            outlined: true,
-            onPressed: () => openScreen(context, 'S06'),
-          ),
-          TextButton(
-            onPressed: () => openRoot(context, 'S22'),
-            child: const Text('Xem từ điển công khai'),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -4,11 +4,35 @@ import request from 'supertest';
 import { composeSignSequence, SignMediaEntry } from '../src/services/sign-sequence';
 import router from '../src/routes/sign-sequence.routes';
 import { DictionaryEntry } from '../src/models/DictionaryEntry.model';
+// These tests isolate composition/query behavior; real trial/auth protection is
+// exercised against MongoDB in guest-trial.test.ts.
+vi.mock('../src/common/middlewares/auth.middleware', () => ({requireAuth: (_req: unknown, _res: unknown, next: () => void) => next()}));
+vi.mock('../src/common/middlewares/guest-trial.middleware', () => ({requireActiveTrial: (_req: unknown, _res: unknown, next: () => void) => next()}));
 
 const entry = (word: string, extra = {}): SignMediaEntry => ({ _id: word, word, videoUrl: 'https://example.org/sign.mp4', ...extra });
 afterEach(() => vi.restoreAllMocks());
 
 describe('dictionary sequence', () => {
+  it('spells missing Vietnamese words with real letter media and preserves their accents', () => {
+    const result = composeSignSequence('tôi là bạn', [entry('tôi'), entry('bạn'), entry('l'), entry('a')]);
+    expect(result.segments.map(s => s.type)).toEqual(['sign', 'fingerspelling', 'sign']);
+    expect(result.segments[1]).toMatchObject({text: 'là', letters: [
+      {type: 'sign', text: 'l', word: 'l'}, {type: 'sign', text: 'à', word: 'a'},
+    ], hasTone: true});
+    expect(composeSignSequence('tớ', [entry('t'), entry('ơ')]).segments[0]).toMatchObject({
+      type: 'fingerspelling', letters: [{word: 't'}, {word: 'ơ'}],
+    });
+  });
+  it('does not invent or partially drop letters when spelling media is missing', () => {
+    expect(composeSignSequence('là', [entry('l')]).segments[0].type).toBe('missing');
+    expect(composeSignSequence('là', [entry('l'), entry('a', {videoUrl: undefined})]).segments[0].type).toBe('missing');
+  });
+  it('uses explicit aliases while preferring an exact dictionary word', () => {
+    const rows = [entry('0 (số không)', {aliases: ['0', 'số không']}), entry('bạn', {aliases: ['các bạn']}), entry('các bạn')];
+    expect(composeSignSequence('0 các bạn', rows).segments).toMatchObject([
+      {type: 'sign', word: '0 (số không)'}, {type: 'sign', word: 'các bạn'},
+    ]);
+  });
   it('keeps multi-syllable words and chooses longest phrase', () => {
     const result = composeSignSequence('Bàn tay bạn', [entry('bàn'), entry('bàn tay'), entry('bạn')]);
     expect(result.segments.map(s => [s.type, s.text])).toEqual([['sign', 'Bàn tay'], ['sign', 'bạn']]);

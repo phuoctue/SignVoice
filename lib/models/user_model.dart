@@ -111,6 +111,8 @@ class UserModel {
           'content:publish',
           'categories:read',
           'categories:write',
+          'collections:read',
+          'collections:moderate',
         ].contains(permission);
   }
 

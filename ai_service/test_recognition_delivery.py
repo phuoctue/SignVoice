@@ -8,6 +8,19 @@ from .engine import VideoSession
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_fresh_completed_word_is_delivered_after_hands_lowered_once(self):
+        session=self.session(held=False,observed=1150)
+        session.recognizer=SimpleNamespace(labels=['nghe'],mode='words')
+        session.allowed={'nghe'}
+        session.worker=SimpleNamespace(poll_with_details=lambda:(
+            ((0,.95,0.,True),np.array([.95]),False,None,{'label':'nghe','time':1.}),
+            {'prediction_timestamp_ms':1000,'observation_timestamp_ms':1150}))
+        result=session._decision_fields(np.zeros(126),[],1150)
+        self.assertEqual(result['confirmed'],'nghe')
+        self.assertEqual(len(result['events']),1)
+        self.assertEqual(session._decision_fields(np.zeros(126),[],1150)['events'],[])
+        self.assertIsNone(session._decision_fields(np.zeros(126),[],1300)['confirmed'])
+
     def session(self, held=True, observed=4000):
         session=VideoSession.__new__(VideoSession)
         session.recognizer=SimpleNamespace(labels=['ô'])

@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -68,7 +70,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            Text('Dashboard', style: Theme.of(context).textTheme.headlineSmall),
+            Text('Tổng quan', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
             Text(
               auth.isAdmin
@@ -83,40 +85,58 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             if (_stats != null)
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  if (auth.isAdmin && auth.can('users:read'))
-                    _stat(
-                      'Tài khoản',
-                      _stats!['users']['total'],
-                      Icons.people_outline,
-                    ),
-                  if (auth.can('dictionary:read')) ...[
-                    _stat(
-                      'Mục từ điển',
-                      _stats!['content']['total'],
-                      Icons.menu_book,
-                    ),
-                    _stat(
-                      'Đã xuất bản',
-                      _stats!['content']['published'],
-                      Icons.check_circle_outline,
-                    ),
-                    _stat(
-                      'Bản nháp',
-                      _stats!['content']['pending'],
-                      Icons.edit_note,
-                    ),
-                  ],
-                  if (auth.isAdmin && auth.can('sessions:read'))
-                    _stat(
-                      'Phiên hoạt động',
-                      _stats!['sessions']['active'],
-                      Icons.devices,
-                    ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final columns =
+                      MediaQuery.textScalerOf(context).scale(1) > 1.4 ||
+                          width < 320
+                      ? 1
+                      : width >= 700
+                      ? 3
+                      : 2;
+                  final statWidth = (width - 10 * (columns - 1)) / columns;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      if (auth.isAdmin && auth.can('users:read'))
+                        _stat(
+                          'Tài khoản',
+                          _stats!['users']['total'],
+                          Icons.people_outline,
+                          statWidth,
+                        ),
+                      if (auth.can('dictionary:read')) ...[
+                        _stat(
+                          'Mục từ điển',
+                          _stats!['content']['total'],
+                          Icons.menu_book,
+                          statWidth,
+                        ),
+                        _stat(
+                          'Đã xuất bản',
+                          _stats!['content']['published'],
+                          Icons.check_circle_outline,
+                          statWidth,
+                        ),
+                        _stat(
+                          'Bản nháp',
+                          _stats!['content']['pending'],
+                          Icons.edit_note,
+                          statWidth,
+                        ),
+                      ],
+                      if (auth.isAdmin && auth.can('sessions:read'))
+                        _stat(
+                          'Phiên hoạt động',
+                          _stats!['sessions']['active'],
+                          Icons.devices,
+                          statWidth,
+                        ),
+                    ],
+                  );
+                },
               ),
             const SizedBox(height: 24),
             Text('Quản lý', style: Theme.of(context).textTheme.titleLarge),
@@ -129,27 +149,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         'roles',
                         'sessions',
                       ].contains(module.key)))
-                Card(
-                  child: ListTile(
-                    leading: Icon(
-                      module.value.icon,
-                      color: Theme.of(context).colorScheme.primary,
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppCard(
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        module.value.icon,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      title: Text(module.value.title),
+                      subtitle: Text(module.value.description),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () =>
+                          pushAppRoute(context, '/admin/${module.key}'),
                     ),
-                    title: Text(module.value.title),
-                    subtitle: Text(module.value.description),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/admin/${module.key}'),
                   ),
                 ),
             if (auth.can('dictionary:read'))
-              Card(
+              AppCard(
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.fact_check_outlined),
                   title: const Text('Duyệt nội dung'),
                   subtitle: const Text('Kiểm tra và xuất bản bản nháp'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.pushNamed(context, '/admin/content'),
+                  onTap: () => pushAppRoute(context, '/admin/content'),
                 ),
               ),
           ],
@@ -158,24 +183,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _stat(String label, dynamic value, IconData icon) => SizedBox(
-    width: 160,
-    child: Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 8),
-            Text('$value', style: Theme.of(context).textTheme.headlineSmall),
-            Text(label),
-          ],
+  Widget _stat(String label, dynamic value, IconData icon, double width) =>
+      SizedBox(
+        width: width,
+        child: AppCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 8),
+              Text('$value', style: Theme.of(context).textTheme.headlineSmall),
+              Text(label),
+            ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
 }
 
 class AdminModule {
@@ -204,6 +227,11 @@ const adminModules = {
     'Danh mục',
     'Sắp xếp và quản lý chủ đề từ điển',
     Icons.category_outlined,
+  ),
+  'collections': AdminModule(
+    'Bộ sưu tập công khai',
+    'Xem nội dung, xử lý báo cáo và kiểm duyệt chia sẻ',
+    Icons.collections_bookmark_outlined,
   ),
   'sessions': AdminModule(
     'Phiên đăng nhập',

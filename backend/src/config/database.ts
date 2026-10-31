@@ -17,11 +17,25 @@ export async function connectDatabase(): Promise<void> {
     if (process.env.NODE_ENV === 'test' && !/^signvoice_test_[a-z0-9_]+$/i.test(new URL(env.MONGODB_URI).pathname.slice(1))) {
       throw new Error('Refusing to connect tests to a non-test database');
     }
-    await mongoose.connect(env.MONGODB_URI, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await mongoose.connect(env.MONGODB_URI, {
+          maxPoolSize: 10,
+          // Cold DNS/TLS through a tunnel/VPN can exceed five seconds even
+          // when Atlas is reachable. Keep this bounded, below HTTP's 30s budget.
+          serverSelectionTimeoutMS: 15000,
+          socketTimeoutMS: 45000,
+        });
+        break;
+      } catch (error) {
+        // Retry a transient startup selection failure once. Authentication and
+        // configuration errors still fail immediately rather than looping.
+        if (attempt !== 0 || (error as Error).name !== 'MongooseServerSelectionError') throw error;
+        console.warn('MongoDB initial connection timed out; retrying once.');
+        await mongoose.disconnect();
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
 
     console.log('✅ MongoDB connected successfully');
     console.log(`   Database: ${mongoose.connection.name}`);

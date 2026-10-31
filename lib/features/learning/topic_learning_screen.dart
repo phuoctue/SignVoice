@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -91,10 +93,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
     try {
       if (data?.enrolled != true) await service.start(widget.topicId);
       if (mounted) {
-        await Navigator.pushNamed(
-          context,
-          '/learn/topic/${widget.topicId}?study=1',
-        );
+        await pushAppRoute(context, '/learn/topic/${widget.topicId}?study=1');
       }
       if (mounted) await load();
     } catch (e) {
@@ -112,11 +111,12 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
   }
 
   Future<void> openQuiz() async {
+    if (saving) return;
     setState(() => saving = true);
     try {
       final quiz = await service.startQuiz(widget.topicId);
       if (!mounted) return;
-      await Navigator.pushNamed(context, '/learn/quiz/${quiz['_id']}');
+      await pushAppRoute(context, '/learn/quiz/${quiz['_id']}');
       if (mounted) await load();
     } catch (e) {
       if (mounted) {
@@ -213,40 +213,52 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ],
             ),
           ),
-          TextButton.icon(
-            key: ValueKey('learn-preview-${word['_id']}'),
-            onPressed: () => showLearningWord(context, word),
-            icon: const Icon(Icons.visibility_outlined),
-            label: const Text('Xem ký hiệu & ví dụ'),
-          ),
-          if (enrolled)
-            TextButton.icon(
-              onPressed: () => Navigator.pushNamed(
-                context,
-                '/learn/history?entryId=${word['_id']}',
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton.icon(
+                key: ValueKey('learn-preview-${word['_id']}'),
+                onPressed: () => showLearningWord(context, word),
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('Xem ký hiệu & ví dụ'),
               ),
-              icon: const Icon(Icons.history),
-              label: const Text('Lịch sử từ này'),
-            ),
+              if (enrolled)
+                TextButton.icon(
+                  onPressed: () => pushAppRoute(
+                    context,
+                    '/learn/history?entryId=${word['_id']}',
+                  ),
+                  icon: const Icon(Icons.history),
+                  label: const Text('Lịch sử từ này'),
+                ),
+            ],
+          ),
           if (enrolled && word['stage'] == 'LEARNING') ...[
             const SizedBox(height: 8),
             const Text('Bạn nhớ từ này đến đâu?'),
             const SizedBox(height: 8),
-            for (final value in ['REMEMBERED', 'REVIEW'])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: AppButton(
-                  learningLabels[value]!,
-                  key: ValueKey('learn-rate-${word['_id']}-$value'),
-                  secondary: true,
-                  busy: ratingId == '${word['_id']}' && ratingStage == value,
-                  color: learningColors[value],
-                  icon: value == 'REMEMBERED'
-                      ? Icons.check_circle_outline
-                      : Icons.refresh,
-                  onPressed: saving ? null : () => rate(word, value),
-                ),
-              ),
+            ActionGroup(
+              children: [
+                for (final value in ['REMEMBERED', 'REVIEW'])
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: AppButton(
+                      learningLabels[value]!,
+                      key: ValueKey('learn-rate-${word['_id']}-$value'),
+                      secondary: true,
+                      busy:
+                          ratingId == '${word['_id']}' && ratingStage == value,
+                      color: learningColors[value],
+                      icon: value == 'REMEMBERED'
+                          ? Icons.check_circle_outline
+                          : Icons.refresh,
+                      onPressed: saving ? null : () => rate(word, value),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ],
       ),
@@ -261,6 +273,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
     final isStudy = widget.study && enrolled;
     return AppPage(
       title: result?.topic['name'] as String? ?? 'Chủ đề ký hiệu',
+      contentMaxWidth: 1120,
       actions: [
         IconButton(
           tooltip: 'Làm mới',
@@ -272,7 +285,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
       padding: EdgeInsets.zero,
       child: ListView(
         key: PageStorageKey('topic-${widget.topicId}-$stage-$page'),
-        padding: const EdgeInsets.all(20),
+        padding: pageInsets(context),
         children: [
           if (loading)
             const Padding(
@@ -346,7 +359,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
             if (enrolled && stage == 'REVIEW' && words.isNotEmpty) ...[
               const Notice(
-                'Ôn tối đa 10 ký hiệu mỗi lượt bằng camera. Từ chưa khớp được tổng hợp trong Thống kê & mục tiêu.',
+                'Xem ký hiệu, tự nhập nghĩa bạn nhớ rồi đối chiếu. Mỗi lượt tối đa 10 từ; có gợi ý khi cần.',
               ),
               const SizedBox(height: 12),
               AppButton(
@@ -357,7 +370,26 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
               const SizedBox(height: 18),
             ],
-            for (final word in words) wordCard(word, enrolled),
+            LayoutBuilder(
+              builder: (context, size) {
+                final columns =
+                    size.maxWidth >= 860 &&
+                        MediaQuery.textScalerOf(context).scale(1) < 1.5
+                    ? 2
+                    : 1;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 4,
+                  children: [
+                    for (final word in words)
+                      SizedBox(
+                        width: (size.maxWidth - (columns - 1) * 16) / columns,
+                        child: wordCard(word, enrolled),
+                      ),
+                  ],
+                );
+              },
+            ),
             if (result.pages > 1)
               LearningPager(
                 page: page,
@@ -366,14 +398,15 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                 onPage: changePage,
               ),
             const SizedBox(height: 12),
-            const Notice(
-              'Học theo ảnh/video tham khảo và tự đánh giá. Quiz camera ghi nhận kết quả ôn tập; LM Studio phân tích tiến độ và gợi ý luyện tập.',
-            ),
+            if (words.isNotEmpty)
+              const Notice(
+                'Học theo mẫu, tự nhớ nghĩa qua bài ôn tập và nhận gợi ý ôn từ AI sau khi hoàn tất.',
+              ),
             if (isStudy)
               TextButton(
                 onPressed: saving
                     ? null
-                    : () => Navigator.pushReplacementNamed(
+                    : () => replaceAppRoute(
                         context,
                         '/learn/topic/${widget.topicId}',
                       ),

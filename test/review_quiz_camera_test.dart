@@ -22,6 +22,29 @@ class QuizService extends LearningService {
   };
 }
 
+class SavingQuizService extends QuizService {
+  final captures = <String>[];
+  @override
+  Future<LearningRecord> saveQuizCapture(
+    String id, {
+    required String entryId,
+    required String recognizedLabel,
+  }) async {
+    captures.add(recognizedLabel);
+    return quiz(id);
+  }
+
+  @override
+  Future<LearningRecord> submitQuiz(String id) async => {
+    '_id': id,
+    'result': {
+      'score': captures.last.isEmpty ? 0 : 10,
+      'feedback': 'Đã lưu kết quả',
+      'items': <dynamic>[],
+    },
+  };
+}
+
 class DelayedCamera implements SignCamera {
   final initialization = Completer<void>();
   bool initialized = false, closed = false;
@@ -130,6 +153,63 @@ Future<void> mount(
 }
 
 void main() {
+  for (final skip in [false, true]) {
+    testWidgets(
+      skip
+          ? 'an attempted unrecognized sign can be explicitly skipped with zero credit'
+          : 'stopping the camera preserves a real recognition and allows completing the quiz',
+      (tester) async {
+        final camera = StreamingQuizCamera()..initialization.complete();
+        final socket = QuizChannel();
+        final service = SavingQuizService();
+        await tester.pumpWidget(
+          Provider<LearningService>.value(
+            value: service,
+            child: MaterialApp(
+              home: ReviewQuizScreen(
+                quizId: 'quiz',
+                cameraFactory: ({required bool front}) => camera,
+                ticketLoader: () async => 'ticket',
+                channelFactory: (_) => socket,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Mở camera nhận diện'));
+        await tester.tap(find.text('Mở camera nhận diện'));
+        await tester.pumpAndSettle();
+        socket.reply({
+          'type': 'result',
+          'hands': 1,
+          'confirmed': skip ? null : 'ai',
+        });
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Dừng camera'));
+        await tester.tap(find.text('Dừng camera'));
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
+        await tester.pumpAndSettle();
+        expect(camera.closed, isTrue);
+        final action = find.text(
+          skip ? 'Bỏ qua — giữ từ này ở Ôn tập' : 'Lưu & hoàn tất',
+        );
+        await tester.ensureVisible(action);
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+        expect(service.captures, [skip ? '' : 'ai']);
+        expect(find.text('Kết quả ôn tập'), findsOneWidget);
+        expect(
+          find.text(skip ? '0 / 10 điểm' : '10 / 10 điểm'),
+          findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await camera.observations.close();
+      },
+    );
+  }
+
   testWidgets(
     'quiz forwards measured hands and keeps confirmed feedback until retry',
     (tester) async {

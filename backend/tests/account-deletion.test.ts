@@ -34,7 +34,7 @@ describe('Account deletion', () => {
     const userId = new User({ _id: a.user.id })._id;
     await Conversation.create({ userId, messages: [{ role: 'USER', content: 'private text' }] });
     await request(app).delete('/api/v1/users/account')
-      .set('Authorization', `Bearer ${a.tokens.accessToken}`).send({ userId: b.user.id }).expect(200);
+      .set('Authorization', `Bearer ${a.tokens.accessToken}`).send({ confirm: true }).expect(200);
     expect(await User.exists({ _id: a.user.id })).toBeNull();
     expect(await User.exists({ _id: b.user.id })).not.toBeNull();
     for (const model of [UserSettings, AuthSession, Conversation, Favorite, SearchHistory, AuditLog]) {

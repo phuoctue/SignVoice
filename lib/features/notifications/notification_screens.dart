@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +7,7 @@ import '../../core/app_state.dart';
 import '../../services/notifications/notification_service.dart';
 import '../../services/notifications/study_reminder.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/notification_updates_switch.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -65,7 +68,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       setState(() => item['read'] = true);
       final route = item['route'];
       if (route == '/learn' || route == '/learn?tab=1') {
-        await Navigator.pushNamed(context, route as String);
+        await pushAppRoute(context, route as String);
       }
     } catch (_) {
       if (mounted) toast(context, 'Chưa mở được thông báo. Hãy thử lại.');
@@ -94,6 +97,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const NotificationUpdatesSwitch(),
+          const SizedBox(height: 12),
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -110,10 +115,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     state.notificationsEnabled)
                   ReminderDeviceStatus(device: device),
                 TextButton.icon(
-                  onPressed: () =>
-                      Navigator.pushNamed(context, '/study-reminder'),
+                  onPressed: () => pushAppRoute(context, '/study-reminder'),
                   icon: const Icon(Icons.schedule),
-                  label: const Text('Đặt lịch & thông báo'),
+                  label: const Text('Đặt lịch học'),
                 ),
               ],
             ),
@@ -242,16 +246,14 @@ class StudyReminderScreen extends StatefulWidget {
 }
 
 class _StudyReminderScreenState extends State<StudyReminderScreen> {
-  bool? notifications;
+  bool initialized = false;
   bool enabled = false, saving = false;
   late TimeOfDay time;
   final days = <int>{};
   String? error;
   bool get hasChanges {
-    final state = AppScope.of(context),
-        saved = AppScope.of(context).studyReminder;
-    return notifications != state.notificationsEnabled ||
-        enabled != saved.enabled ||
+    final saved = AppScope.of(context).studyReminder;
+    return enabled != saved.enabled ||
         time.hour != saved.hour ||
         time.minute != saved.minute ||
         days.length != saved.weekdays.length ||
@@ -261,10 +263,9 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (notifications != null) return;
-    final state = AppScope.of(context),
-        reminder = AppScope.of(context).studyReminder;
-    notifications = state.notificationsEnabled;
+    if (initialized) return;
+    final reminder = AppScope.of(context).studyReminder;
+    initialized = true;
     enabled = reminder.enabled;
     time = TimeOfDay(hour: reminder.hour, minute: reminder.minute);
     days.addAll(reminder.weekdays);
@@ -284,7 +285,7 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
       error = null;
     });
     try {
-      if (notifications! &&
+      if (state.notificationsEnabled &&
           device.supported &&
           !await device.requestPermission(exactAlarm: enabled)) {
         throw StateError(
@@ -293,7 +294,6 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
       }
       if (state.persisted && !state.isCurrent(epoch)) return;
       final success = await state.saveSettings({
-        'notificationsEnabled': notifications,
         'studyReminder': StudyReminder(
           enabled: enabled,
           hour: time.hour,
@@ -310,9 +310,12 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
         toast(
           context,
           device.error ??
-              (device.supported && notifications! && enabled && !device.exact
+              (device.supported &&
+                      state.notificationsEnabled &&
+                      enabled &&
+                      !device.exact
                   ? 'Đã lưu. Hệ thống có thể nhắc trễ vì chưa cho phép báo thức chính xác.'
-                  : 'Đã lưu lịch và cài đặt thông báo.'),
+                  : 'Đã lưu lịch học.'),
         );
       }
     } catch (failure) {
@@ -331,116 +334,126 @@ class _StudyReminderScreenState extends State<StudyReminderScreen> {
   @override
   Widget build(BuildContext context) {
     final device = context.watch<NotificationService>();
+    final desktop = isDesktopLayout(context);
+    final saveAction = AppButton(
+      'Lưu cài đặt',
+      icon: Icons.check,
+      busy: saving,
+      onPressed: saving ? null : save,
+    );
     return PopScope(
       canPop: !saving,
       child: AppPage(
-        title: 'Lịch học & thông báo',
-        footer: AppButton(
-          'Lưu cài đặt',
-          icon: Icons.check,
-          busy: saving,
-          onPressed: saving ? null : save,
-        ),
+        title: 'Lịch học',
+        contentMaxWidth: 880,
+        footer: desktop ? null : saveAction,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Heading('Lịch nhắc học', size: 22),
-            const SizedBox(height: 6),
-            const BodyText('Chọn giờ và ngày bạn muốn được nhắc.'),
-            const SizedBox(height: 14),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Nhận thông báo'),
-              subtitle: const Text('Cho phép ứng dụng gửi lời nhắc cho bạn.'),
-              value: notifications!,
-              onChanged: saving
-                  ? null
-                  : (value) => setState(() => notifications = value),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Nhắc học theo lịch'),
-              subtitle: const Text(
-                'Lặp lại vào những ngày được chọn bên dưới.',
-              ),
-              value: enabled,
-              onChanged: saving || !notifications!
-                  ? null
-                  : (value) => setState(() => enabled = value),
-            ),
-            const SizedBox(height: 16),
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ListTile(
+                  const Heading('Lịch nhắc học', size: 22),
+                  const SizedBox(height: 6),
+                  const BodyText('Chọn giờ và ngày bạn muốn được nhắc.'),
+                  const SizedBox(height: 14),
+
+                  SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.access_time),
-                    title: const Text('Giờ học'),
-                    trailing: const Icon(Icons.edit_outlined, size: 20),
-                    subtitle: Text(
-                      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
-                      style: const TextStyle(
-                        fontSize: 25,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    title: const Text('Nhắc học theo lịch'),
+                    subtitle: const Text(
+                      'Lặp lại vào những ngày được chọn bên dưới.',
                     ),
-                    enabled: !saving && enabled && notifications!,
-                    onTap: () async {
-                      final result = await showTimePicker(
-                        context: context,
-                        initialTime: time,
-                      );
-                      if (mounted && result != null) {
-                        setState(() => time = result);
-                      }
-                    },
+                    value: enabled,
+                    onChanged: saving
+                        ? null
+                        : (value) => setState(() => enabled = value),
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Lặp lại vào',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      for (var day = 1; day <= 7; day++)
-                        FilterChip(
-                          label: Text(day == 7 ? 'CN' : 'T${day + 1}'),
-                          selected: days.contains(day),
-                          onSelected: saving || !enabled || !notifications!
-                              ? null
-                              : (value) => setState(() {
-                                  value ? days.add(day) : days.remove(day);
-                                }),
+                  const SizedBox(height: 16),
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.access_time),
+                          title: const Text('Giờ học'),
+                          trailing: const Icon(Icons.edit_outlined, size: 20),
+                          subtitle: Text(
+                            '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(
+                              fontSize: 25,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          enabled: !saving && enabled,
+                          onTap: () async {
+                            final result = await showTimePicker(
+                              context: context,
+                              initialTime: time,
+                            );
+                            if (mounted && result != null) {
+                              setState(() => time = result);
+                            }
+                          },
                         ),
-                    ],
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Lặp lại vào',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            for (var day = 1; day <= 7; day++)
+                              FilterChip(
+                                label: Text(day == 7 ? 'CN' : 'T${day + 1}'),
+                                selected: days.contains(day),
+                                onSelected: saving || !enabled
+                                    ? null
+                                    : (value) => setState(() {
+                                        value
+                                            ? days.add(day)
+                                            : days.remove(day);
+                                      }),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: 16),
+                  if (error != null) Notice(error!),
+                  if (hasChanges)
+                    const Notice(
+                      'Bạn có thay đổi chưa lưu. Bấm “Lưu cài đặt” để áp dụng lịch mới.',
+                    ),
+                  if (device.supported &&
+                      enabled &&
+                      AppScope.of(context).notificationsEnabled)
+                    ReminderDeviceStatus(
+                      device: device,
+                      controls: true,
+                      showSchedule: !hasChanges,
+                      enabled: !saving,
+                    ),
+                  if (!device.supported)
+                    const BodyText(
+                      'Lịch được đồng bộ theo tài khoản. Khi đến giờ, chuông trên Web sẽ có lời nhắc trong khoảng 30 giây khi trang đang mở. Android có thể nhắc cả khi ứng dụng đóng.',
+                    ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            if (error != null) Notice(error!),
-            if (hasChanges)
-              const Notice(
-                'Bạn có thay đổi chưa lưu. Bấm “Lưu cài đặt” để áp dụng lịch mới.',
-              ),
-            if (device.supported && enabled && notifications!)
-              ReminderDeviceStatus(
-                device: device,
-                controls: true,
-                showSchedule: !hasChanges,
-                enabled: !saving,
-              ),
-            if (!device.supported)
-              const BodyText(
-                'Lịch được lưu vào tài khoản. Mở ứng dụng Android để nhận lời nhắc trên điện thoại.',
-              ),
-            if (!notifications!)
-              const Notice(
-                'Thông báo đang tắt. Bật “Nhận thông báo” rồi lưu để nhận lời nhắc.',
+            if (desktop)
+              Padding(
+                padding: const EdgeInsets.only(top: 20),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(width: 280, child: saveAction),
+                ),
               ),
           ],
         ),

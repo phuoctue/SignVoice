@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {Types} from 'mongoose';
+import * as authentication from '../src/common/middlewares/auth.middleware';
+import * as trials from '../src/services/guest-trial.service';
+import {UserRole} from '../src/models/User.model';
+import {AppError} from '../src/common/errors/AppError';
 import express from 'express';
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -8,11 +13,19 @@ import { attachAiPublicProxy } from '../src/ai-public-proxy';
 
 const servers: Server[] = [];
 const sockets: WebSocket[] = [];
+beforeEach(() => {
+  vi.spyOn(authentication, 'requireAuth').mockImplementation(async (req, _res, next) => {
+    req.user = {id: new Types.ObjectId(), isGuest: false, role: UserRole.USER, permissions: []}; next();
+  });
+  vi.spyOn(trials, 'assertTrialActive').mockResolvedValue(undefined);
+  vi.spyOn(trials, 'authorizeAiTicket').mockResolvedValue({expiresAt: undefined});
+});
 async function listen(server: Server): Promise<string> {
   servers.push(server); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 afterEach(async () => {
+  vi.restoreAllMocks();
   sockets.splice(0).forEach(s => s.terminate());
   await Promise.all(servers.splice(0).map(s => new Promise<void>(resolve => {
     s.closeAllConnections(); s.close(() => resolve());
@@ -37,6 +50,25 @@ async function stack() {
   return { url: await listen(server), requests };
 }
 describe('Public AI transport proxy', () => {
+  it('cuts off an already-open guest socket at its server deadline', async () => {
+    vi.spyOn(trials, 'authorizeAiTicket').mockImplementation(async () => ({expiresAt: new Date(Date.now() + 1000)}));
+    const {url} = await stack();
+    const socket = new WebSocket(url.replace('http:', 'ws:') + '/sign-ai/v1/stream?ticket=test');
+    sockets.push(socket); await once(socket, 'open');
+    const upstream = sockets.find(item => item !== socket)!;
+    await Promise.all([once(socket, 'close'), once(upstream, 'close')]);
+    expect(socket.readyState).toBe(WebSocket.CLOSED);
+  });
+  it('rejects inference without an authenticated session or valid stream ticket', async () => {
+    vi.spyOn(authentication, 'requireAuth').mockImplementation(async (_req, _res, next) => next(new AppError('Auth required', 401)));
+    vi.spyOn(trials, 'authorizeAiTicket').mockRejectedValue(new Error('Bad ticket'));
+    const {url} = await stack();
+    expect((await fetch(url + '/sign-ai/v1/compose', {method: 'POST', body: '{}'})).status).toBe(401);
+    const socket = new WebSocket(url.replace('http:', 'ws:') + '/sign-ai/v1/stream');
+    socket.on('error', () => {}); sockets.push(socket);
+    const [, response] = await once(socket, 'unexpected-response');
+    expect(response.statusCode).toBe(403);
+  });
   it('routes health and streams POST JSON without consuming its body', async () => {
     const { url, requests } = await stack();
     expect((await fetch(`${url}/sign-ai/health`)).status).toBe(200);

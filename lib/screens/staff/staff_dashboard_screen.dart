@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -122,7 +124,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                             Icons.arrow_forward_ios,
                             size: 16,
                           ),
-                          onTap: () => Navigator.pushNamed(
+                          onTap: () => pushAppRoute(
                             context,
                             '/staff/content',
                             arguments: {'filter': 'pending'},
@@ -136,8 +138,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                             Icons.arrow_forward_ios,
                             size: 16,
                           ),
-                          onTap: () =>
-                              Navigator.pushNamed(context, '/staff/content'),
+                          onTap: () => pushAppRoute(context, '/staff/content'),
                         ),
                         const Divider(height: 1),
                         ListTile(
@@ -147,8 +148,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                             Icons.arrow_forward_ios,
                             size: 16,
                           ),
-                          onTap: () =>
-                              Navigator.pushNamed(context, '/staff/users'),
+                          onTap: () => pushAppRoute(context, '/staff/users'),
                         ),
                       ],
                     ),

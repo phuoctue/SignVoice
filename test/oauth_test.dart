@@ -16,7 +16,7 @@ import 'auth_fixtures.dart';
 void main() {
   for (final register in [false, true]) {
     testWidgets(
-      'social providers are available on ${register ? 'registration' : 'login'}',
+      'social providers are only available on login register=$register',
       (tester) async {
         final store = MemoryTokenStore();
         var providerRequests = 0;
@@ -42,9 +42,26 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(providerRequests, 1);
+        if (register) {
+          expect(find.text('Tiếp tục với Google'), findsNothing);
+          expect(find.text('Tiếp tục với Facebook'), findsNothing);
+          await tester.pumpWidget(const SizedBox.shrink());
+          auth.dispose();
+          api.dispose();
+          return;
+        }
         expect(find.text('Tiếp tục với Google'), findsOneWidget);
         expect(find.text('Tiếp tục với Facebook'), findsOneWidget);
-        // Provider setup details are not part of the current login UI.
+        await tester.ensureVisible(find.text('Tiếp tục với Facebook'));
+        await tester.tap(find.text('Tiếp tục với Facebook'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            'OAuth hiện hỗ trợ trên web. Vui lòng đăng nhập email trong ứng dụng.',
+          ),
+          findsOneWidget,
+        );
+        expect(auth.isAuthenticated, isFalse);
         await tester.pumpWidget(const SizedBox.shrink());
         auth.dispose();
         api.dispose();

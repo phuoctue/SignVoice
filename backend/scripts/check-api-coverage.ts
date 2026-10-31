@@ -15,13 +15,13 @@ interface RouteInfo {
 }
 
 // Extract routes from route files
-function extractRoutesFromFile(filePath: string): RouteInfo[] {
+function extractRoutesFromFile(filePath: string, routerName = 'router'): RouteInfo[] {
   const content = fs.readFileSync(filePath, 'utf8');
   const routes: RouteInfo[] = [];
   const fileName = path.basename(filePath);
 
   // Match router.METHOD('path', ...)
-  const routeRegex = /router\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+  const routeRegex = new RegExp('\\b' + routerName + "\\.(get|post|put|patch|delete)\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]", 'gi');
   
   let match;
   while ((match = routeRegex.exec(content)) !== null) {
@@ -41,15 +41,13 @@ function extractRoutesFromFile(filePath: string): RouteInfo[] {
 // Get all routes from backend
 function getAllBackendRoutes(): Map<string, RouteInfo[]> {
   const routesDir = path.join(__dirname, '../src/routes');
-  const routeFiles = fs.readdirSync(routesDir).filter(f => f.endsWith('.ts'));
   
   const routesByModule = new Map<string, RouteInfo[]>();
 
-  for (const file of routeFiles) {
-    const filePath = path.join(routesDir, file);
-    const routes = extractRoutesFromFile(filePath);
-    const moduleName = file.replace('.routes.ts', '');
-    if (!modulePrefixMap[moduleName]) continue; // Files that are not mounted are not API endpoints.
+  for (const moduleName of Object.keys(modulePrefixMap)) {
+    const [fileModule, routerName = 'router'] = moduleName.split('#');
+    const filePath = path.join(routesDir, fileModule + '.routes.ts');
+    const routes = extractRoutesFromFile(filePath, routerName);
     routesByModule.set(moduleName, routes);
   }
 
@@ -78,8 +76,8 @@ function getDocumentedEndpoints(): Set<string> {
 // Map route module prefix to API path prefix
 const modulePrefixMap: Record<string, string> = {};
 const appSource = fs.readFileSync(path.join(__dirname, '../src/app.ts'), 'utf8');
-const mounts = /app\.use\(\s*['"]([^'"]+)['"]\s*,\s*\(await import\(['"]\.\/routes\/([^'"]+)\.routes['"]\)\)\.default\s*\)/g;
-for (const match of appSource.matchAll(mounts)) modulePrefixMap[match[2]] = match[1];
+const mounts = /app\.use\(\s*['"]([^'"]+)['"]\s*,\s*\(await import\(['"]\.\/routes\/([^'"]+)\.routes['"]\)\)\.(\w+)\s*\)/g;
+for (const match of appSource.matchAll(mounts)) modulePrefixMap[match[2] + (match[3] === 'default' ? '' : '#' + match[3])] = match[1];
 
 // Convert route path to full API path
 function toFullPath(moduleName: string, routePath: string): string {

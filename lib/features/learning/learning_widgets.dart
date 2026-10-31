@@ -235,7 +235,10 @@ class LearningSummary extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 5),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                color: Theme.of(context).colorScheme.surface,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
@@ -250,9 +253,9 @@ class LearningSummary extends StatelessWidget {
                   Text(
                     entry.value,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12),
+                    style: const TextStyle(fontSize: 13),
                   ),
-                  const Text('từ', style: TextStyle(fontSize: 11)),
+                  const Text('từ', style: TextStyle(fontSize: 12)),
                 ],
               ),
             ),
@@ -263,9 +266,21 @@ class LearningSummary extends StatelessWidget {
 }
 
 class LearningWordContent extends StatefulWidget {
-  const LearningWordContent(this.word, {super.key, this.showMeaning = true});
+  const LearningWordContent(
+    this.word, {
+    super.key,
+    this.showMeaning = true,
+    this.hideQuizLabels = false,
+    this.quizControls = false,
+    this.previewHeight = 230,
+    this.showFrames = true,
+    this.pauseVideo = false,
+  });
   final LearningRecord word;
   final bool showMeaning;
+  final bool hideQuizLabels;
+  final bool quizControls, showFrames, pauseVideo;
+  final double previewHeight;
   @override
   State<LearningWordContent> createState() => _LearningWordContentState();
 }
@@ -296,11 +311,16 @@ class _LearningWordContentState extends State<LearningWordContent>
   }
 
   bool _loadingVideo = false;
+  bool _showQuizVideo = false;
   String? _videoError;
   int _frame = 0;
+  double _speed = 1;
   @override
   void didUpdateWidget(covariant LearningWordContent oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.pauseVideo && !oldWidget.pauseVideo) {
+      _video?.pause();
+    }
     if ((oldWidget.word['_id'] ??
             oldWidget.word['entryId'] ??
             oldWidget.word['videoUrl']) !=
@@ -313,6 +333,7 @@ class _LearningWordContentState extends State<LearningWordContent>
       _source = null;
       _video = null;
       _loadingVideo = false;
+      _showQuizVideo = false;
       _videoError = null;
       _frame = _previewFrame(widget.word);
       primeImagePreviews([widget.word]);
@@ -332,12 +353,12 @@ class _LearningWordContentState extends State<LearningWordContent>
   Future<void> _play() async {
     if (_loadingVideo) return;
     if (_video != null) {
-      if (_video!.value.isPlaying) {
+      if (_video!.value.isPlaying && (!widget.quizControls || _showQuizVideo)) {
         await _video!.pause();
       } else {
         await _video!.play();
       }
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _showQuizVideo = true);
       return;
     }
     setState(() {
@@ -359,7 +380,14 @@ class _LearningWordContentState extends State<LearningWordContent>
       if (!mounted || _video != controller) return;
       await controller.setVolume(0);
       await controller.setLooping(true);
-      await controller.play();
+      if (widget.quizControls && _speed != 1) {
+        await controller.setPlaybackSpeed(_speed);
+      }
+      if (!mounted || generation != _generation) return;
+      if (!widget.quizControls || !widget.pauseVideo) {
+        await controller.play();
+        _showQuizVideo = true;
+      }
     } catch (_) {
       if (mounted && generation == _generation) {
         _videoError =
@@ -374,6 +402,73 @@ class _LearningWordContentState extends State<LearningWordContent>
         setState(() => _loadingVideo = false);
       }
     }
+  }
+
+  Future<void> _speedTo(double speed) async {
+    final generation = _generation, controller = _video;
+    try {
+      await controller?.setPlaybackSpeed(speed);
+      if (mounted && generation == _generation) {
+        setState(() {
+          _speed = speed;
+          _videoError = null;
+        });
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        setState(
+          () => _videoError = 'Thiết bị chưa đổi được tốc độ. Bạn vẫn có thể xem ở tốc độ hiện tại.',
+        );
+      }
+    }
+  }
+
+  Future<void> _replay() async {
+    final generation = _generation, controller = _video;
+    if (controller == null) {
+      await _play();
+      return;
+    }
+    try {
+      await controller.seekTo(Duration.zero);
+      if (!mounted || generation != _generation) return;
+      await controller.play();
+      if (mounted && generation == _generation) {
+        setState(() => _showQuizVideo = true);
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        setState(() => _videoError = 'Chưa phát lại được video. Hãy thử lại.');
+      }
+    }
+  }
+
+  Widget _quizMedia(Widget child, {bool thumbnail = false}) {
+    if (!widget.hideQuizLabels) return child;
+    // Source samples may embed the word in their upper-right corner. Conceal
+    // that caption only during a quiz; retain the source logo and original file.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          child,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: FractionallySizedBox(
+                  widthFactor: .55,
+                  heightFactor: thumbnail ? .34 : .2,
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -395,16 +490,34 @@ class _LearningWordContentState extends State<LearningWordContent>
             padding: EdgeInsets.only(bottom: 12),
             child: Notice('Chưa có ảnh/video mẫu để xem cho từ này.'),
           ),
-        if (ready)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: AspectRatio(
-              aspectRatio: _video!.value.aspectRatio,
-              child: SignVideoSurface(_video!),
+        if (ready && (!widget.quizControls || _showQuizVideo))
+          _quizMedia(
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: widget.quizControls
+                  ? SizedBox(
+                      height: widget.previewHeight,
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: _video!.value.aspectRatio,
+                          child: SignVideoSurface(_video!),
+                        ),
+                      ),
+                    )
+                  : AspectRatio(
+                      aspectRatio: _video!.value.aspectRatio,
+                      child: SignVideoSurface(_video!),
+                    ),
             ),
           )
         else
-          SignPhoto(image as String?, word: name, height: 230),
+          _quizMedia(
+            SignPhoto(
+              image as String?,
+              word: name,
+              height: widget.previewHeight,
+            ),
+          ),
         if ('${word['videoUrl'] ?? ''}'.isNotEmpty) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -424,7 +537,30 @@ class _LearningWordContentState extends State<LearningWordContent>
           ),
         ],
         if (_videoError != null) Notice(_videoError!),
-        if (images.length > 1) ...[
+        if (widget.quizControls && '${word['videoUrl'] ?? ''}'.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              TextButton.icon(
+                onPressed: _loadingVideo ? null : _replay,
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                icon: const Icon(Icons.replay),
+                label: const Text('Xem lại'),
+              ),
+              for (final speed in [.5, 1.0])
+                ChoiceChip(
+                  label: Text(speed == .5 ? '0,5×' : '1×'),
+                  tooltip: speed == .5
+                      ? 'Phát chậm một nửa'
+                      : 'Tốc độ bình thường',
+                  selected: _speed == speed,
+                  onSelected: _loadingVideo ? null : (_) => _speedTo(speed),
+                ),
+            ],
+          ),
+        if (widget.showFrames && images.length > 1) ...[
           const SizedBox(height: 8),
           Text(
             'Thứ tự động tác · Ảnh ${_frame + 1}/${images.length}',
@@ -441,7 +577,13 @@ class _LearningWordContentState extends State<LearningWordContent>
                 button: true,
                 label: 'Xem ảnh ${i + 1}',
                 child: InkWell(
-                  onTap: () => setState(() => _frame = i),
+                  onTap: () {
+                    if (widget.quizControls) _video?.pause();
+                    setState(() {
+                      _frame = i;
+                      if (widget.quizControls) _showQuizVideo = false;
+                    });
+                  },
                   child: Container(
                     decoration: BoxDecoration(
                       border: Border.all(
@@ -452,11 +594,14 @@ class _LearningWordContentState extends State<LearningWordContent>
                       ),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: SignPhoto(
-                      images[i],
-                      width: 66,
-                      height: 68,
-                      word: '$name, bước ${i + 1}',
+                    child: _quizMedia(
+                      SignPhoto(
+                        images[i],
+                        width: 66,
+                        height: 68,
+                        word: '$name, bước ${i + 1}',
+                      ),
+                      thumbnail: true,
                     ),
                   ),
                 ),

@@ -13,6 +13,21 @@ afterEach(() => { vi.restoreAllMocks(); rmSync(folder, { recursive: true, force:
 const file = `${'a'.repeat(64)}.mp4`;
 const query = (value: unknown) => ({ select: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue(value) });
 describe('published reference media', () => {
+  it('uses exact indexed URL checks after resolving an older origin and still blocks withdrawn media', async () => {
+    writeFileSync(path.join(folder, file), '0123456789');
+    const url = `https://old-tunnel.example/sign-media/${file}`;
+    const spy = vi.spyOn(DictionaryEntry, 'findOne')
+      .mockReturnValueOnce(query(null) as never)
+      .mockReturnValueOnce(query({_id: 'published', videoUrl: url}) as never)
+      .mockReturnValueOnce(query({_id: 'published', videoUrl: url}) as never)
+      .mockReturnValue(query(null) as never);
+    const app = express().use(createSignMediaRouter(folder));
+    await request(app).get(`/${file}`).expect(200);
+    await request(app).get(`/${file}`).set('Range', 'bytes=0-3').expect(206);
+    expect(JSON.stringify(spy.mock.calls[2][0])).toContain(url);
+    expect(JSON.stringify(spy.mock.calls[2][0])).not.toContain('$regex');
+    await request(app).get(`/${file}`).expect(404);
+  });
   it('streams byte ranges required for mobile seeking', async () => {
     writeFileSync(path.join(folder, file), Buffer.from('0123456789'));
     const spy = vi.spyOn(DictionaryEntry, 'findOne').mockReturnValue(query({ _id: 'published' }) as never);

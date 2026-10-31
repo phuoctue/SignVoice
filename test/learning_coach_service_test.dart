@@ -39,8 +39,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Khám phá'), findsOneWidget);
         expect(find.text('Đang học'), findsWidgets);
-        expect(find.text('Từ của tôi'), findsOneWidget);
-        await tester.ensureVisible(find.text('Gợi ý ôn tập'));
+        expect(find.text('Bộ sưu tập'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Gợi ý ôn tập'),
+          300,
+          scrollable: find.byType(Scrollable).first,
+        );
         await tester.tap(find.text('Gợi ý ôn tập'));
         await tester.pump();
         service.response.complete({
@@ -67,16 +71,29 @@ void main() {
     tester,
   ) async {
     http.Request? sent;
+    var ready = false;
     final transport = MockClient((request) async {
-      sent = request;
-      await Future<void>.delayed(const Duration(seconds: 45));
+      if (request.method == 'POST') {
+        sent = request;
+        Timer(const Duration(seconds: 45), () => ready = true);
+        return http.Response(
+          '{"data":{"id":"slow-coach","state":"pending"}}',
+          202,
+        );
+      }
       return http.Response(
         jsonEncode({
           'success': true,
-          'data': {
-            'source': 'lm-studio',
-            'advice': 'Ôn lại nhóm từ cần luyện tập.',
-          },
+          'data': ready
+              ? {
+                  'id': 'slow-coach',
+                  'state': 'completed',
+                  'result': {
+                    'source': 'lm-studio',
+                    'advice': 'Ôn lại nhóm từ cần luyện tập.',
+                  },
+                }
+              : {'id': 'slow-coach', 'state': 'pending'},
         }),
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
@@ -101,11 +118,12 @@ void main() {
     await tester.pump();
     expect(sent?.method, 'POST');
     expect(sent?.url.path, endsWith('/learning/coach'));
-    expect(jsonDecode(sent!.body), isEmpty);
+    expect(jsonDecode(sent!.body)['async'], true);
     await tester.pump(const Duration(seconds: 31));
     expect(failure, isNull);
     expect(result, isNull);
     await tester.pump(const Duration(seconds: 15));
+    await tester.pump(const Duration(seconds: 3));
     await pending;
     expect(result?['source'], 'lm-studio');
     expect(result?['advice'], contains('Ôn lại'));

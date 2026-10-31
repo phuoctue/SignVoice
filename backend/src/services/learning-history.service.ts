@@ -3,10 +3,10 @@ import { LearningEvent } from '../models/LearningEvent.model';
 import { WordProgress } from '../models/Learning.model';
 import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { Category } from '../models/Category.model';
-import { pagination, regexLiteral, PAGE_SIZE } from './learning.service';
+import { regexLiteral, PAGE_SIZE } from './learning.service';
 
 /** Older data is a labeled last-state snapshot, never a fabricated series of past events. */
-export async function learningHistory(userId: Types.ObjectId, page: number, search = '', entryId?: Types.ObjectId) {
+export async function learningHistory(userId: Types.ObjectId, page: number, search = '', entryId?: Types.ObjectId, pageSize = PAGE_SIZE) {
   const owner = { userId, ...(entryId ? { entryId } : {}) };
   const [data] = await LearningEvent.aggregate([
     { $match: owner },
@@ -31,7 +31,8 @@ export async function learningHistory(userId: Types.ObjectId, page: number, sear
       { topicName: { $regex: regexLiteral(search), $options: 'i' } },
     ] } }] : []),
     { $sort: { createdAt: -1, _id: -1 } },
-    { $facet: { count: [{ $count: 'total' }], items: [{ $skip: (page - 1) * PAGE_SIZE }, { $limit: PAGE_SIZE }] } },
+    { $facet: { count: [{ $count: 'total' }], items: [{ $skip: (page - 1) * pageSize }, { $limit: pageSize }] } },
   ]);
-  return { items: data?.items || [], pagination: pagination(page, data?.count[0]?.total || 0) };
+  const total = data?.count[0]?.total || 0;
+  return { items: data?.items || [], pagination: { page, pageSize, total, pages: Math.max(1, Math.ceil(total / pageSize)) } };
 }

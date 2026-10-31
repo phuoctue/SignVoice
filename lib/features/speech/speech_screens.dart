@@ -101,7 +101,7 @@ class _SpeechCaptureScreenState extends State<SpeechCaptureScreen>
           ),
         )
       : AppPage(
-          title: 'Giọng nói → Hình ảnh',
+          title: 'Giọng nói thành ký hiệu',
           child: Column(
             children: [
               const SizedBox(height: 24),
@@ -307,6 +307,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
     }
     return AppPage(
       title: 'Văn bản & ký hiệu',
+      contentMaxWidth: 1080,
       actions: [
         IconButton(
           tooltip: 'Giảm cỡ chữ',
@@ -319,26 +320,6 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
           icon: const Icon(Icons.add),
         ),
       ],
-      footer: editing
-          ? null
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppButton(
-                  'Toàn màn hình',
-                  color: AppColors.teal,
-                  icon: Icons.fullscreen,
-                  onPressed: () => openScreen(context, 'S19'),
-                ),
-                const SizedBox(height: 10),
-                AppButton(
-                  'Ghi nhận lại',
-                  outlined: true,
-                  icon: Icons.refresh,
-                  onPressed: () => openScreen(context, 'S16', replace: true),
-                ),
-              ],
-            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -350,7 +331,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
           const SizedBox(height: 18),
           AppCard(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 180),
+              constraints: const BoxConstraints(minHeight: 120),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: editing
@@ -418,12 +399,75 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
               ],
             )
           else
-            AppButton(
-              'Chỉnh sửa văn bản',
-              secondary: true,
-              icon: Icons.edit_outlined,
-              onPressed: beginEdit,
+            ActionGroup(
+              children: [
+                AppButton(
+                  'Chỉnh sửa văn bản',
+                  secondary: true,
+                  icon: Icons.edit_outlined,
+                  onPressed: beginEdit,
+                ),
+                AppButton(
+                  'Sao chép',
+                  outlined: true,
+                  icon: Icons.copy_outlined,
+                  onPressed: editing
+                      ? null
+                      : () async {
+                          await Clipboard.setData(ClipboardData(text: text));
+                          if (context.mounted) {
+                            toast(context, 'Đã sao chép văn bản.');
+                          }
+                        },
+                ),
+                AppButton(
+                  'Lưu lịch sử',
+                  color: AppColors.green,
+                  secondary: true,
+                  icon: Icons.save_outlined,
+                  onPressed: editing
+                      ? null
+                      : () async {
+                          if (state.guest) {
+                            openScreen(context, 'S06');
+                            return;
+                          }
+                          final success = await state.saveConversation(
+                            text,
+                            ConversationDirection.speechToText,
+                          );
+                          if (!context.mounted) return;
+                          if (success) {
+                            openScreen(context, 'SS03');
+                          } else {
+                            toast(
+                              context,
+                              state.error ?? 'Không lưu được hội thoại.',
+                            );
+                          }
+                        },
+                ),
+              ],
             ),
+          if (!editing) ...[
+            const SizedBox(height: 12),
+            ActionGroup(
+              children: [
+                AppButton(
+                  'Toàn màn hình',
+                  outlined: true,
+                  icon: Icons.fullscreen,
+                  onPressed: () => openScreen(context, 'S19'),
+                ),
+                AppButton(
+                  'Ghi nhận lại',
+                  outlined: true,
+                  icon: Icons.refresh,
+                  onPressed: () => openScreen(context, 'S16', replace: true),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           Visibility(
             visible: !editing,
@@ -431,45 +475,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
             child: SignSequencePanel(text: text),
           ),
           const SizedBox(height: 10),
-          AppButton(
-            'Sao chép',
-            outlined: true,
-            icon: Icons.copy_outlined,
-            onPressed: editing
-                ? null
-                : () async {
-                    await Clipboard.setData(ClipboardData(text: text));
-                    if (context.mounted) toast(context, 'Đã sao chép văn bản.');
-                  },
-          ),
           const SizedBox(height: 10),
-          AppButton(
-            'Lưu lịch sử',
-            color: AppColors.green,
-            secondary: true,
-            icon: Icons.save_outlined,
-            onPressed: editing
-                ? null
-                : () async {
-                    if (state.guest) {
-                      openScreen(context, 'S06');
-                      return;
-                    }
-                    final success = await state.saveConversation(
-                      text,
-                      ConversationDirection.speechToText,
-                    );
-                    if (!context.mounted) return;
-                    if (success) {
-                      openScreen(context, 'SS03');
-                    } else {
-                      toast(
-                        context,
-                        state.error ?? 'Không lưu được hội thoại.',
-                      );
-                    }
-                  },
-          ),
         ],
       ),
     );

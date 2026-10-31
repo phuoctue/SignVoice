@@ -25,9 +25,10 @@ info:
 
     Người dùng có thể tạo tài khoản guest tạm thời mà không cần email/password.
     Guest có thể chuyển đổi thành tài khoản vĩnh viễn sau này.
-    Khách được xem kho công khai và một phiên thử 10 phút, tính từ POST /api/v1/guest-trial/start.
+    Khách được xem kho công khai và một phiên thử 10 phút, tự động bắt đầu khi POST /api/v1/auth/guest thành công sau xác nhận dùng thử.
     Máy chủ giữ hạn dùng qua refresh token và các lần vào Khách trên cùng định danh bản cài đặt.
-    Lưu hội thoại/yêu thích và đồng bộ cá nhân yêu cầu tài khoản chính thức.
+    Lưu hội thoại/yêu thích, bộ sưu tập riêng và đồng bộ cá nhân yêu cầu tài khoản chính thức.
+    Hết hạn chặn cả học tập/đang học/quiz; chỉ còn đọc từ điển và xem trước chủ đề công khai.
 
     ## Giới hạn
 
@@ -74,6 +75,17 @@ components:
       description: JWT access token nhận được từ endpoint đăng nhập
 
   schemas:
+    CollectionPersonalWord:
+      type: object
+      additionalProperties: false
+      required: [word, definition]
+      properties:
+        word: {type: string, minLength: 1, maxLength: 100}
+        definition: {type: string, minLength: 1, maxLength: 2000}
+        usageExample: {type: string, maxLength: 1000, default: ''}
+        notes: {type: string, maxLength: 2000, default: ''}
+        imageUrl: {type: string, maxLength: 1500000, default: '', description: 'HTTPS image URL or JPEG/PNG/WebP base64 data URL'}
+        videoUrl: {type: string, maxLength: 2000, default: '', description: 'HTTPS URL or empty'}
     GuestTrialStatus:
       type: object
       required: [state, serverNow, durationSeconds, remainingSeconds]
@@ -165,6 +177,17 @@ components:
           $ref: '#/components/schemas/AuthUser'
         tokens:
           $ref: '#/components/schemas/TokenPair'
+
+    RegistrationData:
+      type: object
+      required: [user, loginRequired]
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        loginRequired:
+          type: boolean
+          enum: [true]
+      description: Account created without tokens or an authenticated session. Sign in separately.
 
     User:
       type: object
@@ -835,6 +858,630 @@ components:
           format: date-time
 
 paths:
+  /api/v1/admin/collections:
+    get:
+      tags: [Admin]
+      summary: List public or explicitly reported collection snapshots
+      description: Requires management access and collections:read. Never enumerates unreported private/unlisted sets. Returns 10 public snapshots with canonical word counts and batched open-report counts. No owner/reporter identity, private words, notes, progress or share token.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {in: query, name: search, schema: {type: string, maxLength: 80}}
+        - {in: query, name: status, schema: {type: string, enum: [ALL, CLEAR, HIDDEN, BLOCKED, REPORTED, REVIEW_REQUESTED], default: ALL}}
+      responses:
+        '200': {description: 'data.items and data.pagination; names and avatars come from submitted public snapshots'}
+        '400': {description: Invalid filters}
+        '401': {description: Authentication required}
+        '403': {description: Missing management or collection read permission}
+  /api/v1/admin/collections/{id}:
+    get:
+      tags: [Admin]
+      summary: Preview a submitted snapshot and its current published dictionary references
+      description: Requires collections:read. At most 10 canonical words per page. Private changes after withdrawal remain invisible until explicit owner resubmission or a recipient report of the shared content.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+      responses:
+        '200': {description: 'data.collection includes moderationState, moderationVersion, reason and snapshot time; data.items contain only published dictionary entries'}
+        '401': {description: Authentication required}
+        '403': {description: Missing read permission}
+        '404': {description: No submitted snapshot available}
+  /api/v1/admin/collections/{id}/moderation:
+    post:
+      tags: [Admin]
+      summary: Hide, block or restore sharing with an audited reason
+      description: Requires collections:read and collections:moderate. HIDDEN excludes discovery but keeps capability links; BLOCKED also blocks preview and new imports. CLEAR respects the owner's present sharing choice. State and AuditLog commit atomically. Restoration of changed shared content requires an updated submission; existing independent copies and original private data remain intact.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state, reason, version]
+              properties:
+                state: {type: string, enum: [CLEAR, HIDDEN, BLOCKED]}
+                reason: {type: string, minLength: 5, maxLength: 1000}
+                version: {type: integer, minimum: 0}
+      responses:
+        '200': {description: New moderation metadata}
+        '400': {description: Invalid reason or input}
+        '401': {description: Authentication required}
+        '403': {description: Missing moderation permission}
+        '404': {description: No submitted snapshot}
+        '409': {description: Stale version, unchanged state or changed content awaiting resubmission}
+  /api/v1/admin/collections/{id}/reports:
+    get:
+      tags: [Admin]
+      summary: Read paged reports without reporter identity
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {in: query, name: status, schema: {type: string, enum: [ALL, OPEN, RESOLVED, DISMISSED], default: OPEN}}
+      responses:
+        '200': {description: '10 reports per page; category, details, resolution, status and timestamps only'}
+        '401': {description: Authentication required}
+        '403': {description: Missing collection read permission}
+        '404': {description: No submitted snapshot}
+  /api/v1/admin/collections/{id}/reports/{reportId}/resolve:
+    post:
+      tags: [Admin]
+      summary: Resolve or dismiss an open report with an audited reason
+      description: Requires collections:moderate and collections:read. Does not implicitly change sharing state. Rejects already handled reports and writes AuditLog in the same transaction.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: path, name: reportId, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, reason]
+              properties:
+                status: {type: string, enum: [RESOLVED, DISMISSED]}
+                reason: {type: string, minLength: 5, maxLength: 1000}
+      responses:
+        '200': {description: Report resolved}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Missing moderation permission}
+        '404': {description: No submitted snapshot}
+        '409': {description: Report already handled or unavailable}
+  /api/v1/admin/collections/{id}/history:
+    get:
+      tags: [Admin]
+      summary: Read paged immutable collection moderation history
+      description: Requires collections:read. Shows action-time moderator name/role, action, reason and timestamp. Owner resubmissions are labelled as owner without revealing account identity. AuditLog uses its existing one-year retention policy.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+      responses:
+        '200': {description: 10 history events per page}
+        '401': {description: Authentication required}
+        '403': {description: Missing collection read permission}
+        '404': {description: No submitted snapshot}
+  /api/v1/shared-collections/{code}/reports:
+    post:
+      tags: [Dictionary]
+      summary: Report a currently accessible shared collection
+      description: Permanent account required; 10 requests/hour/account. One open report per collection and reporter, duplicate submission is idempotent. Self-reporting and invalid/revoked/blocked capability codes are rejected. Reports do not automatically block collections. The submitted shared snapshot becomes available to moderators, never the owner's private words or notes.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: code, required: true, schema: {type: string, pattern: '^[a-f0-9]{32}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [category]
+              properties:
+                category: {type: string, enum: [INAPPROPRIATE, MISLEADING, SPAM, COPYRIGHT, OTHER]}
+                details: {type: string, maxLength: 1000, default: '', description: At least 5 characters when category is OTHER}
+      responses:
+        '200': {description: 'data.received and data.alreadyReported, without report/account IDs'}
+        '400': {description: Invalid input or self-report}
+        '401': {description: Authentication required}
+        '403': {description: Permanent account required}
+        '404': {description: Shared content unavailable}
+        '429': {description: Too many reports}
+  /api/v1/sign-collections/{id}/moderation-review:
+    post:
+      tags: [Dictionary]
+      summary: Owner explicitly resubmits updated shared fields for moderation
+      description: Permanent owner account required. Captures current name, avatar, description and dictionary reference IDs; never private words/notes/progress. Does not unblock or publish the collection. Later metadata or entry edits invalidate the pending submission so the owner can submit the next version.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        '200': {description: Review requested}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permanent account required}
+        '404': {description: Collection not owned by caller}
+        '409': {description: Already pending or no restriction to review}
+  /api/v1/sign-collections/{id}/personal-words/available:
+    get:
+      tags: [Dictionary]
+      summary: List the owner's preserved private words not assigned to a collection
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {in: query, name: search, schema: {type: string, maxLength: 80}}
+      responses:
+        '200': {description: '10 words/page, without photos; owned collection required'}
+        '401': {description: Authentication required}
+        '404': {description: Collection not owned by the caller}
+  /api/v1/sign-collections/{id}/personal-words/attach:
+    post:
+      tags: [Dictionary]
+      summary: Attach existing private words without copying or deleting their content
+      description: Owner-only atomic batch. Repeating a successful request is idempotent. Words assigned to another collection are rejected. Combined limit is 200 library and private words.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [wordIds]
+              properties:
+                wordIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Attached atomically}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '404': {description: Collection or words unavailable to caller}
+        '409': {description: Combined collection size exceeds 200}
+  /api/v1/sign-collections/{id}/personal-words:
+    post:
+      tags: [Dictionary]
+      summary: Create a private word inside an owned collection
+      description: Private words never appear in public previews, discovery, imports or library quizzes.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CollectionPersonalWord'}
+      responses:
+        '201': {description: Private word created}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '404': {description: Collection not owned by caller}
+        '409': {description: Combined collection size exceeds 200}
+  /api/v1/sign-collections/{id}/personal-words/{wordId}:
+    get:
+      tags: [Dictionary]
+      summary: Read a private word including its full photo for viewing or editing
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: path, name: wordId, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      responses:
+        '200': {description: 'Owned word, including imageUrl; never publicly cached'}
+        '401': {description: Authentication required}
+        '404': {description: Word or collection not owned by caller}
+    patch:
+      tags: [Dictionary]
+      summary: Replace editable fields of an owned collection private word
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: path, name: wordId, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CollectionPersonalWord'}
+      responses:
+        '200': {description: Saved; supplied fields replace previous values}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '404': {description: Word or collection not owned by caller}
+    delete:
+      tags: [Dictionary]
+      summary: Permanently delete a private word owned by the caller
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+        - {in: path, name: wordId, required: true, schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      responses:
+        '200': {description: Deleted}
+        '401': {description: Authentication required}
+        '404': {description: Word or collection not owned by caller}
+  /api/v1/shared-collections:
+    get:
+      tags: [Dictionary]
+      summary: Khám phá bộ sưu tập được chủ bộ đăng công khai
+      description: Không cần đăng nhập. Tối đa 10 bộ mỗi trang; chỉ bộ chủ động bật discoverable của tài khoản chính thức đang hoạt động. Không trả thông tin tác giả, ghi chú hoặc tiến độ. Media được lấy lại từ từ điển chuẩn theo lô; bộ có media vừa bị gỡ có thể tạm có wordCount bằng 0.
+      security: []
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - in: query
+          name: search
+          schema: {type: string, maxLength: 80, default: ''}
+      responses:
+        '200': {description: data.items chứa tên/mô tả/wordCount/thumbnailUrl/shareCode và pagination}
+        '400': {description: Truy vấn không hợp lệ}
+        '429': {description: Giới hạn 60 yêu cầu/phút}
+  /api/v1/sign-collections/{id}/discovery:
+    post:
+      tags: [Dictionary]
+      summary: Đăng hoặc gỡ bộ khỏi khám phá công khai
+      description: Chỉ chủ bộ có tài khoản chính thức. Bật cần ít nhất một từ công khai, tạo mã chia sẻ nếu chưa có. Tắt chỉ gỡ khỏi danh sách, giữ liên kết cũ. Tắt toàn bộ chia sẻ tại /share thu hồi cả mã và khám phá. Bộ nhập từ người khác luôn riêng tư mặc định.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+      responses:
+        '200': {description: data chứa trạng thái discoverable và shareCode của chủ bộ}
+        '400': {description: Dữ liệu không hợp lệ}
+        '401': {description: Chưa đăng nhập}
+        '403': {description: Tài khoản khách không được đăng công khai}
+        '404': {description: Bộ không tồn tại hoặc không thuộc tài khoản}
+        '409': {description: Chưa có từ công khai trong bộ}
+        '429': {description: Thay đổi quá nhanh}
+  /api/v1/sign-collections:
+    get:
+      tags: [Dictionary]
+      summary: Danh sách bộ sưu tập riêng
+      description: Tối đa 10 bộ mỗi trang; tổng hợp từ và tiến độ theo lô. Tối đa 100 bộ mỗi tài khoản.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - in: query
+          name: search
+          schema: {type: string, maxLength: 80, default: ''}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+    post:
+      tags: [Dictionary]
+      summary: Tạo bộ sưu tập riêng
+      description: Từ thư viện dùng tham chiếu trực tiếp; bộ có thể chứa từ riêng và ảnh đại diện thu nhỏ.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 80}
+                description: {type: string, maxLength: 500, default: ""}
+                avatarImage: {type: string, maxLength: 100000, description: 'JPEG/PNG/WebP base64 data URL, tối đa 72 KiB; chuỗi rỗng để bỏ ảnh'}
+      responses:
+        '201': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/import:
+    post:
+      tags: [Dictionary]
+      summary: Nhập bộ được chia sẻ
+      description: Tạo bản độc lập gồm ảnh đại diện bộ và từ thư viện; nhập lặp trả lại bộ đã lưu. Không sao chép từ riêng, ghi chú hoặc tiến độ.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code: {type: string, pattern: '^[a-f0-9]{32}$'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}:
+    get:
+      tags: [Dictionary]
+      summary: Nội dung bộ sưu tập riêng
+      description: Tối đa 10 từ thư viện khả dụng hoặc từ riêng mỗi trang. isPersonal và stage PRIVATE phân biệt từ riêng; summary.personal không tính vào tiến độ thư viện. Ảnh từ riêng trên 100000 ký tự được bỏ khỏi trang với imageDeferred true; GET personal-words/{wordId} lấy ảnh đầy đủ khi mở/sửa.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - in: query
+          name: search
+          schema: {type: string, maxLength: 80, default: ''}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+    patch:
+      tags: [Dictionary]
+      summary: Đổi tên, mô tả và ảnh đại diện bộ
+      description: Chỉ chủ bộ được sửa. Không gửi avatarImage thì giữ ảnh hiện có; chuỗi rỗng để bỏ ảnh.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 80}
+                description: {type: string, maxLength: 500, default: ""}
+                avatarImage: {type: string, maxLength: 100000, description: 'JPEG/PNG/WebP base64 data URL, tối đa 72 KiB'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+    delete:
+      tags: [Dictionary]
+      summary: Xóa bộ sưu tập
+      description: Giữ từ điển, ghi chú và tiến độ; kết thúc bài ôn dở. Từ riêng được bỏ collectionId, vẫn giữ nội dung/ảnh và có thể thêm vào bộ khác.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}/candidates:
+    get:
+      tags: [Dictionary]
+      summary: Chọn từ công khai cho bộ
+      description: Tối đa 10 từ mỗi trang; inCollection cho biết từ đã có trong bộ.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - in: query
+          name: search
+          schema: {type: string, maxLength: 80, default: ''}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}/entries:
+    post:
+      tags: [Dictionary]
+      summary: Thêm nhiều từ vào bộ
+      description: Thêm lặp không tạo trùng. Mỗi bộ tối đa 200 từ; 409 khi có từ không còn khả dụng.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [entryIds]
+              properties:
+                entryIds: {type: array, minItems: 1, maxItems: 200, items: {type: string, pattern: '^[a-fA-F0-9]{24}$'}}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}/entries/{entryId}:
+    delete:
+      tags: [Dictionary]
+      summary: Gỡ từ khỏi bộ
+      description: Không xóa ghi chú hoặc tiến độ dùng chung của từ.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+        - in: path
+          name: entryId
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}/quiz:
+    post:
+      tags: [Dictionary]
+      summary: Bắt đầu hoặc tiếp tục quiz của bộ
+      description: VIDEO_RECALL tối đa 10 từ, đa chủ đề. collectionId thay topicId ở phạm vi bài; mỗi câu giữ topicId gốc. libraryChanged báo bài dở hết hiệu lực sau cập nhật media.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-collections/{id}/share:
+    post:
+      tags: [Dictionary]
+      summary: Bật hoặc thu hồi mã chia sẻ
+      description: Mã ngẫu nhiên 128 bit. Tắt mã có hiệu lực ngay; bản người nhận đã nhập vẫn độc lập.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/shared-collections/{code}:
+    get:
+      tags: [Dictionary]
+      summary: Xem trước bộ được chia sẻ
+      description: Không cần đăng nhập. Chỉ từ công khai; không trả owner, email, ghi chú hoặc tiến độ. 60 yêu cầu/phút.
+      security: []
+      parameters:
+        - in: path
+          name: code
+          required: true
+          schema: {type: string, pattern: '^[a-f0-9]{32}$'}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - in: query
+          name: search
+          schema: {type: string, maxLength: 80, default: ''}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/sign-notes/{id}:
+    get:
+      tags: [Dictionary]
+      summary: Đọc ghi chú riêng của một từ
+      description: id là ID từ điển; chỉ trả ghi chú của người gọi.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+    put:
+      tags: [Dictionary]
+      summary: Lưu hoặc xóa ghi chú riêng
+      description: Chuỗi rỗng xóa ghi chú. Không đưa ghi chú vào mã chia sẻ.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 2000}
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '401': {description: Yêu cầu đăng nhập}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
+  /api/v1/library/version:
+    get:
+      tags: [Dictionary]
+      summary: Phiên bản thư viện media
+      description: Trả data.revision và updatedAt. Client kiểm tra lúc mở, quay lại ứng dụng và mỗi 60 giây foreground; không đổi phiên đăng nhập.
+      security: []
+      responses:
+        '200': {description: Thành công; dữ liệu trong data}
+        '400': {description: Đầu vào không hợp lệ}
+        '404': {description: Không có dữ liệu hoặc không thuộc tài khoản}
+        '409': {description: Giới hạn hoặc dữ liệu đã thay đổi}
   /api/v1/auth/google/native/challenge:
     post:
       tags: [Authentication]
@@ -1077,7 +1724,7 @@ paths:
       tags:
         - Authentication
       summary: Đăng ký tài khoản mới
-      description: Tạo tài khoản người dùng mới với email và password
+      description: Tạo tài khoản email. Web/mobile mới gửi requireLogin=true để không cấp phiên đăng nhập; client cũ vẫn được hỗ trợ khi không gửi cờ này.
       operationId: register
       requestBody:
         required: true
@@ -1102,9 +1749,12 @@ paths:
                 displayName:
                   type: string
                   example: "Nguyễn Văn A"
+                requireLogin:
+                  type: boolean
+                  description: Gửi true để tạo tài khoản và yêu cầu đăng nhập riêng, không trả tokens.
       responses:
         '201':
-          description: Đăng ký thành công
+          description: Đăng ký thành công; requireLogin=true trả RegistrationData, nếu không trả AuthData tương thích client cũ.
           content:
             application/json:
               schema:
@@ -1114,7 +1764,9 @@ paths:
                     type: boolean
                     example: true
                   data:
-                    $ref: '#/components/schemas/AuthData'
+                    oneOf:
+                      - $ref: '#/components/schemas/AuthData'
+                      - $ref: '#/components/schemas/RegistrationData'
         '400':
           description: Dữ liệu không hợp lệ
           content:
@@ -1208,7 +1860,7 @@ paths:
       tags:
         - Authentication
       summary: Chuyển đổi tài khoản guest thành vĩnh viễn
-      description: Thêm email và password cho tài khoản guest
+      description: Thêm email/password, giữ dữ liệu guest. requireLogin=true thu hồi phiên guest và yêu cầu đăng nhập riêng; không cấp phiên mới.
       operationId: convertGuest
       security:
         - bearerAuth: []
@@ -1234,9 +1886,12 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 50
+                requireLogin:
+                  type: boolean
+                  description: Gửi true để thu hồi phiên guest và yêu cầu đăng nhập bằng tài khoản vừa tạo.
       responses:
         '200':
-          description: Chuyển đổi thành công
+          description: Chuyển đổi thành công; requireLogin=true trả RegistrationData, nếu không trả AuthData tương thích client cũ.
           content:
             application/json:
               schema:
@@ -1245,7 +1900,9 @@ paths:
                   success:
                     type: boolean
                   data:
-                    $ref: '#/components/schemas/AuthData'
+                    oneOf:
+                      - $ref: '#/components/schemas/AuthData'
+                      - $ref: '#/components/schemas/RegistrationData'
         '400':
           description: Không phải tài khoản guest hoặc dữ liệu không hợp lệ
           content:
@@ -2493,12 +3150,13 @@ paths:
       operationId: getPersonalLearningHistory
       security: [{ bearerAuth: [] }]
       parameters:
+        - { in: query, name: pageSize, schema: { type: integer, enum: [10, 20, 50], default: 10 } }
         - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
         - { in: query, name: search, schema: { type: string, maxLength: 80 } }
         - { in: query, name: entryId, schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' } }
       responses:
         '200':
-          description: Ten newest owned records per page, filtered before pagination; no userId in records
+          description: Newest owned records with bounded page size, filtered before pagination; no userId in records
           content:
             application/json:
               schema:
@@ -2621,25 +3279,34 @@ paths:
   /api/v1/learning/topics/{id}/quiz:
     post:
       tags: [Dictionary]
-      summary: Start or resume a private camera sign-recognition review quiz with up to ten due words
+      summary: Start or resume private recall practice; video-choice and camera clients remain supported
       operationId: startReviewQuiz
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                format: { type: string, enum: [CAMERA, VIDEO_CHOICE, VIDEO_RECALL], default: CAMERA }
       responses:
-        '200': { description: Quiz ID, camera prompts, sample media and saved capture labels }
-        '409': { description: Not enrolled or no words due for review }
+        '200': { description: 'VIDEO_RECALL returns up to ten media questions and text drafts; no options or answer labels before each check. Hints and checked responses survive resuming. VIDEO_CHOICE retains opaque option values; empty legacy bodies retain camera behavior.' }
+        '409': { description: Not enrolled, no due words, or insufficient available media and distinct distractors }
         '429': { description: Quiz request rate exceeded }
   /api/v1/learning/quizzes/{id}:
     get:
       tags: [Dictionary]
-      summary: Restore an owned camera quiz draft or completed recognition result
+      summary: Restore an owned quiz draft or completed result
       operationId: getReviewQuiz
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string } }
       responses:
-        '200': { description: Quiz questions, sample media, capture labels and persisted result }
+        '200': { description: Quiz kind, questions, media, saved selections and persisted result without draft answer keys }
         '404': { description: Quiz not found or owned by another account }
   /api/v1/learning/quizzes/{id}/answers:
     patch:
@@ -2664,8 +3331,8 @@ paths:
                   maxItems: 10
                   items: { type: string, maxLength: 1000 }
       responses:
-        '200': { description: Saved owned draft; answers must match the question count }
-        '400': { description: Invalid answer count or payload }
+        '200': { description: 'Saved owned draft. Recall answers are text up to 200 characters; checked answers are immutable. Choice answers are opaque option values. Empty strings permit partial drafts.' }
+        '400': { description: Invalid answer count, option from another question, unknown option or invalid payload }
         '404': { description: Quiz not found }
         '409': { description: Quiz completed or currently being graded }
   /api/v1/learning/quizzes/{id}/captures:
@@ -2695,17 +3362,118 @@ paths:
   /api/v1/learning/quizzes/{id}/submit:
     post:
       tags: [Dictionary]
-      summary: Score saved camera recognition results and atomically update review progress
+      summary: Save recall results or score legacy attempts and atomically update review progress
       operationId: submitReviewQuiz
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string } }
       responses:
-        '200': { description: Persisted camera recognition result; exact word matches become remembered unless progress changed meanwhile }
-        '400': { description: Missing camera captures or unexpected client fields }
+        '200': { description: 'Source video-recall has summary independent/assisted/review. Only an exact approved word or alias checked without a hint becomes remembered; assisted and self-confirmed answers remain review. Changed progress is preserved. Legacy sources video-choice and sign-ai-camera remain valid. Repeated submits never duplicate events; AI never grades.' }
+        '400': { description: Incomplete answers or unexpected client fields }
         '404': { description: Quiz not found }
         '409': { description: Quiz already being graded }
         '429': { description: Quiz request rate exceeded }
+  /api/v1/learning/quizzes/{id}/advice:
+    post:
+      tags: [Dictionary]
+      summary: Start private read-only LM Studio feedback for completed recall or video-choice practice
+      operationId: reviewQuizAdvice
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [async, requestKey]
+              additionalProperties: false
+              properties:
+                async: { type: boolean, enum: [true] }
+                requestKey: { type: string, pattern: '^[a-f0-9]{32}$' }
+      responses:
+        '202': { description: 'Owner-scoped background job; poll /learning/ai-jobs/{id}. Completed result has source lm-studio or rules and advice. Scores and progress never change.' }
+        '400': { description: Invalid async request }
+        '401': { description: Authentication required }
+        '404': { description: Quiz not found or owned by another account }
+        '409': { description: Quiz is not a completed recall or video-choice attempt }
+        '429': { description: Per-account request or concurrent AI job limit reached }
+  /api/v1/learning/quizzes/{id}/hint:
+    post:
+      tags: [Dictionary]
+      summary: Reveal a bounded spelling hint and persist assisted-recall state
+      operationId: hintReviewRecall
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entryId]
+              additionalProperties: false
+              properties:
+                entryId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+      responses:
+        '200': { description: Owned recall draft with persisted hint; repeated hints are idempotent }
+        '400': { description: Invalid question or payload }
+        '401': { description: Authentication required }
+        '404': { description: Not owned or not found }
+        '409': { description: Already checked, completed or not a recall draft }
+  /api/v1/learning/quizzes/{id}/check:
+    post:
+      tags: [Dictionary]
+      summary: Persist the first recall attempt and return its answer for comparison
+      operationId: checkReviewRecall
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entryId, answer]
+              additionalProperties: false
+              properties:
+                entryId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+                answer: { type: string, maxLength: 200 }
+                skip: { type: boolean, default: false }
+      responses:
+        '200': { description: 'EXACT/CLOSE/DIFFERENT/SKIPPED, server-recorded usedHint and approved answer. NFC, case, whitespace and outer punctuation normalize; accents are never removed to award a match. Exact retries are idempotent; no progress is changed until completion.' }
+        '400': { description: Empty non-skipped answer or invalid question/payload }
+        '401': { description: Authentication required }
+        '404': { description: Not owned or not found }
+        '409': { description: First checked answer changed, quiz completed or not recall }
+  /api/v1/learning/quizzes/{id}/assessment:
+    post:
+      tags: [Dictionary]
+      summary: Save explicit self-assessment for a checked non-exact recall answer
+      operationId: assessReviewRecall
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entryId, assessment]
+              additionalProperties: false
+              properties:
+                entryId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+                assessment: { type: string, enum: [SAME_MEANING, REVIEW] }
+      responses:
+        '200': { description: 'Self-assessment saved separately from verified matches. SAME_MEANING never awards objective points or automatically marks remembered.' }
+        '400': { description: Invalid question or assessment }
+        '401': { description: Authentication required }
+        '404': { description: Not owned or not found }
+        '409': { description: Not a checked non-exact draft answer }
   /api/v1/learning/my-words:
     get:
       tags: [Dictionary]

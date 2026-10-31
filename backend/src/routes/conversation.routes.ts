@@ -8,7 +8,7 @@ import { conversationDto, missing, userTransaction } from '../services/user-data
 
 const router = Router();
 router.use(requireAuth);
-router.use((req, res, next) => ['POST', 'PATCH'].includes(req.method) ? requirePermanentAccount(req, res, next) : next());
+router.use((req, res, next) => ['POST', 'PATCH', 'DELETE'].includes(req.method) ? requirePermanentAccount(req, res, next) : next());
 router.get('/', validate(z.object({query: conversationQuery})), async (req, res, next) => {
   try {
     const query = req.query as unknown as z.infer<typeof conversationQuery>;

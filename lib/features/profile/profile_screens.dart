@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,13 +17,6 @@ import '../../widgets/user_avatar.dart';
 import '../../services/user/avatar_picker.dart';
 import '../auth/auth_screens.dart';
 
-const avatarColors = [
-  AppColors.blue,
-  AppColors.teal,
-  AppColors.purple,
-  AppColors.green,
-];
-
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
   @override
@@ -38,15 +32,130 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
+  Widget desktopProfile(
+    BuildContext context,
+    AppState state,
+    AuthProvider auth,
+  ) {
+    Widget group(String title, List<(String, IconData, String)> rows) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Heading(title, size: 18),
+        const SizedBox(height: 12),
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: IconTile(
+              icon: row.$2,
+              title: row.$1,
+              onTap: () => openScreen(context, row.$3),
+            ),
+          ),
+        const SizedBox(height: 16),
+      ],
+    );
+    final info = AppCard(
+      child: Column(
+        children: [
+          UserAvatar(
+            accountId: state.accountId,
+            name: state.name,
+            url: state.avatarUrl,
+            color: avatarColors[state.avatarColor],
+          ),
+          const SizedBox(height: 20),
+          Heading(state.name, center: true),
+          const SizedBox(height: 8),
+          BodyText(state.email, center: true),
+          const SizedBox(height: 12),
+          SignVoiceBadge(
+            auth.user?.customRoleName ??
+                (auth.isAdmin
+                    ? 'Quản trị viên'
+                    : auth.isStaff
+                    ? 'Nhân viên'
+                    : 'Người dùng'),
+          ),
+          if (state.guest) ...[
+            const SizedBox(height: 16),
+            AppButton(
+              'Tạo tài khoản',
+              onPressed: () => openScreen(context, 'S06'),
+            ),
+          ],
+        ],
+      ),
+    );
+    final settings = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        group('Tài khoản', [
+          ('Chỉnh sửa hồ sơ', Icons.edit_outlined, 'S26'),
+          ('Quyền riêng tư', Icons.shield_outlined, 'S30'),
+        ]),
+        group('Ứng dụng', [
+          ('Cài đặt giọng nói', Icons.headphones_outlined, 'S27'),
+          ('Giao diện & Trợ năng', Icons.light_mode_outlined, 'S28'),
+          ('Lịch học', Icons.notifications_outlined, '/study-reminder'),
+          ('Đồng bộ dữ liệu', Icons.sync, 'S29'),
+        ]),
+        group('Khác', [('Thông tin ứng dụng', Icons.info_outline, 'S31')]),
+        TextButton.icon(
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          icon: const Icon(Icons.logout),
+          label: const Text('Đăng xuất'),
+          onPressed: () async {
+            final epoch = auth.accountEpoch;
+            if (await confirm(
+              context,
+              title: 'Đăng xuất?',
+              message: 'Bạn sẽ quay về màn hình đăng nhập.',
+              destructive: true,
+            )) {
+              if (!context.mounted || auth.accountEpoch != epoch) return;
+              await auth.logout();
+              if (context.mounted) openRoot(context, 'S05');
+            }
+          },
+        ),
+      ],
+    );
+    return AppPage(
+      title: isDesktopLayout(context) ? 'Hồ sơ' : 'Cá nhân',
+      showBack: false,
+      tabIndex: 3,
+      contentMaxWidth: 1160,
+      child: LayoutBuilder(
+        builder: (context, c) =>
+            c.maxWidth >= 800 && MediaQuery.textScalerOf(context).scale(1) < 1.6
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 320, child: info),
+                  const SizedBox(width: 32),
+                  Expanded(child: settings),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [info, const SizedBox(height: 24), settings],
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final auth = context.watch<AuthProvider>();
+    if (isDesktopLayout(context)) return desktopProfile(context, state, auth);
     const items = <(String, IconData, String)>[
       ('Chỉnh sửa hồ sơ', Icons.edit_outlined, 'S26'),
       ('Cài đặt giọng nói', Icons.headphones_outlined, 'S27'),
       ('Giao diện & Trợ năng', Icons.light_mode_outlined, 'S28'),
-      ('Lịch học & thông báo', Icons.notifications_outlined, '/study-reminder'),
+      ('Lịch học', Icons.notifications_outlined, '/study-reminder'),
       ('Đồng bộ dữ liệu', Icons.sync, 'S29'),
       ('Quyền riêng tư', Icons.shield_outlined, 'S30'),
       ('Thông tin ứng dụng', Icons.info_outline, 'S31'),
@@ -105,14 +214,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           const SizedBox(height: 26),
-          for (final item in items) ...[
-            IconTile(
-              icon: item.$2,
-              title: item.$1,
-              onTap: () => openScreen(context, item.$3),
-            ),
-            const SizedBox(height: 10),
-          ],
+          AdaptiveCardGrid(
+            children: [
+              for (final item in items)
+                IconTile(
+                  icon: item.$2,
+                  title: item.$1,
+                  onTap: () => openScreen(context, item.$3),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
           IconTile(
             icon: Icons.logout,
             title: state.guest ? 'Kết thúc dùng thử' : 'Đăng xuất',
@@ -122,6 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (await confirm(
                 context,
                 title: 'Đăng xuất?',
+                destructive: true,
                 message: 'Bạn sẽ quay về màn hình đăng nhập.',
               )) {
                 if (!context.mounted || auth.accountEpoch != epoch) return;
@@ -290,7 +403,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _linkGoogle() async {
     final auth = context.read<AuthProvider>();
-    if (saving || picking || linkingGoogle || auth.user?.googleLinked != false) {
+    if (saving ||
+        picking ||
+        linkingGoogle ||
+        auth.user?.googleLinked != false) {
       return;
     }
     final account = auth.accountEpoch;
@@ -317,139 +433,149 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       canPop: !saving,
       child: AppPage(
         title: 'Chỉnh sửa hồ sơ',
-        child: Form(
-          key: form,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (loading) const LinearProgressIndicator(),
-              if (error != null) ...[
-                Notice(error!),
-                if (name.text.isEmpty)
-                  TextButton(onPressed: _load, child: const Text('Thử lại')),
-              ],
-              if (!loading && name.text.isNotEmpty) ...[
-                Center(
-                  child: UserAvatar(
-                    accountId: state.accountId,
-                    name: name.text,
-                    url: avatar.text,
-                    color: avatarColors[color],
-                    radius: 44,
-                    preview: selectedAvatar?.bytes,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                AppButton(
-                  picking ? 'Đang chọn ảnh...' : 'Chọn ảnh đại diện',
-                  outlined: true,
-                  icon: Icons.photo_library_outlined,
-                  busy: picking,
-                  onPressed: saving || picking ? null : _pickAvatar,
-                ),
-                if (selectedAvatar != null || avatar.text.isNotEmpty)
-                  TextButton.icon(
-                    onPressed: saving || picking
-                        ? null
-                        : () => setState(() {
-                            selectedAvatar = null;
-                            avatar.clear();
-                          }),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Bỏ ảnh đại diện'),
-                  ),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  children: [
-                    for (var i = 0; i < avatarColors.length; i++)
-                      IconButton(
-                        onPressed: saving
-                            ? null
-                            : () => setState(() => color = i),
-                        tooltip: 'Màu đại diện ${i + 1}',
-                        icon: Icon(
-                          color == i ? Icons.check_circle : Icons.circle,
-                          color: avatarColors[i],
-                        ),
-                      ),
-                  ],
-                ),
-                TextFormField(
-                  controller: name,
-                  enabled: !saving,
-                  decoration: const InputDecoration(labelText: 'Họ và tên'),
-                  validator: (value) =>
-                      (value?.trim().length ?? 0) < 2 ||
-                          (value?.trim().length ?? 0) > 50
-                      ? 'Tên cần từ 2 đến 50 ký tự.'
-                      : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: email,
-                  enabled: !saving && state.accountType == 'LOCAL',
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  validator: state.accountType == 'LOCAL'
-                      ? validateEmail
-                      : null,
-                  onChanged: (_) => setState(() {}),
-                ),
-                if (state.accountType == 'LOCAL' &&
-                    email.text.trim() != state.email)
-                  TextFormField(
-                    controller: password,
-                    enabled: !saving,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Mật khẩu hiện tại để đổi email',
+        contentMaxWidth: 780,
+        child: AppCard(
+          child: Form(
+            key: form,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (loading) const LinearProgressIndicator(),
+                if (error != null) ...[
+                  Notice(error!),
+                  if (name.text.isEmpty)
+                    TextButton(onPressed: _load, child: const Text('Thử lại')),
+                ],
+                if (!loading && name.text.isNotEmpty) ...[
+                  Center(
+                    child: UserAvatar(
+                      accountId: state.accountId,
+                      name: name.text,
+                      url: avatar.text,
+                      color: avatarColors[color],
+                      radius: 44,
+                      preview: selectedAvatar?.bytes,
                     ),
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Vui lòng nhập mật khẩu hiện tại.'
+                  ),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: SizedBox(
+                      width: 280,
+                      child: AppButton(
+                        picking ? 'Đang chọn ảnh...' : 'Chọn ảnh đại diện',
+                        outlined: true,
+                        icon: Icons.photo_library_outlined,
+                        busy: picking,
+                        onPressed: saving || picking ? null : _pickAvatar,
+                      ),
+                    ),
+                  ),
+                  if (selectedAvatar != null || avatar.text.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: saving || picking
+                          ? null
+                          : () => setState(() {
+                              selectedAvatar = null;
+                              avatar.clear();
+                            }),
+                      icon: const Icon(Icons.close),
+                      label: const Text('Bỏ ảnh đại diện'),
+                    ),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (var i = 0; i < avatarColors.length; i++)
+                        IconButton(
+                          onPressed: saving
+                              ? null
+                              : () => setState(() => color = i),
+                          tooltip: 'Màu đại diện ${i + 1}',
+                          icon: Icon(
+                            color == i ? Icons.check_circle : Icons.circle,
+                            color: avatarColors[i],
+                          ),
+                        ),
+                    ],
+                  ),
+                  TextFormField(
+                    controller: name,
+                    enabled: !saving,
+                    decoration: const InputDecoration(labelText: 'Họ và tên'),
+                    validator: (value) =>
+                        (value?.trim().length ?? 0) < 2 ||
+                            (value?.trim().length ?? 0) > 50
+                        ? 'Tên cần từ 2 đến 50 ký tự.'
                         : null,
                   ),
-                const SizedBox(height: 16),
-                const SizedBox(height: 24),
-                AppButton(
-                  'Lưu thay đổi',
-                  busy: saving,
-                  onPressed: saving || picking || linkingGoogle ? null : _save,
-                ),
-                if (!state.guest &&
-                    auth.user?.accountType == AccountType.local) ...[
-                  const SizedBox(height: 28),
-                  const Heading('Đăng nhập & bảo mật', size: 18),
-                  const SizedBox(height: 12),
-                  if (NativeGoogleSignIn.supported) ...[
-                    IconTile(
-                      icon: Icons.link,
-                      title: auth.user!.googleLinked
-                          ? 'Đã liên kết Google'
-                          : linkingGoogle
-                          ? 'Đang liên kết Google…'
-                          : 'Liên kết Google',
-                      trailing: auth.user!.googleLinked
-                          ? const Icon(Icons.check_circle_outline)
-                          : null,
-                      onTap:
-                          saving ||
-                              picking ||
-                              linkingGoogle ||
-                              auth.user!.googleLinked
-                          ? null
-                          : _linkGoogle,
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  IconTile(
-                    icon: Icons.lock_reset,
-                    title: 'Đổi mật khẩu',
-                    onTap: saving || picking || linkingGoogle
-                        ? null
-                        : () => openScreen(context, 'change-password'),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: email,
+                    enabled: !saving && state.accountType == 'LOCAL',
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    validator: state.accountType == 'LOCAL'
+                        ? validateEmail
+                        : null,
+                    onChanged: (_) => setState(() {}),
                   ),
+                  if (state.accountType == 'LOCAL' &&
+                      email.text.trim() != state.email)
+                    TextFormField(
+                      controller: password,
+                      enabled: !saving,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Mật khẩu hiện tại để đổi email',
+                      ),
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Vui lòng nhập mật khẩu hiện tại.'
+                          : null,
+                    ),
+                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
+                  AppButton(
+                    'Lưu thay đổi',
+                    busy: saving,
+                    onPressed: saving || picking || linkingGoogle
+                        ? null
+                        : _save,
+                  ),
+                  if (!state.guest &&
+                      auth.user?.accountType == AccountType.local) ...[
+                    const SizedBox(height: 28),
+                    const Heading('Đăng nhập & bảo mật', size: 18),
+                    const SizedBox(height: 12),
+                    if (NativeGoogleSignIn.supported) ...[
+                      IconTile(
+                        icon: Icons.link,
+                        title: auth.user!.googleLinked
+                            ? 'Đã liên kết Google'
+                            : linkingGoogle
+                            ? 'Đang liên kết Google…'
+                            : 'Liên kết Google',
+                        trailing: auth.user!.googleLinked
+                            ? const Icon(Icons.check_circle_outline)
+                            : null,
+                        onTap:
+                            saving ||
+                                picking ||
+                                linkingGoogle ||
+                                auth.user!.googleLinked
+                            ? null
+                            : _linkGoogle,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    IconTile(
+                      icon: Icons.lock_reset,
+                      title: 'Đổi mật khẩu',
+                      onTap: saving || picking || linkingGoogle
+                          ? null
+                          : () => openScreen(context, 'change-password'),
+                    ),
+                  ],
                 ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -536,50 +662,60 @@ class VoiceSettingsScreen extends StatelessWidget {
     final state = AppScope.of(context);
     return AppPage(
       title: 'Cài đặt giọng nói',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (state.saving) const LinearProgressIndicator(),
-          _PreferenceSlider(
-            label: 'Tốc độ đọc',
-            value: state.speechSpeed,
-            enabled: !state.saving,
-            save: (value) =>
-                savePreference(context, state, {'speechSpeed': value}),
-          ),
-          _PreferenceSlider(
-            label: 'Cao độ',
-            value: state.speechPitch,
-            enabled: !state.saving,
-            save: (value) =>
-                savePreference(context, state, {'speechPitch': value}),
-          ),
-          SwitchListTile(
-            title: const Text('Tự động phát'),
-            subtitle: const Text('Mở trình phát khi xác nhận câu'),
-            value: state.autoSpeak,
-            onChanged: state.saving
-                ? null
-                : (value) =>
-                      savePreference(context, state, {'autoSpeak': value}),
-          ),
-          const SizedBox(height: 18),
-          AppButton(
-            'Nghe thử giọng đọc',
-            onPressed: () {
-              state.update(() {
-                state.sentence
-                  ..clear()
-                  ..add('Xin chào, chào mừng bạn đến với SignVoice');
-              });
-              openScreen(context, 'S14');
-            },
-          ),
-          const SizedBox(height: 18),
-          const Notice(
-            'Cài đặt được lưu theo tài khoản. Giọng tiếng Việt phụ thuộc trình duyệt hoặc thiết bị.',
-          ),
-        ],
+      contentMaxWidth: 780,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (state.saving) const LinearProgressIndicator(),
+            if (state.guest)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Notice(
+                  'Bạn đang dùng thử. Các lựa chọn này sẽ được giữ và lưu vào tài khoản khi đăng nhập.',
+                ),
+              ),
+            _PreferenceSlider(
+              label: 'Tốc độ đọc',
+              value: state.speechSpeed,
+              enabled: !state.saving,
+              save: (value) =>
+                  savePreference(context, state, {'speechSpeed': value}),
+            ),
+            _PreferenceSlider(
+              label: 'Cao độ',
+              value: state.speechPitch,
+              enabled: !state.saving,
+              save: (value) =>
+                  savePreference(context, state, {'speechPitch': value}),
+            ),
+            SwitchListTile(
+              title: const Text('Tự động phát'),
+              subtitle: const Text('Mở trình phát khi xác nhận câu'),
+              value: state.autoSpeak,
+              onChanged: state.saving
+                  ? null
+                  : (value) =>
+                        savePreference(context, state, {'autoSpeak': value}),
+            ),
+            const SizedBox(height: 18),
+            AppButton(
+              'Nghe thử giọng đọc',
+              onPressed: () {
+                state.update(() {
+                  state.sentence
+                    ..clear()
+                    ..add('Xin chào, chào mừng bạn đến với SignVoice');
+                });
+                openScreen(context, 'S14');
+              },
+            ),
+            const SizedBox(height: 18),
+            const Notice(
+              'Giọng tiếng Việt phụ thuộc trình duyệt hoặc thiết bị.',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -592,56 +728,68 @@ class AppearanceScreen extends StatelessWidget {
     final state = AppScope.of(context);
     return AppPage(
       title: 'Giao diện & Trợ năng',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (state.saving) const LinearProgressIndicator(),
-          const Heading('Giao diện', size: 17),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            children: [
-              for (final mode in ThemeMode.values)
-                ChoiceChip(
-                  label: Text(switch (mode) {
-                    ThemeMode.system => 'Hệ thống',
-                    ThemeMode.light => 'Sáng',
-                    ThemeMode.dark => 'Tối',
-                  }),
-                  selected: state.themeMode == mode,
-                  onSelected: state.saving
-                      ? null
-                      : (_) => savePreference(context, state, {
-                          'theme': mode.name.toUpperCase(),
-                        }),
+      contentMaxWidth: 780,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (state.saving) const LinearProgressIndicator(),
+            if (state.guest)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Notice(
+                  'Bạn đang dùng thử. Các lựa chọn này sẽ được giữ và lưu vào tài khoản khi đăng nhập.',
                 ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          Text('Cỡ chữ: ${(state.fontScale * 100).round()}%'),
-          Wrap(
-            spacing: 12,
-            children: [
-              for (final size in [14, 16, 18, 20, 22, 24])
-                ChoiceChip(
-                  label: Text('$size'),
-                  selected: (state.fontScale * 16).round() == size,
-                  onSelected: state.saving
-                      ? null
-                      : (_) =>
-                            savePreference(context, state, {'fontSize': size}),
-                ),
-            ],
-          ),
-          SwitchListTile(
-            title: const Text('Tương phản cao'),
-            value: state.highContrast,
-            onChanged: state.saving
-                ? null
-                : (value) =>
-                      savePreference(context, state, {'highContrast': value}),
-          ),
-        ],
+              ),
+            const Heading('Cá nhân hóa giao diện', size: 22),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: [
+                for (final mode in ThemeMode.values)
+                  ChoiceChip(
+                    label: Text(switch (mode) {
+                      ThemeMode.system => 'Hệ thống',
+                      ThemeMode.light => 'Sáng',
+                      ThemeMode.dark => 'Tối',
+                    }),
+                    selected: state.themeMode == mode,
+                    onSelected: state.saving
+                        ? null
+                        : (_) => savePreference(context, state, {
+                            'theme': mode.name.toUpperCase(),
+                          }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Text('Cỡ chữ: ${(state.fontScale * 100).round()}%'),
+            Wrap(
+              spacing: 12,
+              children: [
+                for (final size in [14, 16, 18, 20, 22, 24])
+                  ChoiceChip(
+                    label: Text('$size'),
+                    selected: (state.fontScale * 16).round() == size,
+                    onSelected: state.saving
+                        ? null
+                        : (_) => savePreference(context, state, {
+                            'fontSize': size,
+                          }),
+                  ),
+              ],
+            ),
+            SwitchListTile(
+              title: const Text('Tương phản cao'),
+              value: state.highContrast,
+              onChanged: state.saving
+                  ? null
+                  : (value) =>
+                        savePreference(context, state, {'highContrast': value}),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -654,46 +802,49 @@ class SyncScreen extends StatelessWidget {
     final state = AppScope.of(context);
     return AppPage(
       title: 'Đồng bộ dữ liệu',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          IconTile(
-            icon: Icons.sync,
-            title: state.syncing
-                ? 'Đang tải dữ liệu từ máy chủ...'
-                : 'Dữ liệu tài khoản',
-            subtitle: state.lastSync == null
-                ? 'Chưa tải dữ liệu thành công.'
-                : 'Tải gần nhất: ${state.lastSync!.toLocal()}',
-          ),
-          if (state.syncing) const LinearProgressIndicator(),
-          if (state.error != null) Notice(state.error!),
-          const SizedBox(height: 16),
-          Text('Hội thoại đã tải: ${state.history.length}'),
-          Text('Ký hiệu yêu thích: ${state.favorites.length}'),
-          const SizedBox(height: 20),
-          AppButton(
-            'Đồng bộ ngay',
-            busy: state.syncing,
-            onPressed: state.syncing
-                ? null
-                : () async {
-                    final success = await state.synchronize();
-                    if (context.mounted) {
-                      toast(
-                        context,
-                        success
-                            ? 'Đã tải lại dữ liệu đã lưu trên máy chủ.'
-                            : state.error ?? 'Không đồng bộ được.',
-                      );
-                    }
-                  },
-          ),
-          const SizedBox(height: 16),
-          const Notice(
-            'Hồ sơ, cài đặt, yêu thích và lịch sử hội thoại được tải lại từ tài khoản hiện tại. Hội thoại được phân trang.',
-          ),
-        ],
+      contentMaxWidth: 780,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            IconTile(
+              icon: Icons.sync,
+              title: state.syncing
+                  ? 'Đang tải dữ liệu từ máy chủ...'
+                  : 'Dữ liệu tài khoản',
+              subtitle: state.lastSync == null
+                  ? 'Chưa tải dữ liệu thành công.'
+                  : 'Tải gần nhất: ${DateFormat('dd/MM/yyyy · HH:mm').format(state.lastSync!.toLocal())}',
+            ),
+            if (state.syncing) const LinearProgressIndicator(),
+            if (state.error != null) Notice(state.error!),
+            const SizedBox(height: 16),
+            Text('Hội thoại đã tải: ${state.history.length}'),
+            Text('Ký hiệu yêu thích: ${state.favorites.length}'),
+            const SizedBox(height: 20),
+            AppButton(
+              'Đồng bộ ngay',
+              busy: state.syncing,
+              onPressed: state.syncing
+                  ? null
+                  : () async {
+                      final success = await state.synchronize();
+                      if (context.mounted) {
+                        toast(
+                          context,
+                          success
+                              ? 'Đã tải lại dữ liệu đã lưu trên máy chủ.'
+                              : state.error ?? 'Không đồng bộ được.',
+                        );
+                      }
+                    },
+            ),
+            const SizedBox(height: 16),
+            const Notice(
+              'Hồ sơ, cài đặt, yêu thích và lịch sử hội thoại được tải lại từ tài khoản hiện tại. Hội thoại được phân trang.',
+            ),
+          ],
+        ),
       ),
     );
   }

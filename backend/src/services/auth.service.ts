@@ -62,7 +62,8 @@ interface IRequestMeta {
  */
 export async function registerUser(
   data: IRegisterData,
-  meta: IRequestMeta = {}
+  meta: IRequestMeta = {},
+  issueSession = true
 ): Promise<IAuthResponse> {
   // Check if email already exists
   const existing = await User.findOne({ email: data.email.toLowerCase() });
@@ -86,8 +87,8 @@ export async function registerUser(
     passwordHash,
     role: UserRole.USER,
     isGuest: false,
-    lastLoginAt: new Date(),
-    lastLoginIp: meta.ipAddress,
+    lastLoginAt: issueSession ? new Date() : undefined,
+    lastLoginIp: issueSession ? meta.ipAddress : undefined,
   });
 
   // Create default settings
@@ -97,8 +98,10 @@ export async function registerUser(
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth session
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  if (issueSession) {
+    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
+    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  }
 
   // Audit log
   await AuditLog.log({
@@ -298,7 +301,8 @@ export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?:
 export async function convertGuestToPermanent(
   userId: Types.ObjectId,
   data: IRegisterData,
-  meta: IRequestMeta = {}
+  meta: IRequestMeta = {},
+  issueSession = true
 ): Promise<IAuthResponse> {
   // Find guest user
   const user = await User.findById(userId);
@@ -345,8 +349,10 @@ export async function convertGuestToPermanent(
   await AuthSession.revokeAllForUser(user._id);
 
   // Create new sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  if (issueSession) {
+    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
+    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  }
 
   // Audit log
   await AuditLog.log({

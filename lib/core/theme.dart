@@ -25,7 +25,7 @@ ThemeData makeTheme({required bool dark, required bool highContrast}) {
         onSurface: dark ? const Color(0xFFF8FAFC) : AppColors.ink,
         onSurfaceVariant: highContrast
             ? (dark ? Colors.white : const Color(0xFF334155))
-            : (dark ? const Color(0xFFCBD5E1) : AppColors.muted),
+            : (dark ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
       );
   return ThemeData(
     useMaterial3: true,

@@ -30,6 +30,7 @@ const emailSchema = z
  */
 export const registerSchema = z.object({
   body: z.object({
+    requireLogin: z.boolean().optional(),
     email: emailSchema,
     password: passwordSchema,
     displayName: z
@@ -93,6 +94,7 @@ export const resetPasswordSchema = z.object({
  */
 export const convertGuestSchema = z.object({
   body: z.object({
+    requireLogin: z.boolean().optional(),
     email: emailSchema,
     password: passwordSchema,
     displayName: z

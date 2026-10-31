@@ -3,7 +3,8 @@ param(
     [ValidateRange(1,65535)][int]$AiPort = 8001,
     [string]$PublicOrigin = '',
     [switch]$SkipBuild,
-    [switch]$NoTunnel
+    [switch]$NoTunnel,
+    [switch]$SkipAi
 )
 $ErrorActionPreference = 'Stop'
 if ($Port -eq $AiPort) { throw 'Public and AI service ports must be different.' }
@@ -89,6 +90,7 @@ try {
         Push-Location $backendRoot
         try { & npm.cmd run build; if ($LASTEXITCODE) { throw 'Backend build failed.' } } finally { Pop-Location }
     }
+    if (-not $SkipAi) {
     $selectedOutput = & $aiPython -m ai_service.model_selection resolve
     if ($LASTEXITCODE) { throw 'Selected AI model is not valid.' }
     $selected = $selectedOutput | ConvertFrom-Json
@@ -105,8 +107,16 @@ try {
             -RedirectStandardOutput (Join-Path $runtimeRoot 'public-ai.log') `
             -RedirectStandardError (Join-Path $runtimeRoot 'public-ai.error.log')
         $aiHealth = Wait-Health "http://127.0.0.1:$AiPort/health" 150 $newAiWrapper.Id
-        $aiListener = Get-NetTCPConnection -State Listen -LocalPort $AiPort | Select-Object -First 1
-        $managedAi = Process-Record $aiListener.OwningProcess
+        # Track the process we launched: Windows CIM may omit a healthy listening socket.
+        # A venv Python launcher can start the actual interpreter as a second child.
+        $aiLauncher = Get-CimInstance Win32_Process -Filter "ParentProcessId = $($newAiWrapper.Id)" |
+            Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'uvicorn.*ai_service.server' } |
+            Select-Object -First 1
+        if (-not $aiLauncher) { throw 'AI launcher exited after startup. Check .runtime/public-ai logs.' }
+        $aiWorker = Get-CimInstance Win32_Process -Filter "ParentProcessId = $($aiLauncher.ProcessId)" |
+            Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'uvicorn.*ai_service.server' } |
+            Select-Object -First 1
+        $managedAi = Process-Record $(if ($aiWorker) { $aiWorker.ProcessId } else { $aiLauncher.ProcessId })
         $managedAiWrapper = Process-Record $newAiWrapper.Id
     } elseif (Record-Alive $oldState.managedAi) {
         $managedAi = $oldState.managedAi; $managedAiWrapper = $oldState.managedAiWrapper
@@ -117,6 +127,9 @@ try {
         throw 'AI is running a different model/code. Stop that AI service explicitly, then run this command again.'
     }
     Write-Host "AI ready: $($aiHealth.word_classes) words; keeping the selected model."
+    } else {
+        Write-Host 'Starting UI/API preview without starting the AI service.'
+    }
     if (-not $NoTunnel) {
         $conveyor = Join-Path $workspaceRoot '.tools\conveyor\conveyorcli.exe'
         if (-not (Test-Path -LiteralPath $conveyor)) { throw 'Conveyor CLI is missing.' }
@@ -176,7 +189,8 @@ try {
     $env:GOOGLE_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/google/callback"
     $env:FACEBOOK_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/facebook/callback"
     $env:PASSWORD_RESET_ORIGIN = $PublicOrigin
-    $env:AI_PUBLIC_PROXY = 'true'; $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
+    $env:AI_PUBLIC_PROXY = if ($SkipAi) { 'false' } else { 'true' }
+    $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
     $serverProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList 'dist/server.js' `
         -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $runtimeRoot 'public-server.log') `
@@ -185,8 +199,10 @@ try {
     Write-Host 'Waiting up to 120 seconds for backend/database readiness...'
     $health = Wait-Health "http://127.0.0.1:$Port/health/ready" 120 $serverProcess.Id
     if (-not $health.success) { throw 'Backend/database is not ready.' }
-    $proxyHealth = Wait-Health "http://127.0.0.1:$Port/sign-ai/health" 10 $serverProcess.Id
-    if (-not $proxyHealth.ready) { throw 'Public AI proxy is not ready.' }
+    if (-not $SkipAi) {
+        $proxyHealth = Wait-Health "http://127.0.0.1:$Port/sign-ai/health" 10 $serverProcess.Id
+        if (-not $proxyHealth.ready) { throw 'Public AI proxy is not ready.' }
+    }
     $nodeRecord = Process-Record $serverProcess.Id
     @{ processId=$serverProcess.Id; startedUtc=$nodeRecord.startedUtc; port=$Port; publicOrigin=$PublicOrigin;
        aiPort=$AiPort; managedAi=$managedAi; managedAiWrapper=$managedAiWrapper; managedTunnel=$managedTunnel; managedTunnelWrapper=$managedTunnelWrapper } |
@@ -194,8 +210,8 @@ try {
     if ($PublicOrigin.StartsWith('https://')) {
         @{publicOrigin=$PublicOrigin} | ConvertTo-Json | Set-Content -LiteralPath $settingsFile -Encoding UTF8
     }
-    Write-Host "SignVoice UI + API + AI: $PublicOrigin"
-    Write-Host "AI health: $PublicOrigin/sign-ai/health"
+    Write-Host "SignVoice UI + API: $PublicOrigin"
+    if (-not $SkipAi) { Write-Host "AI health: $PublicOrigin/sign-ai/health" }
     if ($NoTunnel) { Write-Host 'Stop with: .\scripts\stop-public-server.ps1 -Local' }
     else { Write-Host 'Stop with: .\scripts\stop-public-server.ps1' }
 } catch {

@@ -377,6 +377,42 @@ void main() {
     expect(service.requests.last, [30, 1]);
   });
 
+  testWidgets('seven-day chart fits a dashboard card and shares one baseline', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 500,
+              child: LearningActivityChart(
+                days: [
+                  for (var i = 0; i < 7; i++)
+                    {
+                      'date': '2026-10-${23 + i}',
+                      'learned': i + 1,
+                      'reviewed': i,
+                    },
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final bars = find.byType(TweenAnimationBuilder<double>);
+    final baseline = tester.getBottomLeft(bars.first).dy;
+    for (var i = 1; i < bars.evaluate().length; i++) {
+      expect(tester.getBottomLeft(bars.at(i)).dy, closeTo(baseline, .01));
+    }
+    final scroll = tester.widget<SingleChildScrollView>(
+      find.byType(SingleChildScrollView),
+    );
+    expect(scroll.controller!.position.maxScrollExtent, 0);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     '30-day chart fits 360px large text and selecting a day updates details',
     (tester) async {
@@ -406,10 +442,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('Ngày 2026-10-25: học 2 từ · ôn 3 từ'), findsOneWidget);
+      expect(find.text('Ngày 25/10/2026: học 2 từ · ôn 3 từ'), findsOneWidget);
       await tester.tap(find.byTooltip('2026-10-24: học 0, ôn 0'));
       await tester.pumpAndSettle();
-      expect(find.text('Ngày 2026-10-24: học 0 từ · ôn 0 từ'), findsOneWidget);
+      expect(find.text('Ngày 24/10/2026: học 0 từ · ôn 0 từ'), findsOneWidget);
     },
   );
 

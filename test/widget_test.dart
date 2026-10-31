@@ -1,17 +1,179 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:sign_voice/features/library/library_screens.dart';
 import 'package:sign_voice/app.dart';
 import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/core/navigation.dart';
 import 'package:sign_voice/features/home/home_screen.dart';
 import 'package:sign_voice/features/learning/learning_widgets.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
+import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 
 import 'auth_fixtures.dart';
 
+class ChangingDictionaryCategories extends DemoDictionaryService {
+  bool archived = false;
+  String? lastCategory;
+  String? lastSort;
+  int? lastPage;
+  String? lastSearch;
+  bool multiPage = false;
+  @override
+  Future<List<AdminRecord>> activeCategories() async => [
+    ...await super.activeCategories(),
+    {'_id': 'empty', 'name': 'Từ vựng khác', 'wordCount': 0},
+  ].where((category) => !archived || category['_id'] != 'Ăn uống').toList();
+  @override
+  Future<AdminPageData> published({
+    int page = 1,
+    String search = '',
+    String? categoryId,
+    String sort = 'word_asc',
+  }) async {
+    lastCategory = categoryId;
+    lastSort = sort;
+    lastPage = page;
+    lastSearch = search;
+    final result = await super.published(
+      page: page,
+      search: search,
+      categoryId: categoryId,
+      sort: sort,
+    );
+    return AdminPageData(result.items, page, multiPage ? 3 : 1, result.total);
+  }
+}
+
+Widget dictionaryHarness(
+  AuthProvider auth,
+  AppState state,
+  AdminWorkspaceService service,
+) => MultiProvider(
+  providers: [
+    ChangeNotifierProvider.value(value: auth),
+    Provider<AdminWorkspaceService>.value(value: service),
+  ],
+  child: AppScope(
+    state: state,
+    child: const MaterialApp(home: DictionaryScreen()),
+  ),
+);
+
 void main() {
+  testWidgets(
+    'dictionary sort resets page and persists through category and search filters',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final auth = await authenticatedProvider();
+      final state = AppState(),
+          service = ChangingDictionaryCategories()..multiPage = true;
+      await tester.pumpWidget(dictionaryHarness(auth, state, service));
+      await tester.pumpAndSettle();
+      expect(service.lastSort, 'word_asc');
+      expect(find.text('Từ vựng khác (0)'), findsNothing);
+      await tester.ensureVisible(find.byTooltip('Trang sau'));
+      await tester.tap(find.byTooltip('Trang sau'));
+      await tester.pumpAndSettle();
+      expect(service.lastPage, 2);
+      final sortField = find.byType(DropdownButtonFormField<String>).last;
+      await tester.ensureVisible(sortField);
+      await tester.tap(sortField);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Giảm dần (Z–A)').last);
+      await tester.pumpAndSettle();
+      expect(service.lastPage, 1);
+      expect(service.lastSort, 'word_desc');
+      await tester.ensureVisible(
+        find.byType(DropdownButtonFormField<String>).first,
+      );
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ăn uống').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Uống');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(service.lastCategory, 'Ăn uống');
+      expect(service.lastSort, 'word_desc');
+      expect(service.lastSearch, 'Uống');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      auth.dispose();
+      state.dispose();
+    },
+  );
+  testWidgets(
+    'dictionary resets a selected topic removed by an administrator',
+    (tester) async {
+      final auth = await authenticatedProvider();
+      final state = AppState(), service = ChangingDictionaryCategories();
+      await tester.pumpWidget(dictionaryHarness(auth, state, service));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ăn uống').last);
+      await tester.pumpAndSettle();
+      expect(service.lastCategory, 'Ăn uống');
+      service.archived = true;
+      await tester.tap(find.byTooltip('Làm mới'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(service.lastCategory, isNull);
+      expect(
+        find.descendant(
+          of: find.byType(GridView),
+          matching: find.text('Xin chào'),
+        ),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      auth.dispose();
+      state.dispose();
+    },
+  );
+  testWidgets(
+    'dictionary topic selector filters the server catalog on phone layout',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final auth = await authenticatedProvider();
+      final state = AppState();
+      await tester.pumpWidget(
+        dictionaryHarness(auth, state, DemoDictionaryService()),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ăn uống').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Xin chào'), findsNothing);
+      expect(
+        find.descendant(of: find.byType(GridView), matching: find.text('Uống')),
+        findsOneWidget,
+      );
+      await tester.enterText(find.byType(TextField).first, 'Uống');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text('Ăn'), findsNothing);
+      expect(
+        find.descendant(of: find.byType(GridView), matching: find.text('Uống')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      auth.dispose();
+      state.dispose();
+    },
+  );
   test('lưu và xóa đúng hội thoại được chọn', () {
     final state = AppState();
+    state.saveConversation('Hội thoại trước', ConversationDirection.text);
     state.saveConversation(
       'Một hội thoại mới',
       ConversationDirection.speechToText,
@@ -51,6 +213,7 @@ void main() {
         SignVoiceApp(
           initialScreen: id,
           auth: auth,
+          state: AppState(),
           adminService: DemoDictionaryService(),
           learningService: DemoLearningService(),
         ),
@@ -73,6 +236,7 @@ void main() {
       SignVoiceApp(
         initialScreen: 'S05',
         auth: auth,
+        state: AppState(),
         adminService: DemoDictionaryService(),
         learningService: DemoLearningService(),
       ),
@@ -93,11 +257,11 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = AuthProvider(authService: FakeAuthService());
-    addTearDown(auth.dispose);
     await tester.pumpWidget(
       SignVoiceApp(
         initialScreen: 'S05',
         auth: auth,
+        state: AppState(),
         adminService: DemoDictionaryService(),
         learningService: DemoLearningService(),
       ),
@@ -106,12 +270,23 @@ void main() {
     await tester.ensureVisible(guest);
     await tester.tap(guest);
     await tester.pumpAndSettle();
+    expect(find.text('Dùng thử SignVoice trong 10 phút'), findsOneWidget);
+    expect(find.byType(HomeScreen), findsNothing);
+    await tester.tap(find.text('Để sau'));
+    await tester.pumpAndSettle();
+    expect(auth.isAuthenticated, isFalse);
+    await tester.tap(guest);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vào dùng thử'));
+    await tester.pumpAndSettle();
     expect(find.byType(HomeScreen), findsOneWidget);
     await tester.tap(find.text('Từ điển'));
     await tester.pumpAndSettle();
-    expect(find.text('Từ điển ký hiệu'), findsOneWidget);
+    expect(find.text('Khám phá ký hiệu'), findsOneWidget);
     expect(find.text('Khám phá'), findsOneWidget);
     expect(find.text('Chào hỏi'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    auth.dispose();
   });
 
   testWidgets('mở đúng mục từ điển được chọn', (tester) async {
@@ -125,6 +300,7 @@ void main() {
       SignVoiceApp(
         initialScreen: 'S22',
         auth: auth,
+        state: AppState(),
         adminService: DemoDictionaryService(),
         learningService: DemoLearningService(),
       ),

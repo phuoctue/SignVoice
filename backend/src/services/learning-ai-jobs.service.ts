@@ -3,10 +3,11 @@ import {Types} from 'mongoose';
 import {AppError} from '../common/errors/AppError';
 import {analyzeLearningProgress} from './learning-analysis.service';
 import {learningAdvice} from './learning-coach.service';
+import {reviewQuizAdvice} from './review-quiz-advice.service';
 
-export type LearningAiKind = 'analysis' | 'coach';
+export type LearningAiKind = 'analysis' | 'coach' | 'quiz';
 type Job = {id:string; owner:string; kind:LearningAiKind; requestKey:string;
-  state:'pending'|'completed'|'failed'; createdAt:number; result?:unknown};
+  state:'pending'|'completed'|'failed'; createdAt:number; result?:unknown; quizId?:string};
 const jobs=new Map<string,Job>();
 const ttl=5*60*1000;
 function prune() {
@@ -20,10 +21,10 @@ function view(job:Job) {
 }
 
 /** Bound to authenticated owner. Short HTTP requests never wait for model generation. */
-export function startLearningAiJob(owner:Types.ObjectId,kind:LearningAiKind,requestKey:string) {
+export function startLearningAiJob(owner:Types.ObjectId,kind:LearningAiKind,requestKey:string,quizId?:Types.ObjectId) {
   prune();
   const ownerId=String(owner);
-  const existing=[...jobs.values()].find(job=>job.owner===ownerId && job.requestKey===requestKey && job.kind===kind);
+  const existing=[...jobs.values()].find(job=>job.owner===ownerId && job.requestKey===requestKey && job.kind===kind && job.quizId===quizId?.toString());
   if(existing)return view(existing);
   const active=[...jobs.values()].filter(job=>job.state==='pending');
   if(active.length>=8 || active.filter(job=>job.owner===ownerId).length>=2) {
@@ -33,10 +34,11 @@ export function startLearningAiJob(owner:Types.ObjectId,kind:LearningAiKind,requ
     const finished=[...jobs.values()].find(job=>job.state!=='pending');
     if(finished)jobs.delete(finished.id);
   }
-  const job:Job={id:randomUUID(),owner:ownerId,kind,requestKey,state:'pending',createdAt:Date.now()};
+  if(kind==='quiz' && !quizId)throw new AppError('Thiếu bài quiz.',400,'INVALID_AI_REQUEST');
+  const job:Job={id:randomUUID(),owner:ownerId,kind,requestKey,state:'pending',createdAt:Date.now(),quizId:quizId?.toString()};
   jobs.set(job.id,job);
   // The worker has its own bounded LM timeout. A disconnected handset can poll again.
-  void Promise.resolve().then<unknown>(()=>kind==='analysis'?analyzeLearningProgress(owner):learningAdvice(owner))
+  void Promise.resolve().then<unknown>(()=>kind==='quiz'?reviewQuizAdvice(owner,quizId!):kind==='analysis'?analyzeLearningProgress(owner):learningAdvice(owner))
     .then(result=>{if(jobs.get(job.id)===job){job.result=result;job.state='completed';}})
     .catch(()=>{if(jobs.get(job.id)===job)job.state='failed';});
   return view(job);

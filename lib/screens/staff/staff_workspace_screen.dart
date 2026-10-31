@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -168,14 +170,12 @@ class _StaffWorkspaceScreenState extends State<StaffWorkspaceScreen> {
             spacing: 8,
             children: [
               TextButton(
-                onPressed: () =>
-                    Navigator.pushReplacementNamed(context, '/staff/content'),
+                onPressed: () => replaceAppRoute(context, '/staff/content'),
                 child: const Text('Nội dung'),
               ),
               if (auth.can('users:read'))
                 TextButton(
-                  onPressed: () =>
-                      Navigator.pushReplacementNamed(context, '/staff/users'),
+                  onPressed: () => replaceAppRoute(context, '/staff/users'),
                   child: const Text('Người dùng'),
                 ),
             ],
@@ -242,7 +242,7 @@ class _StaffWorkspaceScreenState extends State<StaffWorkspaceScreen> {
                           : '${item['email'] ?? 'Tài khoản khách'}',
                     ),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.pushNamed(
+                    onTap: () => pushAppRoute(
                       context,
                       '/staff/$resource/${item['_id']}',
                     ),

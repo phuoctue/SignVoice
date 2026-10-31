@@ -7,7 +7,8 @@ import { Favorite } from '../models/Favorite.model';
 import { Conversation } from '../models/Conversation.model';
 import { SearchHistory } from '../models/SearchHistory.model';
 import { LearningEvent } from '../models/LearningEvent.model';
-import { WordProgress } from '../models/Learning.model';
+import { WordProgress,PersonalWord } from '../models/Learning.model';
+import {SignCollection,SignNote} from '../models/SignCollection.model';
 import { requireAuth } from '../common/middlewares/auth.middleware';
 import { validate } from '../common/middlewares/validate.middleware';
 import { AppError } from '../common/errors/AppError';
@@ -69,8 +70,15 @@ router.patch('/settings', validate(z.object({body: settingsBody})), async (req, 
       delete changes.notificationPreferences;
       for (const [key, value] of Object.entries(req.body.notificationPreferences)) changes[`notificationPreferences.${key}`] = value;
     }
-    const settings = await userTransaction(req.user!.id, session => UserSettings.findOneAndUpdate(
-      {userId: req.user!.id}, {$set: changes}, {session, upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true}).exec());
+    const settings = await userTransaction(req.user!.id, async session => {
+      if (req.body.studyReminder) {
+        const previous = await UserSettings.findOne({userId: req.user!.id}).select('studyReminder').session(session).lean();
+        const normalize = (plan: any) => plan && JSON.stringify([plan.enabled, plan.hour, plan.minute, plan.timezone, [...plan.weekdays].sort()]);
+        if (normalize(previous?.studyReminder) !== normalize(req.body.studyReminder)) changes.studyReminderConfiguredAt = new Date();
+      }
+      return UserSettings.findOneAndUpdate(
+        {userId: req.user!.id}, {$set: changes}, {session, upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true}).exec();
+    });
     res.json({success: true, data: settings});
   } catch (error) { next(error); }
 });
@@ -86,8 +94,11 @@ router.get('/data/export', async (req, res, next) => {
       const searchHistory = await SearchHistory.find({userId}).select('entryId viewedAt').session(session);
       const learningHistory = await LearningEvent.find({userId}).select('-userId -__v').sort({createdAt: -1, _id: -1}).session(session);
       const learningProgress = await WordProgress.find({userId}).select('-userId -__v').session(session);
+      const signCollections = await SignCollection.find({userId}).select('-userId -__v').session(session);
+      const signNotes = await SignNote.find({userId}).select('-userId -__v').session(session);
+      const personalWords = await PersonalWord.find({userId}).select('-userId -__v').session(session);
       return {profile: await safeUser(user), settings, favorites, conversations: conversations.map(conversationDto), searchHistory,
-        learningHistory, learningProgress, exportedAt: new Date().toISOString()};
+        learningHistory, learningProgress, signCollections, signNotes, personalWords, exportedAt: new Date().toISOString()};
     });
     res.json({success: true, data});
   } catch (error) { next(error); }

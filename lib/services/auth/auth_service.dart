@@ -167,18 +167,35 @@ class AuthService {
     final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/register',
-      body: {'email': email, 'password': password, 'displayName': displayName},
+      body: {
+        'email': email,
+        'password': password,
+        'displayName': displayName,
+        'requireLogin': true,
+      },
       requiresAuth: false,
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response, epoch);
+      return _registrationResponse(response, epoch);
     }
 
     throw Exception('Registration failed');
   }
 
-  /// Login with email and password
+  /// Registration deliberately does not start an authenticated session.
+  Future<UserModel> _registrationResponse(dynamic response, int epoch) async {
+    _apiClient.checkSession(epoch);
+    final data = response['data'];
+    if (data['loginRequired'] != true) {
+      throw StateError('Registration requires an updated server.');
+    }
+    final user = UserModel.fromJson(Map<String, dynamic>.from(data['user']));
+    await _apiClient.writeSession(epoch, _tokenStorage.clearAll);
+    return user;
+  }
+
+  /// Login with email and password.
   Future<UserModel> login({
     required String email,
     required String password,
@@ -257,12 +274,17 @@ class AuthService {
     final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/convert-guest',
-      body: {'email': email, 'password': password, 'displayName': displayName},
+      body: {
+        'email': email,
+        'password': password,
+        'displayName': displayName,
+        'requireLogin': true,
+      },
       requiresAuth: true,
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response, epoch);
+      return _registrationResponse(response, epoch);
     }
 
     throw Exception('Guest conversion failed');

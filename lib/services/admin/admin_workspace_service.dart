@@ -14,6 +14,46 @@ class AdminWorkspaceService {
     : _api = apiClient ?? ApiClient.instance;
   final ApiClient _api;
 
+  Future<AdminRecord> collectionModerationRead(
+    String suffix, {
+    int page = 1,
+    String search = '',
+    String? status,
+  }) async => Map<String, dynamic>.from(
+    (await _api.get(
+          '/admin/collections$suffix',
+          queryParameters: {
+            'page': '$page',
+            if (search.isNotEmpty) 'search': search,
+            'status': ?status,
+          },
+        ))['data']
+        as Map,
+  );
+  Future<void> moderateCollection(
+    String id,
+    String state,
+    String reason,
+    int version,
+  ) async {
+    await _api.post(
+      '/admin/collections/$id/moderation',
+      body: {'state': state, 'reason': reason, 'version': version},
+    );
+  }
+
+  Future<void> resolveCollectionReport(
+    String id,
+    String reportId,
+    String status,
+    String reason,
+  ) async {
+    await _api.post(
+      '/admin/collections/$id/reports/$reportId/resolve',
+      body: {'status': status, 'reason': reason},
+    );
+  }
+
   Future<List<AdminRecord>> featuredEntries() async =>
       ((await _api.get(
                 '/dictionary/popular',
@@ -93,7 +133,7 @@ class AdminWorkspaceService {
         'skip': '${(page - 1) * 20}',
         if (search.isNotEmpty) 'search': search,
         'categoryId': ?categoryId,
-        'sort': sort,
+        if (sort.isNotEmpty) 'sort': sort,
       },
     );
     final total = (response['pagination']['total'] as num).toInt();
@@ -162,4 +202,6 @@ const adminPermissionLabels = {
   'categories:write': 'Thêm, sửa, xóa danh mục',
   'sessions:read': 'Xem phiên đăng nhập',
   'sessions:write': 'Thu hồi phiên đăng nhập',
+  'collections:read': 'Xem bộ công khai, báo cáo và lịch sử kiểm duyệt',
+  'collections:moderate': 'Ẩn, chặn, khôi phục bộ và xử lý báo cáo',
 };

@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +7,7 @@ import '../../services/api/api_exception.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
+import 'collection_widgets.dart';
 import 'learning_activity_chart.dart';
 import 'learning_widgets.dart';
 import 'learning_daily_goals.dart';
@@ -131,7 +134,7 @@ class _LearningInsightsScreenState extends State<LearningInsightsScreen>
   }
 
   Future<void> open(String route) async {
-    await Navigator.pushNamed(context, route);
+    await pushAppRoute(context, route);
     if (mounted) await load();
   }
 
@@ -159,6 +162,10 @@ class _LearningInsightsScreenState extends State<LearningInsightsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (isDesktopLayout(context)) ...[
+            const LearningTabs(selected: 3),
+            const SizedBox(height: 24),
+          ],
           const BodyText('Hoạt động học tập theo giờ Việt Nam (UTC+7).'),
           const SizedBox(height: 16),
           if (loading) const LinearProgressIndicator(),

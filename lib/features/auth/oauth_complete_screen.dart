@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/navigation.dart';
 import '../../widgets/ui.dart';
+import '../../services/auth/collection_return_route.dart';
 
 String oauthErrorMessage(String code) => switch (code) {
   'OAUTH_CANCELLED' => 'Bạn đã hủy đăng nhập. Có thể thử lại hoặc dùng email.',
@@ -42,7 +43,7 @@ class _OAuthCompleteScreenState extends State<OAuthCompleteScreen> {
     final success = await auth.completeOAuth();
     if (!mounted) return;
     if (success) {
-      openRoot(context, 'S08');
+      openRoot(context, consumeCollectionReturnRoute() ?? 'S08');
     } else {
       setState(() {
         busy = false;

@@ -1,12 +1,73 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 
 import '../core/navigation.dart';
 import '../core/theme.dart';
+import 'web_workspace.dart';
+import 'web_account_menu.dart';
+import 'notification_bell.dart';
+import '../services/notifications/notification_service.dart';
+
+import 'package:go_router/go_router.dart';
+
+bool isDesktopLayout(BuildContext context) =>
+    (kIsWeb || WebWorkspaceScope.contains(context)) &&
+    MediaQuery.sizeOf(context).width >= 900;
+
+EdgeInsets pageInsets(BuildContext context) =>
+    EdgeInsets.all(isDesktopLayout(context) ? 32 : 20);
+
+Future<T?> showAdaptivePanel<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  Color? backgroundColor,
+}) {
+  if (isDesktopLayout(context)) {
+    return showDialog<T>(
+      context: context,
+      builder: (panelContext) => Dialog(
+        backgroundColor: backgroundColor,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 640,
+            maxHeight: MediaQuery.sizeOf(panelContext).height * .88,
+          ),
+          child: builder(panelContext),
+        ),
+      ),
+    );
+  }
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: backgroundColor,
+    builder: builder,
+  );
+}
+
+bool isRootPage(BuildContext context) =>
+    const {
+      'S08',
+      'S10',
+      'S15',
+      'S20',
+      'S22',
+      'S25',
+      '/learn',
+      '/learn/insights',
+      '/learn/history',
+      '/communicate',
+      'admin',
+      'staff',
+    }.contains(
+      Uri.parse(legacyLocation(ModalRoute.of(context)?.settings.name ?? ''))
+          .path,
+    );
 
 class AppPage extends StatelessWidget {
   const AppPage({
@@ -14,69 +75,264 @@ class AppPage extends StatelessWidget {
     required this.title,
     required this.child,
     this.showBack = true,
+    this.onBack,
+    this.backEnabled = true,
     this.actions,
     this.footer,
+    this.footerInBody = false,
     this.tabIndex,
     this.scroll = true,
     this.padding = const EdgeInsets.all(20),
+    this.preferDesktop = false,
+    this.contentMaxWidth = 1440,
   });
+  final double contentMaxWidth;
   final String title;
   final Widget child;
   final bool showBack, scroll;
+  final VoidCallback? onBack;
+  final bool backEnabled;
   final List<Widget>? actions;
   final Widget? footer;
+  final bool footerInBody;
   final int? tabIndex;
   final EdgeInsets padding;
+  final bool preferDesktop;
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(title),
-      automaticallyImplyLeading: false,
-      leading: showBack
-          ? IconButton(
-              tooltip: 'Quay lại',
-              onPressed: () => backOrHome(context),
-              icon: const Icon(Icons.chevron_left),
-            )
-          : null,
-      actions: actions,
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Divider(
-          height: 1,
-          color: Theme.of(context).colorScheme.outlineVariant,
+  Widget build(BuildContext context) {
+    final desktop =
+        (preferDesktop || isDesktopLayout(context)) &&
+        MediaQuery.sizeOf(context).width >= 900;
+    final workspace = desktop && context.watch<AuthProvider>().isAuthenticated;
+    final webAccount =
+        (kIsWeb || WebWorkspaceScope.contains(context) || preferDesktop) &&
+        context.watch<AuthProvider>().isAuthenticated;
+    final uri =
+        GoRouter.maybeOf(context)?.routerDelegate.currentConfiguration.uri ??
+        Uri.parse(webLocation(ModalRoute.of(context)?.settings.name ?? ''));
+    final (
+      parentLabel,
+      parentPath,
+    ) = uri.path == '/sign-to-speech' || uri.path == '/speech-to-sign'
+        ? ('Giao tiếp', '/communicate')
+        : uri.path.startsWith('/conversations/')
+        ? ('Hội thoại', '/history')
+        : (uri.path.startsWith('/profile/') ||
+              uri.path == '/study-reminder' ||
+              uri.path == '/notifications')
+        ? ('Hồ sơ', '/profile')
+        : uri.path.startsWith('/admin/')
+        ? ('Quản trị', '/admin')
+        : ('', '');
+    Widget footerBar() => Align(
+      heightFactor: 1,
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: desktop ? contentMaxWidth : double.infinity,
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            desktop ? 32 : 20,
+            desktop ? 12 : 8,
+            desktop ? 32 : 20,
+            20,
+          ),
+          child: Align(
+            heightFactor: 1,
+            alignment: desktop ? Alignment.centerRight : Alignment.center,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: desktop ? 300 : double.infinity,
+              ),
+              child: footer!,
+            ),
+          ),
         ),
       ),
-    ),
-    body: SafeArea(
-      top: false,
-      child: Column(
-        children: [
-          Expanded(
-            child: scroll
-                ? SingleChildScrollView(padding: padding, child: child)
-                : Padding(padding: padding, child: child),
-          ),
-          if (footer != null && tabIndex != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: footer!,
+    );
+    final belowHeader = <IconButton>[
+      if (desktop)
+        for (final action in actions ?? <Widget>[])
+          if (action is IconButton &&
+              action.icon is Icon &&
+              (action.icon as Icon).icon == Icons.refresh)
+            action,
+    ];
+    Widget toolbar() => Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: contentMaxWidth),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              children: [
+                for (final action in belowHeader)
+                  TextButton.icon(
+                    onPressed: action.onPressed,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(action.tooltip ?? 'Làm mới'),
+                  ),
+              ],
             ),
-        ],
+          ),
+        ),
       ),
-    ),
-    // Keep transient snackbars above a fixed action instead of covering it.
-    bottomNavigationBar: tabIndex != null
-        ? AppNavigationBar(selectedIndex: tabIndex!)
-        : footer == null
-        ? null
-        : SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: footer!,
-            ),
+    );
+    final page = Scaffold(
+      appBar: AppBar(
+        title: desktop
+            ? Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => openRoot(context, 'S08'),
+                    icon: const Icon(Icons.home_outlined, size: 18),
+                    label: const Text(
+                      'SignVoice',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.chevron_right, size: 16),
+                  ),
+                  if (parentLabel.isNotEmpty) ...[
+                    TextButton(
+                      onPressed: () => openRoot(context, parentPath),
+                      child: Text(
+                        parentLabel,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, size: 16),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            : Text(title),
+        automaticallyImplyLeading: false,
+        leading: showBack && (!desktop || !isRootPage(context))
+            ? IconButton(
+                tooltip: 'Quay lại',
+                onPressed: backEnabled
+                    ? onBack ?? () => backOrHome(context)
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+              )
+            : null,
+        actions: [
+          for (final action in actions ?? <Widget>[])
+            if (!belowHeader.contains(action)) action,
+          if (webAccount &&
+              context.watch<NotificationService?>() != null &&
+              context.watch<AuthProvider>().user?.isGuest != true)
+            const NotificationBell(),
+          if (webAccount) const WebAccountMenu(),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(
+            height: 1,
+            color: Theme.of(context).colorScheme.outlineVariant,
           ),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            if (belowHeader.isNotEmpty) toolbar(),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: desktop ? contentMaxWidth : double.infinity,
+                  ),
+                  child: scroll
+                      ? SingleChildScrollView(
+                          padding:
+                              desktop && padding == const EdgeInsets.all(20)
+                              ? const EdgeInsets.all(32)
+                              : padding,
+                          child: child,
+                        )
+                      : Padding(
+                          padding:
+                              desktop && padding == const EdgeInsets.all(20)
+                              ? const EdgeInsets.all(32)
+                              : padding,
+                          child: child,
+                        ),
+                ),
+              ),
+            ),
+            if (footer != null && (tabIndex != null || footerInBody))
+              footerBar(),
+          ],
+        ),
+      ),
+      // Keep transient snackbars above a fixed action instead of covering it.
+      bottomNavigationBar: tabIndex != null && !workspace
+          ? AppNavigationBar(selectedIndex: tabIndex!)
+          : footer == null || footerInBody || tabIndex != null
+          ? null
+          : SafeArea(top: false, child: footerBar()),
+    );
+    final titled = Title(
+      title: '$title · SignVoice',
+      color: Theme.of(context).colorScheme.primary,
+      child: page,
+    );
+    return workspace && !WebWorkspaceScope.contains(context)
+        ? WebWorkspace(child: titled)
+        : titled;
+  }
+}
+
+/// Variable-height cards form columns without imposing a fixed aspect ratio.
+class AdaptiveCardGrid extends StatelessWidget {
+  const AdaptiveCardGrid({
+    super.key,
+    required this.children,
+    this.preferDesktop = false,
+  });
+  final List<Widget> children;
+  final bool preferDesktop;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      var columns =
+          (kIsWeb || preferDesktop) &&
+              constraints.maxWidth >= 720 &&
+              MediaQuery.textScalerOf(context).scale(1) < 1.6
+          ? ((constraints.maxWidth + 16) / 376).floor().clamp(1, 3)
+          : 1;
+      if (columns > 2 &&
+          children.length > columns &&
+          children.length % columns == 1) {
+        columns--;
+      }
+      final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
+      return Wrap(
+        spacing: 16,
+        runSpacing: 16,
+        children: [
+          for (final child in children) SizedBox(width: width, child: child),
+        ],
+      );
+    },
   );
 }
 
@@ -137,7 +393,11 @@ class AppButton extends StatelessWidget {
     this.outlined = false,
     this.compact = false,
     this.busy = false,
+    this.fill,
+    this.maxWidth = 420,
   });
+  final bool? fill;
+  final double maxWidth;
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
@@ -199,15 +459,48 @@ class AppButton extends StatelessWidget {
         Flexible(child: Text(label, textAlign: TextAlign.center)),
       ],
     );
-    return FilledButton(
+    final button = FilledButton(
       onPressed: busy ? null : onPressed,
       style: style,
       child: content,
     );
+    if (!compact &&
+        (fill == false || fill == null && isDesktopLayout(context))) {
+      return Align(
+        heightFactor: 1,
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: SizedBox(width: double.infinity, child: button),
+        ),
+      );
+    }
+    return button;
   }
 }
 
-class AppCard extends StatelessWidget {
+class ActionGroup extends StatelessWidget {
+  const ActionGroup({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, size) {
+      final wide =
+          size.maxWidth >= 620 &&
+          MediaQuery.textScalerOf(context).scale(1) < 1.5;
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          for (final child in children)
+            SizedBox(width: wide ? 220 : size.maxWidth, child: child),
+        ],
+      );
+    },
+  );
+}
+
+class AppCard extends StatefulWidget {
   const AppCard({
     super.key,
     required this.child,
@@ -221,17 +514,40 @@ class AppCard extends StatelessWidget {
   final Color? color, borderColor;
   final VoidCallback? onTap;
   @override
+  State<AppCard> createState() => _AppCardState();
+}
+
+class _AppCardState extends State<AppCard> {
+  bool focused = false;
+  @override
   Widget build(BuildContext context) {
+    final child = widget.child, padding = widget.padding;
+    final color = widget.color, borderColor = widget.borderColor;
+    final onTap = widget.onTap;
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: color ?? scheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: borderColor ?? scheme.outlineVariant),
+        side: BorderSide(
+          color: focused
+              ? scheme.primary
+              : borderColor ?? scheme.outlineVariant,
+          width: focused ? 2 : 1,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        canRequestFocus: onTap != null,
+        onFocusChange: (value) => setState(() => focused = value),
+        mouseCursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        hoverColor: onTap == null
+            ? Colors.transparent
+            : scheme.primary.withAlpha(16),
+        focusColor: scheme.primary.withAlpha(40),
         child: Padding(padding: padding, child: child),
       ),
     );
@@ -645,6 +961,9 @@ Future<bool> confirm(
   BuildContext context, {
   required String title,
   required String message,
+  bool destructive = false,
+  String confirmLabel = 'Xác nhận',
+  String cancelLabel = 'Hủy',
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -654,12 +973,17 @@ Future<bool> confirm(
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Hủy'),
+            child: Text(cancelLabel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.red),
-            child: const Text('Xác nhận'),
+            style: destructive
+                ? FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  )
+                : null,
+            child: Text(confirmLabel),
           ),
         ],
       ),

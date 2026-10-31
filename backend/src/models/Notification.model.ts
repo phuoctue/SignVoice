@@ -3,7 +3,7 @@ import {Schema, model} from 'mongoose';
 export const UserNotification = model('UserNotification', new Schema({
   userId: {type: Schema.Types.ObjectId, required: true, ref: 'User'},
   key: {type: String, required: true},
-  kind: {type: String, enum: ['NEW_WORDS', 'REVIEW', 'TEST'], required: true},
+  kind: {type: String, enum: ['NEW_WORDS', 'REVIEW', 'TEST', 'STUDY_REMINDER'], required: true},
   title: {type: String, required: true},
   body: {type: String, required: true},
   route: {type: String, required: true},

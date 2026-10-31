@@ -123,6 +123,7 @@ class AuthProvider extends ChangeNotifier {
       _user = result;
       _state = AuthState.authenticated;
       _notify();
+      if (result.isGuest) await loadGuestTrial(start: true);
       return true;
     } catch (error) {
       if (!_current(epoch)) return false;
@@ -147,6 +148,7 @@ class AuthProvider extends ChangeNotifier {
           ? AuthState.unauthenticated
           : AuthState.authenticated;
       _notify();
+      if (result?.isGuest == true) await loadGuestTrial(start: true);
     } catch (error) {
       if (!_current(epoch)) return;
       _user = null;
@@ -160,7 +162,7 @@ class AuthProvider extends ChangeNotifier {
     required String email,
     required String password,
     required String displayName,
-  }) => _authenticate(
+  }) => _registerAndRequireLogin(
     () => _authService.register(
       email: email,
       password: password,
@@ -174,7 +176,7 @@ class AuthProvider extends ChangeNotifier {
     required String email,
     required String password,
     required String displayName,
-  }) => _authenticate(
+  }) => _registerAndRequireLogin(
     () => _authService.convertGuest(
       email: email,
       password: password,
@@ -182,6 +184,32 @@ class AuthProvider extends ChangeNotifier {
     ),
   );
   Future<Map<String, bool>> oauthProviders() => _authService.oauthProviders();
+  Future<bool> _registerAndRequireLogin(
+    Future<UserModel> Function() request,
+  ) async {
+    final previous = _user;
+    final epoch = ++_epoch;
+    _state = AuthState.loading;
+    _errorMessage = null;
+    _notify();
+    try {
+      await request();
+      if (!_current(epoch)) return false;
+      _clearTrial();
+      _user = null;
+      _state = AuthState.unauthenticated;
+      _notify();
+      return true;
+    } catch (error) {
+      if (!_current(epoch)) return false;
+      _user = previous;
+      _state = previous == null ? AuthState.error : AuthState.authenticated;
+      _errorMessage = _message(error);
+      _notify();
+      return false;
+    }
+  }
+
   Future<void> startOAuth(String provider) => _authService.startOAuth(provider);
   Future<bool> completeOAuth() => _authenticate(_authService.completeOAuth);
   Future<bool> loginWithGoogle() => _authenticate(_authService.signInGoogle);

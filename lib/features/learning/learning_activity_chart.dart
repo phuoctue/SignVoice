@@ -1,5 +1,9 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
+import 'package:intl/intl.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../services/learning/learning_service.dart';
@@ -36,6 +40,13 @@ class _LearningActivityChartState extends State<LearningActivityChart> {
   }
 
   int count(LearningRecord row, String key) => (row[key] as num? ?? 0).toInt();
+  String dateLabel(Object? value, {bool short = false}) {
+    final date = DateTime.tryParse('$value');
+    return date == null
+        ? 'Chưa có ngày'
+        : DateFormat(short ? 'dd/MM' : 'dd/MM/yyyy').format(date);
+  }
+
   Widget bar(double height, Color color) => TweenAnimationBuilder<double>(
     tween: Tween(begin: 0, end: height),
     curve: Curves.easeOutCubic,
@@ -65,113 +76,203 @@ class _LearningActivityChartState extends State<LearningActivityChart> {
         math.max(count(row, 'learned'), count(row, 'reviewed')),
       ),
     );
-    const learnedColor = Color(0xFF2563EB), reviewedColor = Color(0xFF087F6E);
-    final labelSize = MediaQuery.textScalerOf(context).scale(10);
+    final learnedColor = Theme.of(context).colorScheme.primary;
+    final reviewedColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF5EEAD4)
+        : const Color(0xFF087F6E);
+    final labelSize = MediaQuery.textScalerOf(context).scale(12);
+    final valueSize = MediaQuery.textScalerOf(context).scale(11);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Wrap(
+        Wrap(
           spacing: 18,
           children: [
-            Text('● Học', style: TextStyle(color: learnedColor)),
-            Text('● Ôn', style: TextStyle(color: reviewedColor)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 8, color: learnedColor),
+                const SizedBox(width: 6),
+                Text('Học', style: TextStyle(color: learnedColor)),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 8, color: reviewedColor),
+                const SizedBox(width: 6),
+                Text('Ôn', style: TextStyle(color: reviewedColor)),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 12),
         LayoutBuilder(
-          builder: (context, size) => SingleChildScrollView(
+          builder: (context, size) => Scrollbar(
             controller: scroll,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: math.max(
+            thumbVisibility:
+                widget.days.length * math.max(48.0, labelSize * 4 + 12) >
                 size.maxWidth,
-                widget.days.length * math.max(32.0, labelSize * 2 + 8),
-              ),
-              height: 132 + labelSize * 1.5,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (var i = 0; i < widget.days.length; i++)
-                    Expanded(
-                      child: Semantics(
-                        button: true,
-                        selected: (selected ?? widget.days.length - 1) == i,
-                        label:
-                            '${widget.days[i]['date']}: học ${count(widget.days[i], 'learned')} từ, ôn ${count(widget.days[i], 'reviewed')} từ',
-                        child: Tooltip(
-                          message:
-                              '${widget.days[i]['date']}: học ${count(widget.days[i], 'learned')}, ôn ${count(widget.days[i], 'reviewed')}',
-                          child: InkWell(
-                            onTap: () {
-                              setState(() => selected = i);
-                              widget.onDaySelected?.call(widget.days[i]);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 3,
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  SizedBox(
-                                    height: 112,
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
+            interactive: true,
+            child: SingleChildScrollView(
+              controller: scroll,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: math.max(
+                  size.maxWidth,
+                  widget.days.length * math.max(48.0, labelSize * 4 + 12),
+                ),
+                height: 148 + labelSize * 1.5 + valueSize * 1.5,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (var i = 0; i < widget.days.length; i++)
+                      Expanded(
+                        child: Semantics(
+                          button: true,
+                          selected: (selected ?? widget.days.length - 1) == i,
+                          label:
+                              '${widget.days[i]['date']}: học ${count(widget.days[i], 'learned')} từ, ôn ${count(widget.days[i], 'reviewed')} từ',
+                          child: Tooltip(
+                            message:
+                                '${widget.days[i]['date']}: học ${count(widget.days[i], 'learned')}, ôn ${count(widget.days[i], 'reviewed')}',
+                            child: InkWell(
+                              onTap: () {
+                                setState(() => selected = i);
+                                widget.onDaySelected?.call(widget.days[i]);
+                              },
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color:
+                                      (selected ?? widget.days.length - 1) == i
+                                      ? Theme.of(context).colorScheme.primary
+                                            .withAlpha(24)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 3,
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Row(
                                       children: [
-                                        Expanded(
-                                          child: bar(
-                                            count(widget.days[i], 'learned') /
-                                                maximum *
-                                                104,
-                                            learnedColor,
+                                        for (final key in [
+                                          'learned',
+                                          'reviewed',
+                                        ])
+                                          Expanded(
+                                            child: Text(
+                                              widget.days[i][key] is num
+                                                  ? '${count(widget.days[i], key)}'
+                                                  : '—',
+                                              textAlign: TextAlign.center,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: key == 'learned'
+                                                    ? learnedColor
+                                                    : reviewedColor,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 2),
-                                        Expanded(
-                                          child: bar(
-                                            count(widget.days[i], 'reviewed') /
-                                                maximum *
-                                                104,
-                                            reviewedColor,
-                                          ),
-                                        ),
                                       ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '${widget.days[i]['date']}'.split('-').last,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight:
-                                          (selected ??
-                                                  widget.days.length - 1) ==
-                                              i
-                                          ? FontWeight.w700
-                                          : FontWeight.normal,
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 112,
+                                      child: Stack(
+                                        children: [
+                                          const Positioned.fill(
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Divider(height: 1),
+                                                Divider(height: 1),
+                                                Divider(height: 1),
+                                              ],
+                                            ),
+                                          ),
+                                          Positioned.fill(
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                              children: [
+                                                Expanded(
+                                                  child: bar(
+                                                    count(
+                                                          widget.days[i],
+                                                          'learned',
+                                                        ) /
+                                                        maximum *
+                                                        104,
+                                                    learnedColor,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 2),
+                                                Expanded(
+                                                  child: bar(
+                                                    count(
+                                                          widget.days[i],
+                                                          'reviewed',
+                                                        ) /
+                                                        maximum *
+                                                        104,
+                                                    reviewedColor,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      dateLabel(
+                                        widget.days[i]['date'],
+                                        short: true,
+                                      ),
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight:
+                                            (selected ??
+                                                    widget.days.length - 1) ==
+                                                i
+                                            ? FontWeight.w700
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
         const SizedBox(height: 12),
         Text(
-          'Ngày ${chosen['date']}: học ${count(chosen, 'learned')} từ · ôn ${count(chosen, 'reviewed')} từ',
+          'Ngày ${dateLabel(chosen['date'])}: học ${count(chosen, 'learned')} từ · ôn ${count(chosen, 'reviewed')} từ',
         ),
         Text(
           widget.onDaySelected == null
-              ? 'Chạm cột để xem từng ngày; vuốt ngang khi cần.'
-              : 'Chạm vào một ngày để xem các từ đã học và ôn.',
+              ? (kIsWeb
+                    ? 'Rê chuột hoặc nhấp cột để xem từng ngày.'
+                    : 'Chạm cột để xem từng ngày; vuốt ngang khi cần.')
+              : (kIsWeb
+                    ? 'Nhấp một ngày để xem các từ đã học và ôn.'
+                    : 'Chạm vào một ngày để xem các từ đã học và ôn.'),
         ),
       ],
     );

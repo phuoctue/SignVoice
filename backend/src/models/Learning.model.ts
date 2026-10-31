@@ -17,10 +17,11 @@ export const WordProgress = model('WordProgress', new Schema({
 
 export const PersonalWord = model('PersonalWord', new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  collectionId: {type: Schema.Types.ObjectId, ref: 'SignCollection'},
   word: { type: String, required: true, trim: true, maxlength: 100 },
   definition: { type: String, required: true, trim: true, maxlength: 2000 },
   usageExample: { type: String, default: '', maxlength: 1000 },
   notes: { type: String, default: '', maxlength: 2000 },
   imageUrl: { type: String, default: '', maxlength: 1500000 },
   videoUrl: { type: String, default: '', maxlength: 2000 },
-}, { timestamps: true, collection: 'learning_personal_words' }).index({ userId: 1, updatedAt: -1, _id: 1 }));
+}, { timestamps: true, collection: 'learning_personal_words' }).index({ userId: 1, updatedAt: -1, _id: 1 }).index({userId:1,collectionId:1,word:1,_id:1}));

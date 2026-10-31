@@ -16,6 +16,15 @@ def row(**changes):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_provided_reference_clips_do_not_change_training_selection(self):
+        value = row(source='user_Dataset.tgz', fixed_split='', label='a')
+        self.assertTrue(audit.reference_eligible(value))
+        self.assertFalse(audit.eligible(value))
+        self.assertEqual(value['fixed_split'], '')
+        for changes in [dict(is_personal='True'), dict(fixed_split='test'),
+                        dict(source_label_verified='False'), dict(kind='skeleton')]:
+            self.assertFalse(audit.reference_eligible(dict(value, **changes)))
+
     def test_never_select_test_or_private_or_numeric_skeleton(self):
         for changes in [dict(fixed_split='test'), dict(fixed_split='val'),
                         dict(is_personal='True'), dict(kind='skeleton'),

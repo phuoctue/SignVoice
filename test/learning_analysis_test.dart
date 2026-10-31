@@ -18,6 +18,15 @@ class AnalysisService extends DemoLearningService {
   final response = Completer<LearningRecord>();
   int analyses = 0;
   @override
+  Future<LearningRecord> collectionRead(
+    String path, {
+    int page = 1,
+    String search = '',
+  }) async => {
+    'items': <LearningRecord>[],
+    'pagination': {'total': 0, 'page': page, 'pages': 0},
+  };
+  @override
   Future<LearningRecord> analyzeProgress() {
     analyses++;
     return response.future;
@@ -62,7 +71,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Phân tích tiến độ cá nhân'));
+    await tester.scrollUntilVisible(
+      find.text('Phân tích tiến độ cá nhân'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Phân tích tiến độ cá nhân'));
     await tester.pump();
     return service;
@@ -77,7 +91,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Vui lòng thử lại sau một phút.'), findsOneWidget);
-    await tester.ensureVisible(find.text('Gợi ý ôn tập'));
+    await tester.scrollUntilVisible(
+      find.text('Gợi ý ôn tập'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('Gợi ý ôn tập'));
     await tester.pumpAndSettle();
     expect(find.text('Lộ trình ôn tập cơ bản'), findsOneWidget);
@@ -89,8 +107,12 @@ void main() {
     tester,
   ) async {
     final service = await mountAnalysis(tester);
-    await tester.ensureVisible(find.text('Từ của tôi'));
-    await tester.tap(find.text('Từ của tôi'));
+    await tester.scrollUntilVisible(
+      find.text('Bộ sưu tập'),
+      -300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Bộ sưu tập'));
     await tester.pumpAndSettle();
     service.response.complete(analysisResult('lm-studio'));
     await tester.pumpAndSettle();
@@ -149,9 +171,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Gợi ý ôn tập'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Gợi ý ôn tập'), findsOneWidget);
       final action = find.text('Phân tích tiến độ cá nhân');
-      await tester.ensureVisible(action);
+      await tester.scrollUntilVisible(
+        action,
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(action);
       await tester.pump();
       expect(service.analyses, 1);
@@ -171,20 +202,43 @@ void main() {
         find.text('Bạn cần củng cố các chủ đề có nhiều từ đang học.'),
         findsOneWidget,
       );
+      await tester.scrollUntilVisible(
+        find.text('Gợi ý ôn tập'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Gợi ý ôn tập'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
 
-  testWidgets('analysis uses its own API and waits for a 45 second model', (
+  testWidgets('analysis polls short requests while a 45 second model runs', (
     tester,
   ) async {
     http.Request? sent;
+    var ready = false;
+    final pollPaths = <String>[];
     final transport = MockClient((request) async {
-      sent = request;
-      await Future<void>.delayed(const Duration(seconds: 45));
+      if (request.method == 'POST') {
+        sent = request;
+        Timer(const Duration(seconds: 45), () => ready = true);
+        return http.Response(
+          '{"data":{"id":"slow-analysis","state":"pending"}}',
+          202,
+        );
+      }
+      pollPaths.add(request.url.path);
       return http.Response(
-        jsonEncode({'success': true, 'data': analysisResult('lm-studio')}),
+        jsonEncode({
+          'success': true,
+          'data': ready
+              ? {
+                  'id': 'slow-analysis',
+                  'state': 'completed',
+                  'result': analysisResult('lm-studio'),
+                }
+              : {'id': 'slow-analysis', 'state': 'pending'},
+        }),
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
       );
@@ -212,8 +266,14 @@ void main() {
     await tester.pump(const Duration(seconds: 31));
     expect(error, isNull);
     await tester.pump(const Duration(seconds: 15));
+    await tester.pump(const Duration(seconds: 3));
     await pending;
     expect(result?['source'], 'lm-studio');
+    expect(pollPaths, isNotEmpty);
+    expect(
+      pollPaths,
+      everyElement(endsWith('/learning/ai-jobs/slow-analysis')),
+    );
     client.dispose();
   });
 }

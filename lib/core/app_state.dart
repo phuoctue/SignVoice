@@ -7,6 +7,7 @@ import '../services/user/user_data_service.dart';
 import '../services/api/api_exception.dart';
 import '../services/notifications/study_reminder.dart';
 import '../services/user/avatar_image_cache.dart';
+import '../services/user/guest_preferences.dart';
 
 enum ConversationDirection { signToSpeech, speechToText, text }
 
@@ -26,7 +27,7 @@ class Conversation {
 
   String get label => switch (direction) {
     ConversationDirection.signToSpeech => 'Ký hiệu → Giọng nói',
-    ConversationDirection.speechToText => 'Giọng nói → Hình ảnh',
+    ConversationDirection.speechToText => 'Giọng nói → Ký hiệu',
     ConversationDirection.text => 'Văn bản',
   };
   String get time {
@@ -140,6 +141,7 @@ class AppState extends ChangeNotifier {
       historyDirection == null &&
       historyFavorite == null;
   int avatarColor = 0, historyPage = 1, historyPages = 1;
+  int historyPageSize = 20, historyTotal = 0;
   String historySearch = '';
   String? historyDirection;
   bool? historyFavorite;
@@ -186,6 +188,8 @@ class AppState extends ChangeNotifier {
     saving = false;
     historyPage = 1;
     historyPages = 1;
+    historyPageSize = 20;
+    historyTotal = 0;
     historySearch = '';
     historyDirection = null;
     historyFavorite = null;
@@ -269,13 +273,40 @@ class AppState extends ChangeNotifier {
       final data = await service!.bootstrap();
       if (!isCurrent(epoch) || load != _loadEpoch) return false;
       if (revision != _revision) return false;
+      var settings = data.settings;
+      final pending = await GuestPreferences.read();
+      if (!isCurrent(epoch) || load != _loadEpoch || revision != _revision) {
+        return false;
+      }
+      if (pending.isNotEmpty) {
+        if (guest) {
+          settings = {...settings, ...pending};
+        } else {
+          try {
+            settings = await service!.saveSettings(pending);
+          } catch (_) {
+            if (!isCurrent(epoch) || load != _loadEpoch) return false;
+            error = 'Chưa đồng bộ được lựa chọn dùng thử. Các lựa chọn vẫn được giữ trên thiết bị.';
+            settings = {...settings, ...pending};
+          }
+          if (!isCurrent(epoch) ||
+              load != _loadEpoch ||
+              revision != _revision) {
+            return false;
+          }
+          if (error == null) await GuestPreferences.consume(pending);
+        }
+      }
+      if (!isCurrent(epoch) || load != _loadEpoch || revision != _revision) {
+        return false;
+      }
       update(() {
         final profile = data.profile;
         name = '${profile['displayName']}';
         email = '${profile['email'] ?? ''}';
         avatarUrl = '${profile['avatarUrl'] ?? ''}';
         accountType = '${profile['accountType']}';
-        _applySettings(data.settings);
+        _applySettings(settings);
         final conversations = data.conversations;
         history
           ..clear()
@@ -285,7 +316,13 @@ class AppState extends ChangeNotifier {
             ),
           );
         historyPage = 1;
-        historyPages = (conversations['pages'] as num).toInt();
+        historyPageSize = 20;
+        historyPages = ((conversations['pages'] as num?)?.toInt() ?? 1).clamp(
+          1,
+          1000000,
+        );
+        historyTotal = (conversations['total'] as num? ?? history.length)
+            .toInt();
         historySearch = '';
         historyDirection = null;
         historyFavorite = null;
@@ -369,6 +406,25 @@ class AppState extends ChangeNotifier {
       }
       result.complete(
         await _mutate((captured) async {
+          if (guest && body.keys.every(GuestPreferences.fields.contains)) {
+            await GuestPreferences.save(body);
+            if (persisted && !isCurrent(captured)) return;
+            update(
+              () => _applySettings({
+                'theme': themeMode.name.toUpperCase(),
+                'fontSize': (fontScale * 16).round(),
+                'speechSpeed': speechSpeed,
+                'speechPitch': speechPitch,
+                'highContrast': highContrast,
+                'autoSpeak': autoSpeak,
+                'avatarColor': avatarColor,
+                'notificationsEnabled': notificationsEnabled,
+                'studyReminder': studyReminder.toJson(),
+                ...body,
+              }),
+            );
+            return;
+          }
           if (service == null) return;
           final settings = await service!.saveSettings(body);
           if (isCurrent(captured)) update(() => _applySettings(settings));
@@ -380,13 +436,16 @@ class AppState extends ChangeNotifier {
 
   Future<bool> loadHistory({
     bool more = false,
+    int? pageNumber,
+    int? pageSize,
     String? search,
     String? direction,
     bool? favorite,
   }) async {
     if (service == null) return true;
     final epoch = _epoch, load = ++_loadEpoch;
-    final page = more ? historyPage + 1 : 1;
+    final page = pageNumber ?? (more ? historyPage + 1 : 1);
+    final limit = pageSize ?? historyPageSize;
     update(() {
       syncing = true;
       error = null;
@@ -394,6 +453,7 @@ class AppState extends ChangeNotifier {
     try {
       final result = await service!.conversations(
         page: page,
+        limit: limit,
         search: search ?? historySearch,
         direction: direction ?? (more ? historyDirection : null),
         favorite: favorite ?? (more ? historyFavorite : null),
@@ -407,8 +467,13 @@ class AppState extends ChangeNotifier {
           ),
         );
         historyPage = page;
+        historyPageSize = limit;
+        historyTotal = (result['total'] as num? ?? history.length).toInt();
         _historyLoadedAt = DateTime.now();
-        historyPages = (result['pages'] as num).toInt();
+        historyPages = ((result['pages'] as num?)?.toInt() ?? 1).clamp(
+          1,
+          1000000,
+        );
         if (!more) {
           historySearch = search ?? '';
           historyDirection = direction;
@@ -529,7 +594,11 @@ class AppState extends ChangeNotifier {
     if (service != null) await service!.deleteConversation(id);
     if (!persisted || isCurrent(epoch)) {
       update(() {
+        final previousCount = history.length;
         history.removeWhere((item) => item.id == id);
+        if (history.length < previousCount) {
+          historyTotal = (historyTotal - 1).clamp(0, 1 << 30);
+        }
         if (selectedHistoryId == id) selectedHistoryId = null;
       });
     }
@@ -539,6 +608,9 @@ class AppState extends ChangeNotifier {
     if (!persisted || isCurrent(epoch)) {
       update(() {
         history.clear();
+        historyTotal = 0;
+        historyPage = 1;
+        historyPages = 1;
         selectedHistoryId = null;
       });
     }

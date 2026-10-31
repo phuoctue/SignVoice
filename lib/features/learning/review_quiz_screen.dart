@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -533,10 +535,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
         'Về chủ đề',
         icon: Icons.arrow_back,
         onPressed: () {
-          Navigator.pushReplacementNamed(
-            context,
-            '/learn/topic/${quiz!['topicId']}?study=1',
-          );
+          replaceAppRoute(context, '/learn/topic/${quiz!['topicId']}?study=1');
         },
       ),
     ],

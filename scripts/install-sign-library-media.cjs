@@ -30,8 +30,8 @@ function safeDestination(root, candidate) {
   if (fs.existsSync(candidate) && fs.lstatSync(candidate).isSymbolicLink()) throw Error('Refusing linked destination: ' + candidate);
 }
 async function main() {
-  const {values} = parseArgs({options: {project: {type: 'string'}, 'verify-only': {type: 'boolean', default: false}}});
-  const bundle = __dirname;
+  const {values} = parseArgs({options: {project: {type: 'string'}, bundle:{type:'string'},update:{type:'boolean',default:false}, 'verify-only': {type: 'boolean', default: false}}});
+  const bundle = values.bundle ? path.resolve(values.bundle) : __dirname;
   const manifest = JSON.parse(fs.readFileSync(path.join(bundle, 'manifest.json'), 'utf8'));
   if (manifest.format !== 'signvoice-reference-media' || manifest.version !== 1 || !Array.isArray(manifest.files) ||
       !manifest.files.length || manifest.files.length > 30000 || new Set(manifest.files.map(file => file.path)).size !== manifest.files.length) throw Error('Invalid bundle manifest');
@@ -57,12 +57,14 @@ async function main() {
   }
   const taxonomy = path.join(project, 'backend/src/config/sign-library-categories.json');
   if (taxonomyHash(taxonomy) !== manifest.taxonomySha256) throw Error('The code taxonomy differs from this bundle. Pull the matching dictionary/category update first. No source code was overwritten.');
+  const packageRevision=crypto.createHash('sha256').update(JSON.stringify(manifest.files.map(file=>[file.path,file.sha256]).sort((a,b)=>a[0].localeCompare(b[0])))).digest('hex');
+  const metadataFolder=values.update?`.runtime/speech-sign-library/bundles/${packageRevision}`:'.runtime/speech-sign-library/shared-20261024';
   const plans = [];
   for (const file of manifest.files) {
     if (!file.path.startsWith('media/') && !file.path.startsWith('metadata/')) continue;
     const destination = file.path.startsWith('media/')
       ? path.join(project, '.runtime/sign-library-media', file.path.slice('media/'.length))
-      : path.join(project, '.runtime/speech-sign-library/shared-20261024', file.path.slice('metadata/'.length));
+      : path.join(project, metadataFolder, file.path.slice('metadata/'.length));
     safeDestination(project, destination);
     const exists = fs.existsSync(destination);
     if (exists && (!fs.statSync(destination).isFile() || await digest(destination) !== file.sha256)) throw Error('Existing file differs; not overwritten: ' + destination);
@@ -75,8 +77,12 @@ async function main() {
     fs.copyFileSync(plan.source, plan.destination, fs.constants.COPYFILE_EXCL);
   }
   console.log(`Installed ${plans.filter(plan => !plan.exists).length} files; ${plans.filter(plan => plan.exists).length} identical files kept.`);
+  if(values.update) {
+    const pending=path.join(project,'.runtime/library-package-pending.json');safeDestination(project,pending);
+    fs.writeFileSync(pending,JSON.stringify({packageRevision,catalog:path.join(metadataFolder,'library.json'),installedAt:new Date().toISOString()},null,2));
+  }
   console.log('Media installed. Configure your own backend/.env and active ADMIN, then import the dictionary as described in README_VI.md.');
-  console.log('Catalog: .runtime/speech-sign-library/shared-20261024/library.json');
+  console.log('Catalog: '+path.join(metadataFolder,'library.json'));
   console.log('This installer did not connect to MongoDB or change user/account data.');
 }
 main().catch(error => {console.error(error.message); process.exitCode = 1;});

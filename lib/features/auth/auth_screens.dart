@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
@@ -8,8 +9,14 @@ import '../../services/auth/google_sign_in_native.dart';
 import '../../services/api/api_exception.dart';
 
 import '../../core/navigation.dart';
+import '../../core/app_route.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../services/auth/collection_return_route.dart';
+import 'web_auth_layout.dart';
+import 'web_landing_page.dart';
+
+export 'web_landing_page.dart';
 
 String? validateEmail(String? value) {
   if (value == null || value.trim().isEmpty) return 'Vui lòng nhập email.';
@@ -55,7 +62,17 @@ class _SplashScreenState extends State<SplashScreen> {
       if (!mounted) return;
       scheduled = false;
       if (!auth!.isLoading && auth!.state != AuthState.initial) {
-        openRoot(context, auth!.isAuthenticated ? 'S08' : 'S02');
+        final webRoute =
+            kIsWeb ||
+            GoRouter.maybeOf(context) != null ||
+            MediaQuery.sizeOf(context).width >= 900;
+        if (auth!.isAuthenticated) {
+          openRoot(context, 'S08');
+        } else if (!webRoute) {
+          openRoot(context, 'S02');
+        } else {
+          setState(() {});
+        }
       }
     });
   }
@@ -67,7 +84,20 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final readyUnauth =
+        auth != null &&
+        !auth!.isLoading &&
+        auth!.state != AuthState.initial &&
+        !auth!.isAuthenticated;
+    final webRoute =
+        kIsWeb ||
+        GoRouter.maybeOf(context) != null ||
+        MediaQuery.sizeOf(context).width >= 900;
+    if (readyUnauth && webRoute) {
+      return const WebLandingPage();
+    }
+    return Scaffold(
     body: Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -115,6 +145,7 @@ class _SplashScreenState extends State<SplashScreen> {
       ),
     ),
   );
+  }
 }
 
 class OnboardingScreen extends StatelessWidget {
@@ -122,6 +153,13 @@ class OnboardingScreen extends StatelessWidget {
   final int index;
   @override
   Widget build(BuildContext context) {
+    final webRoute =
+        kIsWeb ||
+        GoRouter.maybeOf(context) != null ||
+        MediaQuery.sizeOf(context).width >= 900;
+    if (index == 0 && webRoute) {
+      return const WebLandingPage();
+    }
     const titles = [
       'Biến ký hiệu thành lời nói',
       'Lắng nghe bằng văn bản',
@@ -264,13 +302,15 @@ class OnboardingScreen extends StatelessWidget {
 }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, this.register = false});
+  const AuthScreen({super.key, this.register = false, this.returnRoute});
+  final String? returnRoute;
   final bool register;
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+  late bool registering = widget.register;
   Map<String, bool>? oauth;
   String? oauthError;
   @override
@@ -299,7 +339,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> socialLogin(String provider) async {
     if (busy) return;
-    if (widget.register && !accepted) {
+    if (registering && !accepted) {
       toast(context, 'Vui lòng đồng ý với điều khoản để tiếp tục.');
       return;
     }
@@ -311,7 +351,7 @@ class _AuthScreenState extends State<AuthScreen> {
           final ok = await auth.loginWithGoogle();
           if (!mounted) return;
           if (ok) {
-            openRoot(context, 'S08');
+            finishLogin();
           } else {
             toast(context, auth.errorMessage ?? 'Không đăng nhập được Google.');
           }
@@ -336,6 +376,7 @@ class _AuthScreenState extends State<AuthScreen> {
     }
     setState(() => busy = true);
     try {
+      saveCollectionReturnRoute(widget.returnRoute);
       await context.read<AuthProvider>().startOAuth(provider);
     } catch (_) {
       if (mounted) {
@@ -346,7 +387,29 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  final form = GlobalKey<FormState>();
+  final _loginForm = GlobalKey<FormState>();
+  final _registerForm = GlobalKey<FormState>();
+  GlobalKey<FormState> get form => registering ? _registerForm : _loginForm;
+  void finishLogin() {
+    consumeCollectionReturnRoute();
+    final target = widget.returnRoute;
+    final route = target == null
+        ? null
+        : AppRoute.parse(
+            target,
+            adminResources: const [
+              'users',
+              'roles',
+              'sessions',
+              'dictionary',
+              'categories',
+              'collections',
+              'content',
+            ],
+          );
+    openRoot(context, route?.known == true ? target! : 'S08');
+  }
+
   final email = TextEditingController();
   final password = TextEditingController();
   final name = TextEditingController();
@@ -363,13 +426,14 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> submit() async {
     if (busy) return;
     if (!form.currentState!.validate()) return;
-    if (widget.register && !accepted) {
+    if (registering && !accepted) {
       toast(context, 'Vui lòng đồng ý với điều khoản để tiếp tục.');
       return;
     }
     setState(() => busy = true);
     final auth = context.read<AuthProvider>();
-    final success = widget.register
+    final creatingAccount = registering;
+    final success = registering
         ? auth.user?.isGuest == true
               ? await auth.convertGuest(
                   email: email.text.trim(),
@@ -385,7 +449,14 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!mounted) return;
     setState(() => busy = false);
     if (success) {
-      openRoot(context, 'S08');
+      if (creatingAccount) {
+        password.clear();
+        repeatPassword.clear();
+        setState(() => registering = false);
+        toast(context, 'Tạo tài khoản thành công. Hãy đăng nhập để tiếp tục.');
+      } else {
+        finishLogin();
+      }
     } else {
       toast(
         context,
@@ -396,39 +467,103 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> enterGuest() async {
     if (busy) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        constraints: const BoxConstraints(maxWidth: 520),
+        scrollable: true,
+        title: const Text('Dùng thử SignVoice trong 10 phút'),
+        content: const Text(
+          'Bạn có thể trải nghiệm giao tiếp và học ký hiệu trong 10 phút kể từ khi xác nhận. Thời gian vẫn chạy khi đổi trang hoặc tải lại. Các chức năng lưu hội thoại, yêu thích và bộ riêng cần đăng nhập. Hết giờ, bạn vẫn xem được từ điển công khai.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Để sau'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Vào dùng thử'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || accepted != true) return;
     setState(() => busy = true);
     final auth = context.read<AuthProvider>();
     final success = await auth.loginAsGuest();
     if (!mounted) return;
     setState(() => busy = false);
     if (success) {
-      openRoot(context, 'S08');
+      finishLogin();
     } else {
       toast(context, auth.errorMessage ?? 'Không thể bắt đầu dùng thử.');
     }
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
-    title: widget.register ? 'Tạo tài khoản' : 'Đăng nhập',
-    showBack: widget.register,
-    child: Form(
+  Widget build(BuildContext context) {
+    final desktop = kIsWeb && MediaQuery.sizeOf(context).width >= 900;
+    final formContent = Form(
       key: form,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!widget.register) ...[
-            const Center(child: Logo(size: 58)),
-            const SizedBox(height: 18),
-            const Heading('Chào mừng trở lại!', center: true),
-            const SizedBox(height: 6),
-            const BodyText('Tiếp tục kết nối cùng SignVoice.', center: true),
-            const SizedBox(height: 26),
+          if (!registering) ...[
+            if (!desktop) ...[
+              const Center(child: Logo(size: 58)),
+              const SizedBox(height: 18),
+            ],
+            if (desktop) ...[
+              const Center(child: Logo(size: 42)),
+              const SizedBox(height: 16),
+              const Heading(
+                'Tiếp tục hành trình\ncùng SignVoice',
+                center: true,
+                size: 28,
+              ),
+              const SizedBox(height: 10),
+              const BodyText(
+                'Đăng nhập để tiếp tục học và giao tiếp bằng ngôn ngữ ký hiệu.',
+                center: true,
+              ),
+            ] else
+              const Heading('Đăng nhập SignVoice', center: true),
+            if (!desktop) ...[
+              const SizedBox(height: 6),
+              const BodyText('Tiếp tục kết nối cùng SignVoice.', center: true),
+            ],
+            const SizedBox(height: 24),
           ] else ...[
-            const BodyText('Tạo tài khoản để lưu lịch sử và đồng bộ dữ liệu.'),
+            if (desktop) ...[
+              const Heading('Tạo tài khoản', center: true),
+              const SizedBox(height: 20),
+            ],
+          ],
+          if (desktop && !registering) ...[
+            WebSocialSignIn(
+              busy: busy,
+              onGoogle: () => socialLogin('google'),
+              onFacebook: () => socialLogin('facebook'),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'hoặc dùng email',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const Expanded(child: Divider()),
+              ],
+            ),
             const SizedBox(height: 20),
           ],
-          if (widget.register) ...[
+          if (registering) ...[
             _field(
               'Họ và tên',
               TextFormField(
@@ -459,11 +594,11 @@ class _AuthScreenState extends State<AuthScreen> {
             TextFormField(
               controller: password,
               obscureText: hidePassword,
-              textInputAction: widget.register
+              textInputAction: registering
                   ? TextInputAction.next
                   : TextInputAction.done,
               onFieldSubmitted: (_) {
-                if (!widget.register && !busy) submit();
+                if (!registering && !busy) submit();
               },
               decoration: InputDecoration(
                 hintText: 'Tối thiểu 8 ký tự',
@@ -479,7 +614,7 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
               validator: (value) {
                 final error = validatePassword(value);
-                if (error != null || !widget.register) return error;
+                if (error != null || !registering) return error;
                 if (!RegExp(r'[a-zA-Z]').hasMatch(value!) ||
                     !RegExp(r'[0-9]').hasMatch(value)) {
                   return 'Mật khẩu cần có chữ cái và số.';
@@ -488,7 +623,7 @@ class _AuthScreenState extends State<AuthScreen> {
               },
             ),
           ),
-          if (widget.register) ...[
+          if (registering) ...[
             const SizedBox(height: 16),
             _field(
               'Xác nhận mật khẩu',
@@ -534,12 +669,13 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
           const SizedBox(height: 12),
           AppButton(
-            widget.register ? 'Tạo tài khoản' : 'Đăng nhập',
+            registering ? 'Tạo tài khoản' : 'Đăng nhập',
+            fill: true,
             key: const ValueKey('auth-submit'),
             busy: busy,
             onPressed: submit,
           ),
-          ...[
+          if (!desktop && !registering) ...[
             const SizedBox(height: 20),
             Row(
               children: [
@@ -571,21 +707,69 @@ class _AuthScreenState extends State<AuthScreen> {
               onPressed: busy ? null : () => socialLogin('facebook'),
             ),
           ],
-          if (!widget.register) ...[
+          if (!registering) ...[
             const SizedBox(height: 18),
-            TextButton(
-              onPressed: () => openScreen(context, 'S06'),
-              child: const Text('Chưa có tài khoản? Đăng ký'),
-            ),
-            TextButton(
-              onPressed: busy ? null : enterGuest,
-              child: const Text('Dùng thử không cần tài khoản'),
-            ),
+            if (!desktop)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => widget.returnRoute == null
+                          ? openScreen(context, 'S06')
+                          : Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => AuthScreen(
+                                  register: true,
+                                  returnRoute: widget.returnRoute,
+                                ),
+                              ),
+                            ),
+                child: const Text('Chưa có tài khoản? Đăng ký'),
+              ),
+            if (desktop)
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TextButton.icon(
+                    onPressed: busy ? null : enterGuest,
+                    icon: const Icon(Icons.explore_outlined, size: 18),
+                    label: const Text('Khám phá bản dùng thử'),
+                  ),
+                  TextButton.icon(
+                    onPressed: busy ? null : () => openRoot(context, 'S01'),
+                    icon: const Icon(Icons.info_outline, size: 18),
+                    label: const Text('Giới thiệu SignVoice'),
+                  ),
+                ],
+              )
+            else
+              TextButton(
+                onPressed: busy ? null : enterGuest,
+                child: const Text('Dùng thử không cần tài khoản'),
+              ),
           ],
         ],
       ),
-    ),
-  );
+    );
+    if (desktop) {
+      return WebAuthLayout(
+        register: registering,
+        form: formContent,
+        busy: busy,
+        onSwitch: () {
+          if (!busy) setState(() => registering = !registering);
+        },
+      );
+    }
+    return AppPage(
+      title: registering ? 'Tạo tài khoản' : 'Đăng nhập',
+      showBack: registering || widget.returnRoute != null,
+      child: formContent,
+    );
+  }
+
   Widget _field(String label, Widget input) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [

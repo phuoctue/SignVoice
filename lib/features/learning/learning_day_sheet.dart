@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -206,7 +208,7 @@ class _LearningDaySheetState extends State<LearningDaySheet> {
                               ).hasMatch('${word['entryId']}'))
                                 TextButton(
                                   onPressed: () async {
-                                    await Navigator.pushNamed(
+                                    await pushAppRoute(
                                       context,
                                       '/learn/history?entryId=${word['entryId']}',
                                     );

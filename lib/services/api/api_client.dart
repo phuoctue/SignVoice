@@ -17,6 +17,19 @@ class ApiClient {
   final TokenStore _tokenStorage;
   final bool useRefreshCookie;
   final ValueNotifier<int> sessionInvalidated = ValueNotifier(0);
+  final ValueNotifier<int> libraryChanged = ValueNotifier(0);
+  String? _libraryRevision;
+  Future<void> refreshLibraryRevision() async {
+    final response = await get('/library/version', requiresAuth: false);
+    final revision = response['data']?['revision'];
+    if (revision is! String || revision.isEmpty) return;
+    if (_libraryRevision != null && _libraryRevision != revision) {
+      _invalidateReads();
+      libraryChanged.value++;
+    }
+    _libraryRevision = revision;
+  }
+
   Future<void>? _refreshing;
   bool _loggingOut = false;
   int _sessionEpoch = 0;
@@ -358,7 +371,8 @@ class ApiClient {
 
   static dynamic _copyJson(dynamic value) => switch (value) {
     Map value => <String, dynamic>{
-      for (final entry in value.entries) entry.key as String: _copyJson(entry.value),
+      for (final entry in value.entries)
+        entry.key as String: _copyJson(entry.value),
     },
     List value => [for (final item in value) _copyJson(item)],
     _ => value,
@@ -418,5 +432,6 @@ class ApiClient {
     _invalidateReads();
     _client.close();
     sessionInvalidated.dispose();
+    libraryChanged.dispose();
   }
 }

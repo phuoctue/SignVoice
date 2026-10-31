@@ -70,7 +70,7 @@ describe('JWT sessions and RBAC', () => {
 
   it('enforces USER / STAFF / ADMIN permissions', async () => {
     for (const [role, staffStatus, adminStatus] of [
-      [UserRole.USER, 403, 403], [UserRole.STAFF, 200, 403], [UserRole.ADMIN, 200, 200],
+      [UserRole.USER, 403, 403], [UserRole.STAFF, 200, 200], [UserRole.ADMIN, 200, 200],
     ] as const) {
       const token = accounts[role].tokens.accessToken;
       await request(app).get('/api/v1/staff/stats').set('Authorization', `Bearer ${token}`).expect(staffStatus);

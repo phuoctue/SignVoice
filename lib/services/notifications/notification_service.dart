@@ -12,13 +12,28 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/app_state.dart';
+import '../platform/page_visibility.dart';
 import 'notification_background.dart';
 import 'push_notice.dart';
 
 /// Coordinates one device with the current account. Operations are serialized so
 /// a late save or login cannot leave the previous account's alarms installed.
 class NotificationService extends ChangeNotifier {
-  NotificationService(this.state, {required this.onOpen});
+  NotificationService(
+    this.state, {
+    required this.onOpen,
+    this.webInbox = kIsWeb,
+  });
+  final bool webInbox;
+  List<Map<String, dynamic>> inbox = [];
+  bool inboxLoading = false;
+  String? inboxError;
+  int get unreadCount => inbox.where((item) => item['read'] != true).length;
+  Timer? _inboxTimer;
+  void Function()? _cancelVisibility;
+  DateTime? _inboxLoadedAt;
+  int _inboxGeneration = 0;
+  String? _inboxOwner, _inboxPlan;
   final AppState state;
   final void Function(String route) onOpen;
   final _local = FlutterLocalNotificationsPlugin();
@@ -51,6 +66,88 @@ class NotificationService extends ChangeNotifier {
   void start() {
     state.addListener(refresh);
     refresh();
+    if (webInbox) {
+      _inboxTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => loadInbox(),
+      );
+      _cancelVisibility = onPageVisible(() => loadInbox(force: true));
+    }
+  }
+
+  Future<void> loadInbox({bool force = false}) async {
+    if (_disposed ||
+        !state.persisted ||
+        !state.ready ||
+        state.guest ||
+        state.accountId == null ||
+        inboxLoading) {
+      return;
+    }
+    if (!force &&
+        _inboxLoadedAt != null &&
+        DateTime.now().difference(_inboxLoadedAt!) <
+            const Duration(seconds: 25)) {
+      return;
+    }
+    final epoch = state.accountEpoch, generation = ++_inboxGeneration;
+    inboxLoading = true;
+    inboxError = null;
+    _notify();
+    try {
+      final result = await state.service!.notifications();
+      if (_disposed ||
+          generation != _inboxGeneration ||
+          !state.isCurrent(epoch)) {
+        return;
+      }
+      inbox = (result['items'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      _inboxLoadedAt = DateTime.now();
+    } catch (_) {
+      if (!_disposed &&
+          generation == _inboxGeneration &&
+          state.isCurrent(epoch)) {
+        inboxError = 'Chưa tải được thông báo. Hãy thử lại.';
+      }
+    } finally {
+      if (!_disposed && generation == _inboxGeneration) {
+        inboxLoading = false;
+        _notify();
+      }
+    }
+  }
+
+  Future<bool> markRead(Map<String, dynamic> item) async {
+    final epoch = state.accountEpoch;
+    try {
+      await state.service?.readNotification('${item['_id']}');
+      if (_disposed || !state.isCurrent(epoch)) return false;
+      item['read'] = true;
+      _notify();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _refreshWebInbox() {
+    final owner = '${state.accountId}:${state.accountEpoch}';
+    if (_inboxOwner != owner || state.guest || !state.ready) {
+      _inboxOwner = owner;
+      _inboxGeneration++;
+      inbox = [];
+      inboxLoading = false;
+      inboxError = null;
+      _inboxLoadedAt = null;
+      _inboxPlan = null;
+      _notify();
+    }
+    final plan = jsonEncode(state.studyReminder.toJson());
+    final changed = _inboxPlan != plan;
+    _inboxPlan = plan;
+    unawaited(loadInbox(force: changed));
   }
 
   void _notify() {
@@ -237,6 +334,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void refresh() {
+    if (webInbox && !_disposed) _refreshWebInbox();
     if (!supported || !state.persisted || _disposed) return;
     final signature =
         '${state.accountId}:${state.ready}:${state.guest}:${state.notificationsEnabled}:${jsonEncode(state.studyReminder.toJson())}';
@@ -453,6 +551,9 @@ class NotificationService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _inboxGeneration++;
+    _inboxTimer?.cancel();
+    _cancelVisibility?.call();
     _generation++;
     state.removeListener(refresh);
     _tokens?.cancel();

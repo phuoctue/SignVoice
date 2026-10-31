@@ -11,6 +11,7 @@ import { createApp } from './app';
 import { env, validateEnv } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import {startNotificationDelivery} from './services/notification.service';
+import {ensureLearningIndexes} from './services/learning-indexes.service';
 
 /**
  * Start the server
@@ -25,6 +26,7 @@ async function startServer(): Promise<void> {
     // Connect to database
     console.log('🔌 Connecting to MongoDB...');
     await connectDatabase();
+    await ensureLearningIndexes();
 
     // Create Express app
     const app = await createApp();

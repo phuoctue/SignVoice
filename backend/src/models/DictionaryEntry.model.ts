@@ -34,6 +34,7 @@ export interface IDictionaryEntry extends Document {
   
   // Basic info
   word: string; // The sign language word/phrase (Vietnamese)
+  referenceMissing?:boolean;
   aliases?: string[];
   definition: string; // Explanation
   
@@ -79,6 +80,7 @@ export interface IDictionaryEntry extends Document {
  */
 const DictionaryEntrySchema = new Schema<IDictionaryEntry>(
   {
+    referenceMissing:{type:Boolean,default:false},
     word: {
       type: String,
       required: [true, 'Word is required'],
@@ -244,6 +246,7 @@ DictionaryEntrySchema.index(
 
 // Primary queries
 DictionaryEntrySchema.index({ status: 1, publishedAt: -1 }); // Published entries
+DictionaryEntrySchema.index({ status: 1, word: 1, _id: 1 }); // Paged collection picker
 DictionaryEntrySchema.index({ status: 1, videoUrl: 1 });
 DictionaryEntrySchema.index({ status: 1, thumbnailUrl: 1 });
 DictionaryEntrySchema.index({ status: 1, imageUrls: 1 });

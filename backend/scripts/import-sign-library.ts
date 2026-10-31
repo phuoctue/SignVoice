@@ -9,6 +9,10 @@ import {DictionaryEntry, EntryStatus} from '../src/models/DictionaryEntry.model'
 import {Category} from '../src/models/Category.model';
 import {User} from '../src/models/User.model';
 import {env} from '../src/config/env';
+import {LibraryRevision} from '../src/models/LibraryRevision.model';
+import {ReviewQuiz} from '../src/models/ReviewQuiz.model';
+import {WordProgress,TopicEnrollment} from '../src/models/Learning.model';
+import {invalidateLibraryRevision} from '../src/services/library-revision.service';
 import {referenceAliases, referenceCategories, referenceCategory, referenceSlug} from '../src/services/sign-library-categories';
 
 export type ReferenceRow = {
@@ -61,10 +65,12 @@ export function referenceEntry(row: ReferenceRow, origin: string, categoryId: Ty
   };
 }
 
-export async function importReferenceRows(rows: ReferenceRow[], origin: string, authorId: Types.ObjectId) {
+export async function importReferenceRows(rows: ReferenceRow[], origin: string, authorId: Types.ObjectId,options:{syncRemoved?:boolean}={}) {
   validateReferenceRows(rows);
+  await LibraryRevision.init();
   const classified = rows.map(row => ({row, category: referenceCategory(row.word)}));
-  return mongoose.connection.transaction(async session => {
+  const revision=createHash('sha256').update(JSON.stringify({classified,origin,syncRemoved:!!options.syncRemoved})).digest('hex');
+  const result=await mongoose.connection.transaction(async session => {
     const categoryIds = new Map<string, Types.ObjectId>();
     for (const [sortOrder, name] of referenceCategories.entries()) {
       const category = await Category.findOneAndUpdate({slug: 'tham-khao-' + referenceSlug(name)}, {
@@ -78,32 +84,53 @@ export async function importReferenceRows(rows: ReferenceRow[], origin: string, 
     const manual = new Set(existing.filter(item => item.status === 'PUBLISHED' && !(item.tags || []).some(tag => tag.startsWith('svlib:')))
       .map(item => normalize(item.word)));
     const operations: any[] = [], ledger: Record<string, unknown>[] = [];
+    const changedIds:Types.ObjectId[]=[];
+    const reclassified:{entryId:Types.ObjectId;topicId:Types.ObjectId}[]=[];
     for (const {row, category} of classified) {
       const tag = tagFor(row.word), current = byTag.get(tag);
-      if (manual.has(normalize(row.word)) || current && (current.lastModifiedBy || current.status !== 'PUBLISHED')) {
+      if (manual.has(normalize(row.word)) || current && (current.lastModifiedBy || current.status !== 'PUBLISHED' && !current.referenceMissing)) {
         ledger.push({word: row.word, action: 'kept_manual_or_unpublished'});
         continue;
       }
-      const data = referenceEntry(row, origin, categoryIds.get(category)!);
+      const data = {...referenceEntry(row, origin, categoryIds.get(category)!),referenceMissing:false};
+      if(current && !current.categoryId.equals(data.categoryId))reclassified.push({entryId:current._id,topicId:data.categoryId});
+      if(current && (current.videoUrl!==data.videoUrl || current.thumbnailUrl!==data.thumbnailUrl || current.word!==data.word || current.categoryId.toString()!==data.categoryId.toString() || current.status!==data.status || JSON.stringify(current.imageUrls)!==JSON.stringify(data.imageUrls)))changedIds.push(current._id);
       operations.push({updateOne: {filter: current ? {_id: current._id} : {tags: tag},
         update: {$set: data, $setOnInsert: {createdBy: authorId, publishedAt: new Date()}}, upsert: !current}});
       ledger.push({word: row.word, category, action: current ? 'updated_managed_entry' : 'created',
         source: row.source, source_path: row.source_path});
     }
+    if(options.syncRemoved) {
+      const incoming=new Set(rows.map(row=>tagFor(row.word)));
+      for(const item of existing)if(!item.lastModifiedBy && item.status==='PUBLISHED' && (item.tags || []).some(tag=>tag.startsWith('svlib:')) && !(item.tags || []).some(tag=>incoming.has(tag))) {
+        operations.push({updateOne:{filter:{_id:item._id},update:{$set:{status:EntryStatus.ARCHIVED,referenceMissing:true}},upsert:false}});
+        changedIds.push(item._id);ledger.push({word:item.word,action:'archived_missing_reference'});
+      }
+    }
     for (let i = 0; i < operations.length; i += 250) {
       await DictionaryEntry.bulkWrite(operations.slice(i, i + 250), {session});
+    }
+    if(reclassified.length) {
+      await WordProgress.bulkWrite(reclassified.map(row=>({updateMany:{filter:{entryId:row.entryId},update:{$set:{topicId:row.topicId}}}})),{session});
+      const learners=await WordProgress.find({entryId:{$in:reclassified.map(row=>row.entryId)}}).select('userId topicId').session(session).lean();
+      const enrollments=new Map(learners.map(row=>[String(row.userId)+':'+String(row.topicId),row]));
+      if(enrollments.size)await TopicEnrollment.bulkWrite([...enrollments.values()].map(row=>({updateOne:{filter:{userId:row.userId,topicId:row.topicId},update:{$setOnInsert:{userId:row.userId,topicId:row.topicId}},upsert:true}})),{session});
     }
     // Recount rather than increment so repeated imports cannot inflate category counts.
     const counts = await DictionaryEntry.aggregate([{$match: {status: 'PUBLISHED'}}, {$group: {_id: '$categoryId', count: {$sum: 1}}}]).session(session);
     await Category.updateMany({}, {$set: {wordCount: 0}}, {session});
     for (const item of counts) await Category.updateOne({_id: item._id}, {$set: {wordCount: item.count}}, {session});
+    if(changedIds.length)await ReviewQuiz.updateMany({status:'DRAFT','questions.entryId':{$in:changedIds.map(String)}},{$set:{status:'ABANDONED',libraryChanged:true}},{session});
+    const previousRevision=await LibraryRevision.findById('dictionary').session(session).lean();
+    if(previousRevision?.revision!==revision)await LibraryRevision.updateOne({_id:'dictionary'},{$set:{revision}},{upsert:true,session});
     return ledger;
   });
+  invalidateLibraryRevision();return result;
 }
 
 async function main() {
   const root = path.resolve(__dirname, '../..');
-  const {values} = parseArgs({options: {catalog: {type: 'string'}, origin: {type: 'string'}, apply: {type: 'boolean', default: false}}});
+  const {values} = parseArgs({options: {catalog: {type: 'string'}, origin: {type: 'string'}, apply: {type: 'boolean', default: false},'sync-removed':{type:'boolean',default:false}}});
   const input = path.resolve(root, values.catalog || '.runtime/speech-sign-library/dictionary-20261024/library.json');
   const rows = JSON.parse(readFileSync(input, 'utf8')) as ReferenceRow[];
   const url = new URL(values.origin || env.PUBLIC_ORIGIN || env.WEB_ORIGIN);
@@ -122,11 +149,12 @@ async function main() {
     const previousCategories = await Category.find().lean();
     const folder = path.dirname(input);
     writeFileSync(path.join(folder, 'before-import-' + Date.now() + '.json'), JSON.stringify({entries: backup, categories: previousCategories}, null, 2));
-    const ledger = await importReferenceRows(rows, origin, author._id);
+    const ledger = await importReferenceRows(rows, origin, author._id,{syncRemoved:values['sync-removed']});
     writeFileSync(path.join(folder, 'import-ledger.json'), JSON.stringify(ledger, null, 2));
     console.log(JSON.stringify({processed: ledger.length, created: ledger.filter(row => row.action === 'created').length,
       updated: ledger.filter(row => row.action === 'updated_managed_entry').length,
       kept: ledger.filter(row => row.action === 'kept_manual_or_unpublished').length,
+      archived: ledger.filter(row => row.action === 'archived_missing_reference').length,
       publishedTotal: await DictionaryEntry.countDocuments({status: 'PUBLISHED'})}));
   } finally { await disconnectDatabase(); }
 }

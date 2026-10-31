@@ -10,6 +10,7 @@ import 'package:sign_voice/models/user_model.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/screens/admin/admin_dashboard_screen.dart';
 import 'package:sign_voice/screens/admin/admin_management_screens.dart';
+import 'package:sign_voice/screens/admin/admin_ui.dart';
 import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 import 'package:sign_voice/services/api/api_client.dart';
 
@@ -99,6 +100,59 @@ Future<void> pumpApp(
 }
 
 void main() {
+  for (final role in [UserRole.admin, UserRole.staff]) {
+    testWidgets('$role personal page stays compact on desktop', (tester) async {
+      await pumpApp(tester, user: testUser(role: role));
+      tester.view.physicalSize = const Size(1600, 1000);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSize(find.byType(Scaffold)).width,
+        lessThanOrEqualTo(480),
+      );
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  }
+  testWidgets('management and personal pages share phone layout on desktop', (
+    tester,
+  ) async {
+    await pumpApp(tester, screen: 'admin');
+    tester.view.physicalSize = const Size(1600, 1000);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, lessThanOrEqualTo(480));
+    await tester.tap(find.text('Cá nhân'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, lessThanOrEqualTo(480));
+    await tester.tap(find.text('Quản trị'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, lessThanOrEqualTo(480));
+    await tester.scrollUntilVisible(
+      find.text('Danh mục'),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(AdminDashboardScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(find.text('Danh mục')),
+      alignment: .4,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Danh mục'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Thêm mới'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, lessThanOrEqualTo(480));
+    Navigator.pop(tester.element(find.byType(Scaffold)));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, lessThanOrEqualTo(480));
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(Scaffold)).width, 390);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   test('custom role permissions do not inherit the coarse ADMIN alias', () {
     final user = testUser(role: UserRole.admin).copyWith(
       customRoleId: 'role-id',
@@ -139,7 +193,7 @@ void main() {
       await tester.tap(find.text('Quản trị'));
       await tester.pumpAndSettle();
       expect(find.byType(AdminDashboardScreen), findsOneWidget);
-      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('Tổng quan'), findsOneWidget);
       final nav = tester.widget<NavigationBar>(find.byType(NavigationBar));
       expect(nav.selectedIndex, 4);
     },
@@ -169,6 +223,74 @@ void main() {
       await tester.pumpAndSettle();
     }
   });
+  testWidgets(
+    'STAFF shares admin dashboard with content tools and blocks sensitive deep links',
+    (tester) async {
+      await pumpApp(
+        tester,
+        screen: 'admin',
+        user: testUser(role: UserRole.staff),
+      );
+      expect(find.byType(AdminDashboardScreen), findsOneWidget);
+      expect(
+        find.widgetWithText(NavigationDestination, 'Quản trị'),
+        findsOneWidget,
+      );
+      for (final label in [
+        'Tài khoản',
+        'Role & phân quyền',
+        'Phiên đăng nhập',
+      ]) {
+        expect(find.widgetWithText(ListTile, label), findsNothing);
+      }
+      for (final label in [
+        'Từ điển',
+        'Danh mục',
+        'Bộ sưu tập công khai',
+        'Duyệt nội dung',
+      ]) {
+        if (find.widgetWithText(ListTile, label).evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.widgetWithText(ListTile, label),
+            180,
+            scrollable: find.byType(Scrollable).first,
+          );
+        }
+        expect(find.widgetWithText(ListTile, label), findsOneWidget);
+      }
+      for (final path in [
+        '/admin/users',
+        '/admin/roles',
+        '/admin/sessions',
+        '/staff/users',
+      ]) {
+        Navigator.pushNamed(tester.element(find.byType(NavigationBar)), path);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Bạn không có quyền truy cập trang này.'),
+          findsOneWidget,
+        );
+        Navigator.pop(tester.element(find.byType(Scaffold).last));
+        await tester.pumpAndSettle();
+      }
+      for (final path in [
+        '/admin/dictionary',
+        '/admin/categories',
+        '/admin/content',
+      ]) {
+        Navigator.pushNamed(tester.element(find.byType(NavigationBar)), path);
+        await tester.pumpAndSettle();
+        expect(find.byType(AdminResourceScreen), findsOneWidget);
+        expect(
+          find.text('Bạn không có quyền truy cập trang này.'),
+          findsNothing,
+        );
+        Navigator.pop(tester.element(find.byType(Scaffold).last));
+        await tester.pumpAndSettle();
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'limited custom role sees dictionary only and cannot access users',
     (tester) async {
@@ -217,9 +339,14 @@ void main() {
         find.widgetWithText(TextFormField, 'Mã role'),
         'editor',
       );
-      await tester.ensureVisible(find.text('Truy cập tab Quản trị'));
-      await tester.tap(find.text('Truy cập tab Quản trị'));
+      await tester.ensureVisible(
+        find.text(adminPermissionLabels['admin:access']!),
+      );
+      await tester.tap(find.text(adminPermissionLabels['admin:access']!));
       await tester.pump();
+      await tester.ensureVisible(find.text('Từ điển và xuất bản'));
+      await tester.tap(find.text('Từ điển và xuất bản'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Xem toàn bộ từ điển'));
       await tester.tap(find.text('Xem toàn bộ từ điển'));
       await tester.pump();
@@ -346,7 +473,12 @@ void main() {
       find.widgetWithText(TextFormField, 'Mật khẩu ban đầu'),
       'Editor123!',
     );
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await Scrollable.ensureVisible(
+      tester.element(find.byType(AdminSelectField)),
+      alignment: .5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(AdminSelectField));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Biên tập viên').last);
     await tester.pumpAndSettle();
@@ -384,11 +516,9 @@ void main() {
         'https://example.com/sign.mp4',
       );
       await tester.ensureVisible(
-        find.widgetWithText(DropdownButtonFormField<String>, 'Trạng thái'),
+        find.widgetWithText(AdminSelectField, 'Trạng thái'),
       );
-      await tester.tap(
-        find.widgetWithText(DropdownButtonFormField<String>, 'Trạng thái'),
-      );
+      await tester.tap(find.widgetWithText(AdminSelectField, 'Trạng thái'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Đã xuất bản').last);
       await tester.pumpAndSettle();

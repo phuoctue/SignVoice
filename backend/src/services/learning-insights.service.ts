@@ -28,7 +28,7 @@ function studyStages(userId: Types.ObjectId, start: Date, now: Date): PipelineSt
 }
 function reviewStages(userId: Types.ObjectId, start: Date, now: Date): PipelineStage[] {
   return [
-    { $match: { userId, status: 'COMPLETED', 'result.source': 'sign-ai-camera', completedAt: { $gte: start, $lte: now } } },
+    { $match: { userId, status: 'COMPLETED', 'result.source': { $in: ['sign-ai-camera', 'video-choice', 'video-recall'] }, completedAt: { $gte: start, $lte: now } } },
     { $unwind: '$result.items' },
     { $match: { 'result.items.entryId': { $type: 'string' }, 'result.items.score': { $in: [0, 10] } } },
     { $group: { _id: { day: { $dateToString: { date: '$completedAt', format: '%Y-%m-%d', timezone: '+07:00' } }, entry: '$result.items.entryId' }, lastQuizAt: { $max: '$completedAt' } } },
@@ -71,7 +71,7 @@ export async function learningDayWords(userId: Types.ObjectId, date: string, kin
       ...tail,
     ])
     : await ReviewQuiz.aggregate<DayFacet>([
-      { $match: { userId, status: 'COMPLETED', 'result.source': 'sign-ai-camera', completedAt: range } },
+      { $match: { userId, status: 'COMPLETED', 'result.source': { $in: ['sign-ai-camera', 'video-choice', 'video-recall'] }, completedAt: range } },
       { $unwind: '$result.items' },
       { $match: { 'result.items.entryId': { $type: 'string' }, 'result.items.score': { $in: [0, 10] } } },
       { $sort: { completedAt: -1, _id: -1 } },
@@ -96,7 +96,7 @@ export function fillLearningDays(period: ReturnType<typeof learningCalendar>, st
 export async function learningInsights(userId: Types.ObjectId, days: 7 | 30, page = 1, now = new Date()) {
   const period = learningCalendar(days, now);
   const weakPeriod = learningCalendar(30, now);
-  const quizFilter = (start: Date) => ({ userId, status: 'COMPLETED', 'result.source': 'sign-ai-camera', completedAt: { $gte: start, $lte: now } });
+  const quizFilter = (start: Date) => ({ userId, status: 'COMPLETED', 'result.source': { $in: ['sign-ai-camera', 'video-choice', 'video-recall'] }, completedAt: { $gte: start, $lte: now } });
   const [studies, reviews, weak, settings] = await Promise.all([
     LearningEvent.aggregate(studyStages(userId, period.start, now)),
     ReviewQuiz.aggregate(reviewStages(userId, period.start, now)),

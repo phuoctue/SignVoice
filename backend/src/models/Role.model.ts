@@ -4,6 +4,7 @@ export const permissions = [
   'admin:access', 'staff:access', 'users:read', 'users:write',
   'roles:read', 'roles:write', 'dictionary:read', 'dictionary:write',
   'content:publish', 'categories:read', 'categories:write', 'sessions:read', 'sessions:write',
+  'collections:read', 'collections:moderate',
 ] as const;
 export type Permission = typeof permissions[number];
 

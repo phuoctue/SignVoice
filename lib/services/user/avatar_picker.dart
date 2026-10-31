@@ -10,16 +10,19 @@ class AvatarSelection {
   String get dataUrl => 'data:image/$mime;base64,${base64Encode(bytes)}';
 }
 
-Future<AvatarSelection?> pickAvatarImage() async {
+Future<AvatarSelection?> pickAvatarImage({
+  int maxDimension = 512,
+  int maxBytes = 512 * 1024,
+}) async {
   final file = await ImagePicker().pickImage(
     source: ImageSource.gallery,
-    maxWidth: 512,
-    maxHeight: 512,
+    maxWidth: maxDimension.toDouble(),
+    maxHeight: maxDimension.toDouble(),
     imageQuality: 80,
   );
   if (file == null) return null;
-  if (await file.length() > 512 * 1024) {
-    throw StateError('Chọn ảnh nhỏ hơn 512 KB.');
+  if (await file.length() > maxBytes) {
+    throw StateError('Chọn ảnh nhỏ hơn ${maxBytes ~/ 1024} KB.');
   }
   final bytes = await file.readAsBytes();
   final mime = bytes.length >= 12 && bytes[0] == 137 && bytes[1] == 80

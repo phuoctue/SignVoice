@@ -104,6 +104,7 @@ void main() {
           state: state,
           child: MaterialApp(
             home: LiveCameraScreen(
+              ticketLoader: () async => 'test-stream-ticket',
               cameraFactory: ({required front}) {
                 requests++;
                 return FakeCamera(() async {});
@@ -191,6 +192,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: LiveCameraScreen(
+            ticketLoader: () async => 'test-stream-ticket',
             cameraFactory: ({required front}) => camera,
             channelFactory: (_) {
               connections++;
@@ -261,8 +263,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(input.text), findsOneWidget);
       expect(find.textContaining('Xin chào, tôi có thể giúp gì'), findsNothing);
-      await tester.ensureVisible(find.text('Xem văn bản'));
-      await tester.tap(find.text('Xem văn bản'));
+      await tester.ensureVisible(find.text('Xem hình ảnh'));
+      await tester.tap(find.text('Xem hình ảnh'));
       await tester.pumpAndSettle();
       expect(state.transcript, 'Tôi muốn uống nước');
       await tester.pumpWidget(const SizedBox.shrink());

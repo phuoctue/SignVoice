@@ -8,6 +8,7 @@ import 'package:sign_voice/services/storage/token_store.dart';
 import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/services/learning/learning_service.dart';
+import 'package:sign_voice/services/auth/guest_trial_access.dart';
 
 class DemoLearningService extends LearningService {
   static const topicId = '000000000000000000000001';
@@ -118,6 +119,22 @@ class DemoLearningService extends LearningService {
 
 class DemoDictionaryService extends AdminWorkspaceService {
   @override
+  Future<List<AdminRecord>> featuredEntries() async => [
+    for (final sign in signs.take(6)) {'_id': sign.name, 'word': sign.name},
+  ];
+  @override
+  Future<AdminRecord> publishedEntry(String id) async {
+    final sign = signs.firstWhere((item) => item.name == id);
+    return {
+      '_id': id,
+      'word': sign.name,
+      'definition': sign.meaning,
+      'usageExample': sign.example,
+      'categoryId': {'name': sign.category},
+    };
+  }
+
+  @override
   Future<List<AdminRecord>> activeCategories() async => signs
       .map((sign) => sign.category)
       .toSet()
@@ -202,6 +219,13 @@ UserModel testUser({UserRole role = UserRole.user, bool guest = false}) =>
     );
 
 class FakeAuthService extends AuthService {
+  @override
+  Future<GuestTrialAccess> guestTrial({bool start = false}) async =>
+      GuestTrialAccess.fromJson({
+        'state': start ? 'active' : 'available',
+        'serverNow': '2026-10-24T00:00:00Z',
+        if (start) 'expiresAt': '2026-10-24T00:10:00Z',
+      });
   FakeAuthService({this.restoredUser, this.role = UserRole.user})
     : super(
         apiClient: ApiClient(

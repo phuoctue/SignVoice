@@ -122,4 +122,68 @@ describe('Admin custom roles and resource management',()=>{
     await request(app).delete(`/api/v1/admin/roles/${customId}`).set(auth()).expect(200);
     await request(app).get('/api/v1/admin/dictionary').set(auth(reader)).expect(403);
   });
+
+  it('shares content administration with STAFF while protecting accounts, roles and sessions', async()=>{
+    const email=`staff-dashboard-${prefix}@example.com`;
+    const registered=await request(app).post('/api/v1/auth/register').send({email,password,displayName:'Staff editor'}).expect(201);
+    const id=registered.body.data.user.id, token=registered.body.data.tokens.accessToken;
+    ids.push(id);
+    await request(app).patch(`/api/v1/admin/users/${id}`).set(auth()).send({role:'STAFF'}).expect(200);
+    const me=await request(app).get('/api/v1/auth/me').set(auth(token)).expect(200);
+    expect(me.body.data.role).toBe('STAFF');
+    expect(me.body.data.permissions).toContain('content:publish');
+    expect(me.body.data.permissions).not.toContain('admin:access');
+    expect(me.body.data.permissions).not.toContain('users:read');
+    const stats=await request(app).get('/api/v1/admin/stats').set(auth(token)).expect(200);
+    expect(stats.body.data.content).toBeDefined();
+    expect(stats.body.data.users).toBeUndefined();
+    expect(stats.body.data.sessions).toBeUndefined();
+    const legacyStats=await request(app).get('/api/v1/staff/stats').set(auth(token)).expect(200);
+    expect(legacyStats.body.data.users).toBeUndefined();
+    for(const resource of ['users','roles','sessions']) {
+      await request(app).get(`/api/v1/admin/${resource}`).set(auth(token)).expect(403);
+      await request(app).get(`/api/v1/admin/${resource}`).set(auth()).expect(200);
+    }
+    for(const path of ['/api/v1/staff/users',`/api/v1/staff/users/${adminId}`]) {
+      await request(app).get(path).set(auth(token)).expect(403);
+    }
+    for(const path of ['/api/v1/admin/users','/api/v1/admin/roles',`/api/v1/admin/users/${adminId}/password`,`/api/v1/admin/users/${adminId}/suspend`]) {
+      await request(app).post(path).set(auth(token)).send({}).expect(403);
+    }
+    await request(app).patch(`/api/v1/admin/users/${adminId}`).set(auth(token)).send({role:'USER'}).expect(403);
+    const session=await AuthSession.findOne({userId:adminId});
+    await request(app).delete(`/api/v1/admin/sessions/${session!._id}`).set(auth(token)).expect(403);
+
+    const category=await request(app).post('/api/v1/admin/categories').set(auth(token)).send({name:'Staff topic',slug:`staff-${prefix}`}).expect(201);
+    const categoryId=category.body.data._id; categories.push(categoryId);
+    await request(app).patch(`/api/v1/admin/categories/${categoryId}`).set(auth(token)).send({description:'Edited by STAFF'}).expect(200);
+    const body={word:`Staff word ${prefix}`,definition:'Staff managed content',videoUrl:'https://example.com/staff.mp4',categoryId};
+    const created=await request(app).post('/api/v1/admin/dictionary').set(auth(token)).send({...body,status:'PUBLISHED'}).expect(201);
+    const entryId=created.body.data._id; entries.push(entryId);
+    const other=await request(app).post('/api/v1/admin/dictionary').set(auth()).send({...body,word:`Admin draft ${prefix}`}).expect(201);
+    const otherId=other.body.data._id; entries.push(otherId);
+    await request(app).patch(`/api/v1/admin/dictionary/${otherId}`).set(auth(token)).send({status:'PUBLISHED'}).expect(200);
+    await request(app).get(`/api/v1/dictionary/${otherId}`).expect(200);
+    await request(app).get('/api/v1/admin/content/pending').set(auth(token)).expect(200);
+    await request(app).delete(`/api/v1/admin/dictionary/${entryId}`).set(auth(token)).expect(200);
+    await request(app).delete(`/api/v1/admin/dictionary/${otherId}`).set(auth(token)).expect(200);
+    await request(app).delete(`/api/v1/admin/categories/${categoryId}`).set(auth(token)).expect(200);
+    await request(app).patch(`/api/v1/admin/users/${id}`).set(auth()).send({role:'USER'}).expect(200);
+    await request(app).get('/api/v1/admin/dictionary').set(auth(token)).expect(403);
+  });
+
+  it('cannot use custom STAFF permission flags to bypass ADMIN-only modules', async()=>{
+    const custom=await request(app).post('/api/v1/admin/roles').set(auth()).send({name:'Staff with extra flags',key:`STAFF_${prefix}`,permissions:['staff:access','users:read','users:write','roles:read','roles:write','sessions:read','sessions:write']}).expect(201);
+    roles.push(custom.body.data._id);
+    await request(app).patch(`/api/v1/admin/users/${readerId}`).set(auth()).send({customRoleId:custom.body.data._id}).expect(200);
+    for(const path of ['/api/v1/admin/users','/api/v1/admin/roles','/api/v1/admin/sessions','/api/v1/staff/users']) {
+      await request(app).get(path).set(auth(reader)).expect(403);
+    }
+    await request(app).post('/api/v1/admin/users').set(auth(reader)).send({}).expect(403);
+    await request(app).post('/api/v1/admin/roles').set(auth(reader)).send({}).expect(403);
+    const stats=await request(app).get('/api/v1/admin/stats').set(auth(reader)).expect(200);
+    expect(stats.body.data.users).toBeUndefined();
+    expect(stats.body.data.sessions).toBeUndefined();
+    await request(app).patch(`/api/v1/admin/users/${readerId}`).set(auth()).send({role:'USER'}).expect(200);
+  });
 });

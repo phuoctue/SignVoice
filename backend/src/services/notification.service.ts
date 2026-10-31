@@ -8,12 +8,22 @@ import {WordProgress} from '../models/Learning.model';
 import {NotificationDevice, UserNotification} from '../models/Notification.model';
 import {AuthSession} from '../models/AuthSession.model';
 import {userTransaction} from './user-data.service';
+import {dueStudyReminder} from './study-reminder-notice';
 
 const day = 86400000;
 export const pushConfigured = () => !!process.env.GOOGLE_APPLICATION_CREDENTIALS && !!process.env.FIREBASE_PROJECT_ID;
 export async function refreshNotifications(userId: Types.ObjectId) {
   const [user, settings] = await Promise.all([User.findById(userId).lean(), UserSettings.findOne({userId}).lean()]);
-  if (!user || user.status !== 'ACTIVE' || user.isGuest || settings?.notificationsEnabled === false) return;
+  if (!user || user.status !== 'ACTIVE' || user.isGuest) return;
+  const due = dueStudyReminder(settings?.studyReminder, new Date(), settings?.studyReminderConfiguredAt);
+  if (due) {
+    await userTransaction(userId, async session => UserNotification.updateOne({userId, key: due.key}, {$setOnInsert: {
+      userId, key: due.key, kind: 'STUDY_REMINDER', title: 'Đến giờ học rồi!',
+      body: `Đã đến lịch học ${due.time}. Cùng học thêm ký hiệu và ôn lại các từ đã nhớ nhé.`,
+      route: '/learn?tab=1', read: false, expiresAt: new Date(Date.now() + 30 * day),
+    }}, {upsert: true, session}).exec());
+  }
+  if (settings?.notificationsEnabled === false) return;
   const now = new Date(), date = now.toISOString().slice(0, 10);
   const categories = await Category.find({status: 'ACTIVE'}).select('_id').lean();
   const categoryIds = categories.map(item => item._id);
@@ -69,7 +79,8 @@ export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types
       await refreshNotifications(device.userId);
       const notices = await UserNotification.find({userId: device.userId, createdAt: {$gt: device.deliveredAt}, expiresAt: {$gt: now}}).sort({createdAt: 1}).limit(10);
       for (const notice of notices) {
-        const enabled = notice.kind === 'TEST' || (notice.kind === 'NEW_WORDS' ? settings?.notificationPreferences?.newWords !== false : settings?.notificationPreferences?.favorites !== false);
+        // Android already schedules this reminder locally, including while offline.
+        const enabled = notice.kind !== 'STUDY_REMINDER' && (notice.kind === 'TEST' || (notice.kind === 'NEW_WORDS' ? settings?.notificationPreferences?.newWords !== false : settings?.notificationPreferences?.favorites !== false));
         // Re-check ownership immediately before delivery after a token transfer/logout.
         if (!await NotificationDevice.exists({_id: device._id, userId: device.userId})) break;
         if (enabled && !notice.read) await send(device.token, notice);

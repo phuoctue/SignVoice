@@ -10,8 +10,10 @@ class LearningDailyGoals extends StatelessWidget {
     required this.onEdit,
     this.lastSynced,
     this.syncError,
+    this.onEditLabel = 'Đổi mục tiêu',
   });
   final Map today, goals;
+  final String onEditLabel;
   final VoidCallback onEdit;
   final DateTime? lastSynced;
   final String? syncError;
@@ -49,7 +51,7 @@ class LearningDailyGoals extends StatelessWidget {
               TextButton.icon(
                 onPressed: onEdit,
                 icon: const Icon(Icons.tune_rounded),
-                label: const Text('Đổi mục tiêu'),
+                label: Text(onEditLabel),
               ),
             ],
           ),
@@ -199,6 +201,10 @@ class _GoalTile extends StatelessWidget {
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: duration,
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [...previous, ?current],
+                    ),
                     transitionBuilder: (child, animation) => FadeTransition(
                       opacity: animation,
                       child: SlideTransition(

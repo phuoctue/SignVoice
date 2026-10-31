@@ -40,6 +40,7 @@ export interface IUserSettings extends Document {
   // Notifications
   notificationsEnabled: boolean;
   notificationPreferences: INotificationPreferences;
+  studyReminderConfiguredAt?: Date;
   studyReminder: {enabled: boolean; hour: number; minute: number; weekdays: number[]; timezone: string};
   
   // Privacy
@@ -90,6 +91,7 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       default: true,
       required: true,
     },
+    studyReminderConfiguredAt: {type: Date},
     studyReminder: {
       enabled: {type: Boolean, default: false},
       hour: {type: Number, min: 0, max: 23, default: 19},

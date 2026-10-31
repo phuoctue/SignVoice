@@ -8,6 +8,94 @@ function hand(x=.3) {
   return Array.from({length:21}, (_,i)=>({x:x+i*.005,y:.4+i*.007,z:-i*.001}));
 }
 
+test('small tracks require two fresh pixel failures, preserve verified still hands, default stays unchanged',async()=>{
+  const small=hand().map(p=>({x:.8+(p.x-.3)*.3,y:.5+(p.y-.4)*.3,z:p.z*.3}));
+  const frame=(timestamp)=>({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});
+  const baseline=await worker([small],[],null,true,false,2,false,{enable_recovery:false});
+  await baseline.self.onmessage(frame(0));
+  assert.equal(baseline.messages.at(-1).value.hand_observation.landmarks.length,1);
+  const w=await worker([small],[],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  for(const stamp of [0,500,1000,1100]) {await w.self.onmessage(frame(stamp));await new Promise(r=>setImmediate(r));}
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,0);
+  assert.equal(w.messages.at(-1).value.hand_observation.track_verification.rejected,1);
+  assert.ok(w.calls.some(c=>c[0]==='image'));
+  const real=await worker([small,hand(.2)],[small,hand(.2)],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  for(const stamp of [0,500,1000,1100]) {await real.self.onmessage(frame(stamp));await new Promise(r=>setImmediate(r));}
+  assert.equal(real.messages.at(-1).value.hand_observation.landmarks.length,2);
+});
+
+test('verified large hands remain while every size receives periodic pixel checks',async()=>{
+  const w=await worker([hand(),hand(.7)],[hand(),hand(.7)],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  for(const timestamp of [0,500,1000,1100]) {await w.self.onmessage({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});await new Promise(r=>setImmediate(r));}
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,2);
+  assert.ok(w.calls.filter(c=>c[0]==='image').length>=2);
+  assert.equal(w.messages.at(-1).value.hand_observation.track_verification.scope,'all_tracks');
+});
+
+test('stationary unconfirmed tracks above the old size cutoff are checked and rejected',async()=>{
+  const w=await worker([hand(.8)],[],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  for(const timestamp of [0,500,1000,1100]) {await w.self.onmessage({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});await new Promise(r=>setImmediate(r));}
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,0);
+});
+
+test('fresh confirmation restores a previously rejected track and resets its misses',async()=>{
+  const recovered=[];const w=await worker([hand(.8)],recovered,null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  const frame=async timestamp=>{await w.self.onmessage({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});await new Promise(r=>setImmediate(r));};
+  for(const stamp of [0,500,1000,1100])await frame(stamp);
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,0);
+  recovered.push(hand(.8));await frame(1500);await frame(1600);
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,1);
+  recovered.length=0;await frame(2000);await frame(2100);
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,1);
+});
+
+test('slow independent validation cannot block previews or accumulate camera snapshots',async()=>{
+  let release;const verifierGate=new Promise(resolve=>{release=resolve;});
+  const small=hand().map(p=>({x:.8+(p.x-.3)*.3,y:.5+(p.y-.4)*.3,z:p.z*.3}));
+  const w=await worker([small],[],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true,verifierGate});
+  for(const timestamp of [0,500,600,700,800,900]) {
+    await w.self.onmessage({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});
+    await new Promise(r=>setImmediate(r));
+  }
+  assert.equal(w.messages.filter(m=>m.value.type==='preview').length,6);
+  assert.equal(w.calls.filter(c=>c[0]==='image').length,1);
+  release();await new Promise(r=>setImmediate(r));
+});
+
+test('independent validator uses CPU IMAGE on the supplied pixels and closes failed frames',async()=>{
+  const sent=[],options=[];
+  const self={postMessage:value=>sent.push(value)};
+  const fakeLibrary={HandLandmarker:{createFromOptions:async(files,value)=>{
+    options.push(value);return {detect:bitmap=>{if(bitmap.fail)throw Error('bad frame');return {landmarks:[hand()]};}};
+  }}};
+  const source=fs.readFileSync(__dirname+'/../web/signvoice_hand_verifier.js','utf8')
+    .replace("import('./mediapipe/vision_bundle.js?v=8.2')",'Promise.resolve(fakeLibrary)');
+  vm.runInNewContext(source,{self,fakeLibrary,Uint8Array,performance});
+  await self.onmessage({data:{type:'init',files:{},model:new ArrayBuffer(4)}});
+  assert.equal(options[0].runningMode,'IMAGE');assert.equal(options[0].baseOptions.delegate,'CPU');
+  const good={closed:false,close(){this.closed=true;}},bad={...good,fail:true};
+  await self.onmessage({data:{type:'frame',frame:good}});
+  await self.onmessage({data:{type:'frame',frame:bad}});
+  assert.ok(good.closed && bad.closed);assert.equal(sent[1].landmarks.length,1);assert.equal(sent[2].type,'error');
+});
+
+test('verification failure clears old rejections; moved or enlarged hands are not quarantined',async()=>{
+  const small=hand().map(p=>({x:.8+(p.x-.3)*.3,y:.5+(p.y-.4)*.3,z:p.z*.3}));
+  const primary=[small];
+  const w=await worker(primary,[],null,true,false,2,false,{enable_recovery:false,verify_small_tracks:true});
+  const frame=timestamp=>w.self.onmessage({data:{type:'frame',timestamp,frame:{width:640,height:480,close(){}}}});
+  for(const stamp of [0,500,1000,1100]) {await frame(stamp);await new Promise(r=>setImmediate(r));}
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,0);
+  assert.equal(w.messages.at(-1).value.recovered_hands,0);
+  vm.runInContext("verifier={detect(){throw new Error('validation failed')}}",w.scope);
+  await frame(1500);await new Promise(r=>setImmediate(r));await frame(1600);
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,1);
+  assert.match(w.messages.at(-1).value.hand_observation.track_verification.error,/validation failed/);
+  primary[0]=hand(.7);
+  await frame(1700);
+  assert.equal(w.messages.at(-1).value.hand_observation.landmarks.length,1);
+});
+
 async function worker(primary=[], recovered=[], jpegGate=null, earlyPreview=true, independentEncode=false, targetHands=2, failGpu=false, initOptions={}) {
   const messages=[], calls=[], created=[], snapshots=[];
   const result = points=>({landmarks:points.map(h=>h.map(p=>({...p}))),
@@ -19,16 +107,28 @@ async function worker(primary=[], recovered=[], jpegGate=null, earlyPreview=true
       return {detectForVideo:(_,stamp)=>{calls.push(['video',stamp]);return result(primary);},
         detect:()=>{calls.push(['image']);return result(recovered);}};
     }}};
+  class VerificationWorker {
+    postMessage(data){
+      if(data.type==='init') Promise.resolve().then(()=>this.onmessage({data:{type:'ready'}}));
+      else if(data.type==='frame') {
+        calls.push(['image']);
+        Promise.resolve(initOptions.verifierGate).then(()=>{
+          data.frame.close();this.onmessage({data:{type:'result',landmarks:result(recovered).landmarks}});
+        });
+      }
+    }
+    terminate(){}
+  }
   class Canvas {
     constructor(w,h){this.width=w;this.height=h;}
     getContext(type){return type==='2d'?{drawImage:(image)=>{this.id=image.id;}}:null;}
     transferToImageBitmap(){const bitmap={id:this.id,closed:false,close(){this.closed=true;}};snapshots.push(bitmap);return bitmap;}
-    async convertToBlob(){const id=this.id;if(jpegGate) await jpegGate;return {arrayBuffer:async()=>{
+    async convertToBlob(options){if(options?.type==='image/png' && initOptions.pngFailure) throw new Error('PNG unsupported');const id=this.id;if(jpegGate) await jpegGate;return {arrayBuffer:async()=>{
       const bytes=new ArrayBuffer(16);new Uint8Array(bytes)[0]=id ?? 0;return bytes;}};}
   }
   const self={location:{href:'http://localhost/signvoice_hand_worker.js'},
     postMessage:m=>messages.push({...m,value:JSON.parse(m.meta)})};
-  const scope=vm.createContext({self,URL,crypto:webcrypto,performance,setTimeout,clearTimeout,AbortController,OffscreenCanvas:Canvas,
+  const scope=vm.createContext({self,URL,crypto:webcrypto,performance,setTimeout,clearTimeout,AbortController,OffscreenCanvas:Canvas,Worker:VerificationWorker,
     Uint8Array,ArrayBuffer,fetch:async (url,options)=>{initOptions.fetches?.push(String(url));
       if(initOptions.fetchAsset) return initOptions.fetchAsset(String(url),options);
       return {ok:options?.cache!=='only-if-cached',arrayBuffer:async()=>new ArrayBuffer(4)};},fakeLibrary});
@@ -39,6 +139,47 @@ async function worker(primary=[], recovered=[], jpegGate=null, earlyPreview=true
   assert.ok(messages.some(m=>m.value.type==='ready'),JSON.stringify(messages.map(m=>m.value)));
   return {self,messages,calls,created,snapshots,scope};
 }
+
+test('PNG capture is opt-in, exact-frame paired, sampled and bounded',async()=>{
+  const off=await worker([hand()]);
+  await off.self.onmessage({data:{type:'frame',timestamp:0,frame:{id:3,width:640,height:480,close(){}}}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(off.messages.filter(m=>m.value.type==='diagnostic_pixels').length,0);
+  const on=await worker([hand()],[],null,true,true,2,false,{diagnostic_pixels:true});
+  for(let i=0;i<125;i++) {
+    await on.self.onmessage({data:{type:'frame',timestamp:i*250,frame:{id:i,width:640,height:480,close(){}}}});
+    await new Promise(resolve=>setImmediate(resolve));
+  }
+  const pngs=on.messages.filter(m=>m.value.type==='diagnostic_pixels');
+  assert.equal(pngs.length,15);
+  for(const png of pngs) {
+    assert.equal(png.value.timestamp_ms,png.value.hand_observation.timestamp_ms);
+    assert.equal(png.value.pixel_stage,'resized_detector_input');
+    assert.equal(png.value.mirrored,false);
+    assert.equal(new Uint8Array(png.jpeg)[0],png.value.timestamp_ms/250);
+    assert.deepEqual(png.value.raw_landmarks,png.value.hand_observation.landmarks);
+  }
+});
+
+test('stop command prevents further local PNG work without disabling tracking',async()=>{
+  const w=await worker([hand()],[],null,true,true,2,false,{diagnostic_pixels:true});
+  await w.self.onmessage({data:{type:'stop_diagnostic_pixels'}});
+  await w.self.onmessage({data:{type:'frame',timestamp:0,frame:{width:640,height:480,close(){}}}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(w.messages.filter(m=>m.value.type==='diagnostic_pixels').length,0);
+  assert.ok(w.messages.some(m=>m.value.type==='preview'));
+  assert.ok(w.messages.some(m=>m.value.type==='tracking'));
+});
+
+test('PNG encoder failure reports diagnostic error while recognition keeps running',async()=>{
+  const w=await worker([hand()],[],null,true,true,2,false,{diagnostic_pixels:true,pngFailure:true});
+  await w.self.onmessage({data:{type:'frame',timestamp:0,frame:{width:640,height:480,close(){}}}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(w.messages.some(m=>m.value.type==='diagnostic_error'));
+  assert.ok(w.messages.some(m=>m.value.type==='tracking'));
+  assert.ok(w.messages.some(m=>m.value.type==='preview'));
+  assert.equal(w.messages.filter(m=>m.value.type==='unavailable').length,0);
+});
 
 test('measured preview arrives before a delayed JPEG; paired inference frame still waits',async()=>{
   let finish;const gate=new Promise(resolve=>{finish=resolve;});

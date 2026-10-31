@@ -10,6 +10,7 @@ import '../../services/media/video_source.dart';
 import '../../services/media/sign_video_prefetch.dart';
 import '../learning/learning_widgets.dart' show SignPhoto;
 import '../../widgets/sign_video_surface.dart';
+import '../../widgets/ui.dart' show AppButton;
 
 typedef SequenceLoader = Future<Map<String, dynamic>> Function(String text);
 
@@ -63,7 +64,22 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
   SignVideoPrefetch _prefetch = SignVideoPrefetch();
 
   @override
+  void initState() {
+    super.initState();
+    ApiClient.instance.libraryChanged.addListener(libraryUpdated);
+  }
+
+  void libraryUpdated() {
+    if (!mounted || (segments == null && !loading)) return;
+    _prefetch.dispose();
+    _prefetch = SignVideoPrefetch();
+    setState(() => segments = null);
+    unawaited(load());
+  }
+
+  @override
   void dispose() {
+    ApiClient.instance.libraryChanged.removeListener(libraryUpdated);
     request++;
     _prefetch.dispose();
     super.dispose();
@@ -133,10 +149,10 @@ class _SignSequencePanelState extends State<SignSequencePanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FilledButton.icon(
+        AppButton(
+          loading ? 'Đang tìm ký hiệu…' : 'Xem ký hiệu',
+          icon: Icons.sign_language_outlined,
           onPressed: loading || widget.text.trim().isEmpty ? null : load,
-          icon: const Icon(Icons.sign_language_outlined),
-          label: Text(loading ? 'Đang tìm ký hiệu…' : 'Xem ký hiệu'),
         ),
         if (loading) const LinearProgressIndicator(),
         if (error != null)
@@ -329,23 +345,53 @@ class _SignReferenceImagesState extends State<SignReferenceImages> {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      SizedBox(
-        height: 240,
-        child: PageView.builder(
-          controller: pages,
-          itemCount: widget.urls.length,
-          onPageChanged: (value) => setState(() => index = value),
-          itemBuilder: (_, i) => SignPhoto(
-            widget.urls[i],
-            word: '${widget.word}, ảnh ${i + 1}',
-            height: 240,
-            fit: BoxFit.contain,
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: SizedBox(
+          height: 280,
+          child: PageView.builder(
+            controller: pages,
+            itemCount: widget.urls.length,
+            onPageChanged: (value) => setState(() => index = value),
+            itemBuilder: (_, i) => SignPhoto(
+              widget.urls[i],
+              word: '${widget.word}, ảnh ${i + 1}',
+              height: 280,
+              fit: BoxFit.contain,
+            ),
           ),
         ),
       ),
       if (widget.urls.length > 1)
-        Text(
-          'Ảnh ${index + 1}/${widget.urls.length} · Vuốt để xem thứ tự động tác',
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              tooltip: 'Ảnh trước',
+              onPressed: index == 0
+                  ? null
+                  : () => pages.previousPage(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                    ),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Flexible(child: Text('Ảnh ${index + 1}/${widget.urls.length}')),
+            IconButton(
+              tooltip: 'Ảnh tiếp',
+              onPressed: index == widget.urls.length - 1
+                  ? null
+                  : () => pages.nextPage(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                    ),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ],
         ),
     ],
   );
@@ -394,12 +440,23 @@ class _SignVideoDialogState extends State<SignVideoDialog>
   bool advancing = false;
   String? error;
   bool loading = true;
+  bool libraryStale = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ApiClient.instance.libraryChanged.addListener(libraryUpdated);
     index = widget.initialIndex;
     open();
+  }
+
+  void libraryUpdated() {
+    if (!mounted) return;
+    generation++;
+    _prefetch.dispose();
+    unawaited(_playback?.dispose());
+    _playback = null;
+    setState(() => libraryStale = true);
   }
 
   Future<void> open() async {
@@ -509,6 +566,7 @@ class _SignVideoDialogState extends State<SignVideoDialog>
 
   @override
   void dispose() {
+    ApiClient.instance.libraryChanged.removeListener(libraryUpdated);
     generation++;
     _prefetch.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -517,120 +575,134 @@ class _SignVideoDialogState extends State<SignVideoDialog>
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    scrollable: true,
-    title: Text(
-      '${index + 1}/${widget.items.length}: ${widget.items[index]['text']}',
-    ),
-    content: SizedBox(
-      width: 480,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.items[index]['type'] == 'sign')
-            SizedBox(
-              height: MediaQuery.sizeOf(context).height * .35,
-              child:
-                  controller?.value.isInitialized == true &&
-                      !loading &&
-                      error == null
-                  ? Center(
-                      child: AspectRatio(
-                        aspectRatio: controller!.value.aspectRatio,
-                        child: SignVideoSurface(controller!),
-                      ),
-                    )
-                  : Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        SignPhoto(
-                          widget.items[index]['thumbnailUrl'] as String? ??
-                              (widget.items[index]['imageUrls'] as List?)
-                                  ?.whereType<String>()
-                                  .firstOrNull,
-                          word: '${widget.items[index]['text']}',
-                          height: MediaQuery.sizeOf(context).height * .35,
-                        ),
-                        if (loading)
-                          const Align(
-                            alignment: Alignment.bottomCenter,
-                            child: Card(
-                              child: Padding(
-                                padding: EdgeInsets.all(12),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    SizedBox(width: 10),
-                                    Text('Đang tải video…'),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-            ),
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(error!),
-            ),
-          if (!loading && error == null && controller != null) ...[
-            VideoProgressIndicator(controller!, allowScrubbing: true),
-            Wrap(
-              children: [
-                TextButton(
-                  onPressed: () => controller!.play(),
-                  child: const Text('Phát'),
-                ),
-                TextButton(
-                  onPressed: () => controller!.pause(),
-                  child: const Text('Dừng'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    await controller!.seekTo(Duration.zero);
-                    await controller!.play();
-                  },
-                  child: const Text('Phát lại'),
-                ),
-              ],
+  Widget build(BuildContext context) => libraryStale
+      ? AlertDialog(
+          title: const Text('Ký hiệu vừa được cập nhật'),
+          content: const Text(
+            'Đóng cửa sổ này và mở lại mẫu để xem phiên bản mới.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Đóng'),
             ),
           ],
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: index > 0 ? () => move(-1) : null,
-        child: const Text('Trước'),
-      ),
-      TextButton(
-        onPressed: index < widget.items.length - 1 ? () => move(1) : null,
-        child: const Text('Tiếp'),
-      ),
-      if (error != null)
-        TextButton(
-          onPressed: () {
-            setState(() {
-              loading = true;
-              error = null;
-            });
-            open();
-          },
-          child: const Text('Thử lại'),
-        ),
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Đóng'),
-      ),
-    ],
-  );
+        )
+      : AlertDialog(
+          scrollable: true,
+          title: Text(
+            '${index + 1}/${widget.items.length}: ${widget.items[index]['text']}',
+          ),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.items[index]['type'] == 'sign')
+                  SizedBox(
+                    height: MediaQuery.sizeOf(context).height * .35,
+                    child:
+                        controller?.value.isInitialized == true &&
+                            !loading &&
+                            error == null
+                        ? Center(
+                            child: AspectRatio(
+                              aspectRatio: controller!.value.aspectRatio,
+                              child: SignVideoSurface(controller!),
+                            ),
+                          )
+                        : Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              SignPhoto(
+                                widget.items[index]['thumbnailUrl']
+                                        as String? ??
+                                    (widget.items[index]['imageUrls'] as List?)
+                                        ?.whereType<String>()
+                                        .firstOrNull,
+                                word: '${widget.items[index]['text']}',
+                                height: MediaQuery.sizeOf(context).height * .35,
+                              ),
+                              if (loading)
+                                const Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: Card(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                          SizedBox(width: 10),
+                                          Text('Đang tải video…'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(error!),
+                  ),
+                if (!loading && error == null && controller != null) ...[
+                  VideoProgressIndicator(controller!, allowScrubbing: true),
+                  Wrap(
+                    children: [
+                      TextButton(
+                        onPressed: () => controller!.play(),
+                        child: const Text('Phát'),
+                      ),
+                      TextButton(
+                        onPressed: () => controller!.pause(),
+                        child: const Text('Dừng'),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          await controller!.seekTo(Duration.zero);
+                          await controller!.play();
+                        },
+                        child: const Text('Phát lại'),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: index > 0 ? () => move(-1) : null,
+              child: const Text('Trước'),
+            ),
+            TextButton(
+              onPressed: index < widget.items.length - 1 ? () => move(1) : null,
+              child: const Text('Tiếp'),
+            ),
+            if (error != null)
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    loading = true;
+                    error = null;
+                  });
+                  open();
+                },
+                child: const Text('Thử lại'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Đóng'),
+            ),
+          ],
+        );
 }

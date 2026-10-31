@@ -1,8 +1,289 @@
 # SignVoice
 
+## Kết nối landing page — 30/10/2026
+
+- Bộ chọn chung trong quản trị (vai trò, trạng thái, danh mục và các bộ lọc dùng `AdminSelectField`) mở sát ô chọn bằng menu, không dùng hộp thoại giữa màn hình; danh sách dài vẫn tìm kiếm và cuộn được. Menu tài khoản chân sidebar vừa chiều rộng thanh, bỏ phần avatar/tên/email lặp lại; còn Hồ sơ và Đăng xuất.
+- Route `/home` là landing page; `/login` và `/register` là xác thực; Tổng quan sau đăng nhập dùng `/dashboard`. Đường `/welcome` cũ chuyển về `/home`; các nút trong workspace vẫn về Tổng quan. Web hiện dùng URL dạng `/#/home`, `/#/login`, `/#/dashboard`.
+- Hero ưu tiên mẫu lời chào công khai, có video lặp tắt tiếng, nút dừng và phần lời nói đầu ra; chỉ đọc thành tiếng khi bấm nghe. Chế độ văn bản có ô nhập và tìm mẫu thật. Không thay bằng từ ngẫu nhiên khi thiếu mẫu lời chào, không mở camera/microphone hay đưa tỷ lệ AI giả. Thẻ tính năng dùng ảnh chụp giao diện sản phẩm tại `assets/landing`, có ghi rõ dữ liệu minh họa; hai hàng canh đều đáy, từng công cụ mở đúng đích sau bước dùng thử.
+- Tải riêng số ký hiệu, chủ đề và bộ sưu tập từ API công khai; nguồn nào lỗi hiện dấu — thay vì giả định bằng 0. Ô tra cứu gọi từ điển thật, ưu tiên kết quả trùng cụm từ trong trang trả về; chọn thẻ để xem ảnh/video và nguồn tư liệu. Video xem trước khi hover hoặc bấm phát dùng chung một chủ phát; giải phóng video cũ, tắt tiếng và dừng khi cuộn ra ngoài, chuyển nền hoặc bật giảm chuyển động. Nút điều khiển và yêu thích nằm ngoài ảnh để giữ trọn tư liệu.
+- Nền hero trôi chậm theo vòng lặp và dừng khi ra khỏi màn hình; số liệu chỉ đếm khi vào vùng nhìn, có dấu phân cách nghìn tiếng Việt. Reveal loại focus/ngữ nghĩa khỏi nội dung chưa hiện; tiêu đề tăng chiều cao dòng cho dấu Việt. Header đổi bóng có chuyển tiếp, logo cuộn lên đầu, menu nhỏ có đủ tính năng/các bước/từ điển/FAQ; biểu tượng giảm chuyển động có trạng thái riêng. Tìm kiếm landing debounce 350 ms, có từ gợi ý bấm nhanh, khung xương và giữ chiều cao lưới khi tải.
+- Người chưa đăng nhập có thể tra cứu và xem chi tiết công khai; thao tác lưu riêng vẫn cần tài khoản. Dùng thử chỉ tạo phiên Khách sau khi xác nhận 10 phút. Kiểm thử có các cỡ 1440/768/375 px, chữ 200%, giảm chuyển động, lỗi API và phục hồi tìm kiếm; Chrome kiểm tra thêm dữ liệu thật và điều hướng công khai. Cần dựng lại Web khi thay mã nguồn để máy chủ nhận trang mới.
+- Từ điển công khai có header Đăng nhập/Đăng ký, bộ lọc chung một hàng trên desktop, thẻ 4 cột với ảnh 16:10 và cache/placeholder `SignPhoto`, số kết quả, tìm có nút xóa/phím `/`, chủ đề nhanh và nhảy trang. Mặc định mới xuất bản; A–Z/Z–A vẫn dùng thứ tự số tự nhiên trên backend. Lưu yêu thích khi chưa đăng nhập có giải thích trước. `/dictionary` giữ trung tâm học cho tài khoản đã đăng nhập và lưới công khai cho người chưa đăng nhập; `/dictionary/browse` mở lưới tra cứu rõ ràng cho cả hai, có nút từ trung tâm học.
+- Đợt sửa tiếp: 52 bài Flutter đạt; Dart analysis sạch. Chrome với API thật đã kiểm tra video tắt tiếng/chỉ một chủ phát, nhập văn bản xem mẫu, giảm chuyển động, menu tablet, yêu thích có giải thích, nhảy trang 42, desktop/tablet/điện thoại và sáng/tối, không còn lỗi runtime. Đã sửa lỗi cuộn release khi bấm logo dưới chế độ giảm chuyển động (`jumpTo` thay cho `animateTo` với thời lượng 0) và không dùng lời chào thay thế kết quả tra cứu không khớp. Chrome dùng API fixture xác nhận `/dictionary` của tài khoản là trung tâm học và mở được `/dictionary/browse`. Bản release đã khởi động lại local, readiness/API/AI đều HTTP 200, JavaScript phục vụ khớp build. Log/ảnh ở `.runtime/public-polish-*`; ảnh tính năng lấy từ ứng dụng với API fixture, không ghi dữ liệu thử vào database.
+
+## Giao diện chi tiết và tùy chọn Khách — 30/10/2026
+
+- Chuông mở bảng thông báo neo ngay dưới nút, không làm tối toàn trang. Sidebar mở/thu bằng nút bấm, lưu lựa chọn và dành chỗ trong bố cục; bỏ hover/ghim, thêm avatar và họ tên với menu Hồ sơ/Đăng xuất ở chân thanh.
+- Khách không có Hồ sơ/Lịch học; menu có Giọng nói và Giao diện & Trợ năng. Các lựa chọn này được giữ trên thiết bị, khôi phục qua tải lại và chuyển một lần vào tài khoản sau đăng nhập. Chỉ chuyển các tùy chọn hiển thị/giọng nói; không chuyển hồ sơ hay lịch sử giữa các tài khoản. Nếu đồng bộ lỗi, tài khoản vẫn mở được và lựa chọn được giữ để thử lại.
+- Thu gọn chiều rộng các form và trang cài đặt; gom thao tác chi tiết hội thoại/văn bản; chủ đề học có lưới thích ứng, bộ sưu tập trống có nút thêm từ rõ ràng. Quiz dùng header chung, media được giới hạn rộng; chuỗi ảnh có nút trước/tiếp cho chuột và bàn phím. Cài đặt camera trên desktop là hộp thoại có phần nâng cao thu gọn. Hộp xác nhận dùng thử giới hạn rộng 520 px.
+- Kiểm tra: các bộ kiểm thử Flutter cho cài đặt Khách, thông báo, điều hướng, học/ôn tập, hội thoại, bộ sưu tập, hồ sơ và chữ lớn đạt; Dart analysis sạch. Đã dựng Web release tại http://localhost:3002.
+
+## Lịch học, hộp thông báo và giới hạn Khách — 30/10/2026
+
+- Kiểm tra: Dart analysis sạch; kiểm thử Flutter cho hộp chuông, đổi tài khoản, lịch học, Khách và bố cục đạt. **32 kiểm thử backend** đạt với MongoDB cô lập; Chrome xác nhận sidebar, hộp chuông/lịch học, form quản trị và Khách hết hạn. Web release đã dựng lại tại **http://localhost:3002**.
+- Chuông trên mọi trang Web mở hộp thông báo ngay tại trang hiện tại, có số chưa đọc. Menu tài khoản chỉ giữ **Lịch học**, tách khỏi thông báo. Nhắc học được lưu theo tài khoản/múi giờ/ngày trong tuần; khi tới giờ, chuông cập nhật trong tối đa khoảng 30 giây khi Web đang mở, hoặc đồng bộ khi quay lại tab. Web đóng hoàn toàn không có thông báo nền; Android tiếp tục dùng lịch nhắc cục bộ. Mỗi lần nhắc chỉ tạo một bản ghi và không làm mất trạng thái đã đọc.
+- Sửa footer làm trang Lịch học trống; nút làm mới chuyển xuống thân trang, xóa tất cả hội thoại nằm dưới bảng. Sidebar mở rộng bằng cách dành chỗ trong bố cục, tránh đè nội dung. Hội thoại gần đây có thẻ cân đối; form tạo tài khoản/danh mục có hai cột trên desktop và hành động ngay dưới form.
+- Trước khi vào Khách có hộp giải thích và xác nhận. Phiên 10 phút bắt đầu ngay khi vào, không có nút bắt đầu riêng trên trang công cụ. Thời hạn do backend quản lý và giữ qua tải lại/đổi trang/đăng xuất rồi vào Khách trên cùng định danh thiết bị. Hết giờ chặn công cụ, đang học, quiz và tiến độ; chỉ cho đọc từ điển công khai. Lưu hội thoại, yêu thích, bộ sưu tập và từ riêng cần tài khoản cá nhân. Camera/micro dừng khi hết giờ.
+
+## Header tài khoản và sidebar tự thu gọn — 30/10/2026
+
+- Áp dụng `ui-ux-pro-max`: Web có sidebar mặc định 80 px, mở khi hover hoặc dùng bàn phím và có nút ghim cho thao tác cảm ứng. Phần mở dành chỗ trong bố cục để không che nội dung/form; tôn trọng giảm chuyển động. Bỏ mục Cá nhân và menu tài khoản ở chân sidebar; chi tiết hội thoại vẫn sáng đúng mục Hội thoại.
+- Avatar ở header các trang Web đã đăng nhập dùng chung `UserAvatar`, dữ liệu hồ sơ và cache theo tài khoản. Menu có tên/email, Hồ sơ, Lịch học & thông báo, Thông báo, Giao diện & Trợ năng và Đăng xuất có xác nhận. Breadcrumb thêm cấp Giao tiếp, Hội thoại, Hồ sơ hoặc Quản trị theo trang con.
+- Xóa toàn bộ hội thoại chuyển vào menu thao tác, khóa khi còn bộ lọc/tìm kiếm hoặc đang tải; hộp thoại nêu đúng tổng số hội thoại của mọi trang và nhãn xác nhận rõ. Bảng có hover dòng, cột nội dung thích ứng chiều rộng và thanh Hiển thị/Trang duy nhất ở dưới.
+- Dashboard đưa tải/lỗi lên dưới lời chào, có skeleton mục tiêu/hoạt động, giữ hai số liệu Tổng đã nhớ/Cần ôn; nhãn trên lời chào là ngày. Biểu đồ chỉ hiện scrollbar khi tràn. Ảnh từ nổi bật giới hạn rộng 160 px. Trang Giao tiếp có nút Bắt đầu rõ; cấp quyền Web giảm viền lồng và dùng Để sau dạng văn bản.
+- Đang học có tiêu đề Chủ đề đang học, hai nút phân tích/gợi ý nằm gọn theo hàng; bỏ liên kết Lịch sử học tập và Thống kê & mục tiêu trùng thanh điều hướng trên desktop. Tab Web cửa sổ hẹp cũng tạo lịch sử trình duyệt; Mobile giữ hành vi cũ, không hiện tab không tồn tại ở Tiến độ/Lịch sử.
+- Form quản trị tài khoản/danh mục tối đa 800 px, từ điển/role 1040 px; nút lưu desktop giới hạn 300 px và thẳng hàng mép phải biểu mẫu. Footer được kiểm tra để không chiếm mất nội dung trên Mobile. Giữ API, database và thiết kế/animation đăng nhập, đăng ký.
+- Đo token màu chữ trên các nền dùng trong workspace, cả sáng/tối: chữ phụ sáng từng đạt khoảng 3,70:1 trên nền xám; đổi `onSurfaceVariant` sáng sang `#475569` để đạt kiểm tra 4,5:1. Đây là kiểm tra các cặp token, không phải chứng nhận tương phản toàn bộ ảnh/video hoặc mọi trang ứng dụng.
+- Kiểm tra đã đạt: 16 bài điều hướng/dashboard/quiz; 14 bài an toàn, avatar, skeleton, cấp quyền và tương phản. Các nhóm quản trị, hồ sơ/thông báo và tiến độ đã qua; các bài mới cũng kiểm tra menu chữ 2×, sidebar không làm đổi chiều rộng trang và xác nhận xóa tổng 42 mục khi trang chỉ có 2 dòng. Phân tích Dart sạch.
+- Web release build thành công, đã chạy lại `http://localhost:3002/#/home`; Web, readiness/database, AI và library version đều HTTP 200, JavaScript phục vụ khớp release. Chrome thật dùng API fixture đã qua hover sidebar, menu tài khoản → Hồ sơ, form thêm tài khoản/từ điển/role, chuyển tab và Back/Forward, cấp quyền, bảng hội thoại yêu thích/xóa, quiz và cảnh báo thoát; không có lỗi runtime trong các luồng đó. Không ghi dữ liệu fixture vào database thật; chưa coi đây là kiểm thử tải production. Ảnh tại `.runtime/browser-{account-menu,sidebar-hover,admin-user-form,admin-dictionary-form,admin-role-form,studying}.png`.
+
+## Chạy lại bản Web local — 30/10/2026
+
+- Khởi động bản release đã có bằng `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-signvoice.ps1 Local -SkipBuild`, tại `http://localhost:3002/#/home`.
+- Sửa lỗi script dừng khi Windows CIM không trả cổng AI dù health check thành công: theo dõi tiến trình Python thuộc wrapper vừa khởi động, kể cả interpreter con của môi trường venv. Đã kiểm tra cú pháp PowerShell và khởi động thực tế thành công.
+- Web, backend/database readiness, AI health và library version đều HTTP 200; JavaScript phục vụ khớp bản release. AI tiếp tục dùng mô hình 181 từ.
+
+## Tinh gọn Web và sửa luồng Thư viện ký hiệu — 29/10/2026
+
+Đợt này áp dụng `ui-ux-pro-max`. Các quyết định bố cục dưới đây thay thế mô tả sidebar nhiều nhóm và nội dung căn trái ở các ghi chép trước.
+
+- Sidebar còn **Tổng quan, Giao tiếp, Thư viện ký hiệu, Hội thoại, Cá nhân**, thêm Quản trị theo quyền. Hai công cụ camera/micro nằm trong Giao tiếp; Khám phá, Đang học, Bộ sưu tập, Tiến độ và Lịch sử học tập nằm trong thanh điều hướng của Thư viện. Giữ shell, trạng thái thu gọn, tooltip/focus và thanh cuộn; bỏ nhãn nhóm lặp.
+- Sửa lỗi thật: `LearningHub` chỉ đọc tab khi khởi tạo nên đổi query trên cùng route không đổi nội dung. Hiện cập nhật tab, bộ lọc, timer và tải trang đầu trong `didUpdateWidget`; lịch sử học tập cũng nhận thay đổi entryId. Tab Web tạo lịch sử điều hướng; đã kiểm tra đúng chuỗi Khám phá → Đang học → Khám phá → Bộ sưu tập → Đang học → Khám phá và Back/Forward.
+- Đồng nhất lề desktop 32 px, căn giữa nội dung và giới hạn chiều rộng theo trang; breadcrumb SignVoice bấm về Tổng quan, ẩn Back ở trang gốc. AppButton mặc định giới hạn 420 px trên desktop, có tùy chọn phủ ngang; nút xác thực giữ bố cục cũ. Camera/micro Web dùng khối tối đa 560 px với hướng dẫn và nút ngay bên dưới, lối nhập văn bản rõ hơn, hướng dẫn khi bị chặn và chuyển động nhẹ theo thiết lập trợ năng. Mobile giữ footer cấp quyền để hành động luôn tới được.
+- Mục tiêu và biểu đồ lên ngay sau lời chào; bộ đếm mục tiêu căn trái, có giờ cập nhật và nhãn đúng hành động “Xem & đổi mục tiêu”. Biểu đồ có số, trạng thái ngày chọn, đường nền, chữ ngày 12 px, hướng dẫn theo thiết bị; các cột cùng đường đáy, 7 ngày vừa thẻ rộng 500 px, kỳ dài có scrollbar tương tác. Từ điển nổi bật desktop dùng lưới thay dải ngang ẩn; hội thoại gần đây có icon theo loại và nhãn “Xem lịch sử hội thoại”.
+- Tab thư viện gọn, có viền/focus; tìm kiếm debounce 350 ms. Thẻ chủ đề bỏ số người bằng 0 và câu hành động lặp, ảnh contain để giữ đầu/tay, hiện tiến độ thật khi cache có dữ liệu. Bộ sưu tập phân cấp nút tạo/khám phá/mã mời, bỏ InkWell thừa, bộ rỗng có “Thêm ký hiệu đầu tiên”, tiêu đề theo tab và ẩn Trang 1/1. Không thêm lượt tải toàn bộ từ điển.
+- Hội thoại Web dùng DataTable cao theo nội dung, **một bộ phân trang server** và 10/20/50 mục; bỏ lọc client chồng lên kết quả tìm kiếm server. Có yêu thích, mở, xóa màu cảnh báo và xóa tất cả có xác nhận; Mobile có menu xóa. Khi chữ lớn chuyển sang thẻ vẫn tải được trang sau. Sắp xếp được ghi rõ chỉ áp dụng trang đang tải. Lịch sử học tập chiếm đủ chiều rộng, nhãn hoạt động thống nhất, trạng thái màu, nút mở rõ và lưu số mục mỗi trang trên Web.
+- Hồ sơ Web chia Tài khoản / Ứng dụng / Khác, vai trò dạng huy hiệu và đăng xuất riêng. Hộp xác nhận chung hỗ trợ thao tác nguy hiểm màu cảnh báo. Giữ thiết kế/animation đăng nhập, đăng ký, luồng xác thực, backend, schema database và dữ liệu gốc; chưa bổ sung hoàn tác sau xóa hoặc sắp xếp toàn bộ dữ liệu trên server.
+- Kiểm thử: nhóm UI/bộ sưu tập/sidebar đạt 94 bài, 1 bỏ qua; nhóm auth/dữ liệu/theme đạt 55 bài; nhóm Mobile/cấp quyền/tiến độ đạt 23 bài. Nhóm hồi quy mới tab/quiz/biểu đồ/chữ lớn đạt 19 bài (các nhóm có bài trùng, không cộng thành tổng duy nhất). Dart analyze sạch. Chrome thật dùng API fixture đã qua đổi tab, Back/Forward, cấp quyền gọn, hồ sơ, yêu thích/xóa, quiz đổi query và cảnh báo rời bài; không có lỗi runtime trong các luồng này. Fixture không ghi vào database thật và không phải kiểm thử tải production. Ảnh kiểm tra nằm tại `.runtime/browser-{dashboard,library,permission,profile,history}.png`.
+- Kiểm tra bổ sung: 7 bài sidebar/điều hướng đạt, 1 bài dành riêng Chrome bỏ qua trên VM; 12 bài tiến độ/biểu đồ và 4 bài lịch sử học tập đạt. Khi cả dòng mở chi tiết, bảng học tập ẩn checkbox để tránh hiểu nhầm thành chọn hàng. Có thêm ảnh Chrome `.runtime/browser-{microphone,collections,learning-history}.png`.
+- Bản Web release cuối build thành công, đã khởi động lại `http://localhost:3002/#/home`. Trang, backend/database readiness, AI health và library version đều HTTP 200; JavaScript phục vụ khớp file release. Lượt Chrome cuối cũng qua toàn bộ luồng nêu trên, không có lỗi runtime. Nhấn Ctrl+F5 để nhận bản mới.
+
+## Sửa các rủi ro UX Web sau rà soát — 29/10/2026
+
+- Xác nhận sidebar trước đây gắn vào từng AppPage nên mất trạng thái khi đổi route; Web hiện dùng ShellRoute, giữ WebWorkspace, lưu lựa chọn thu gọn trong SharedPreferences. Có nhóm Công cụ/Học tập/Cá nhân, rail cân giữa icon, toggle cả ở 900–1279px, tooltip/ellipsis, semantics và phản hồi focus; tài khoản có avatar chữ và menu Hồ sơ/Đăng xuất. Giao diện/animation đăng nhập và đăng ký được giữ.
+- Highlight lấy URI từ shell GoRouter và phân tích path/query; Bộ sưu tập vẫn sáng khi URL thêm bộ lọc. Nội dung desktop căn trái trong giới hạn đọc 1440px, header dạng breadcrumb, Title cập nhật tiêu đề tab, fade route ngắn tôn trọng giảm chuyển động. Grid tính cả khoảng cách giữa thẻ, không ép hai cột thiếu chiều rộng; AppCard bổ sung cursor/hover và viền focus rõ (ripple InkWell vốn đã có).
+- Hội thoại Web khôi phục yêu thích; thêm mở/xóa có xác nhận và icon loại hội thoại, nút thao tác truy cập được bằng bàn phím, chọn 10/20 dòng, chọn trang dữ liệu backend. Cột có sortColumnIndex; sắp xếp được ghi rõ chỉ trong trang dữ liệu đã tải, không trình bày sai thành sắp xếp toàn bộ server. Điều kiện bảng dùng chung isDesktopLayout với AppPage.
+- Quiz giữ controller theo path, định danh Page gồm route-stack key và path, không theo chuỗi query. Kiểm tra rời trang cả tại redirect và onExit để không bỏ qua khi hai trang cùng mẫu route; chỉ đổi query không tháo bài đang nhập. Đã kiểm tra hủy rời bài, lưu thoát, điều hướng cùng độ sâu, query và sự kiện route từ trình duyệt.
+- Dashboard có skeleton, Notice/thử lại, biểu đồ LearningActivityChart tái sử dụng, nhãn ngày qua intl, màu chú giải sáng/tối, khoảng cách nhóm rõ và AppCard thống nhất. Nút học mở chủ đề còn từ đang học/cần ôn trong trang tiến độ đã tải; nếu chưa có chủ đề phù hợp dùng Khám phá bài học. Shortcut dùng URL mới. Lắng nghe visibilitychange của Web với TTL 30 giây và gỡ listener khi dispose; cập nhật thủ công bỏ qua TTL.
+- Lịch sử học tập có bảng desktop, debounce 350ms, chọn 10/20/50 mục và phân trang server. Backend chỉ nhận ba kích thước trên, mặc định 10 giữ tương thích; cập nhật OpenAPI. Test API chạy MongoDB cô lập, xác nhận phân trang, dữ liệu theo chủ tài khoản và từ chối kích thước không hợp lệ. Không thay đổi schema database.
+- Kiểm tra Chrome thật qua CDP với API fixture chặn trong trình duyệt, không tạo dữ liệu trên database thật: dashboard, title, đổi query quiz, hủy/lưu, browser Back/Forward và cảnh báo đều qua, không có lỗi runtime trong luồng được kiểm tra. Ảnh `.runtime/browser-dashboard.png` là Chrome thật dùng dữ liệu giả lập; không coi fixture là kiểm chứng tải dữ liệu production. Bộ kiểm thử biểu đồ 30 ngày/360px/chữ lớn cũng xác nhận không tràn sau đổi định dạng ngày.
+- Bảng không chừa hàng trống khi dữ liệu ít; kiểm tra Chrome dùng thao tác chuột thật qua CDP đã xác nhận thêm yêu thích/xóa có xác nhận và cập nhật giao diện. Đợt hồi quy tổng hợp đạt 82 bài Flutter (1 bài Chrome riêng bỏ qua trên VM), 6 bài API history trên MongoDB cô lập; thêm 5 bài regression tập trung sidebar/bảng/quiz đạt. Phân tích Dart, TypeScript build và OpenAPI sạch. Bản Web release dùng chung backend/database/AI local tại `http://localhost:3002/#/home`; Ctrl+F5 để tải bản mới, không build APK ở đợt này.
+- Đã khởi động lại local sau bản release cuối: trang, readiness/database, AI health và library version đều HTTP 200; JavaScript được phục vụ khớp bản build. Smoke Chrome cuối qua dashboard, yêu thích/xóa hội thoại, quiz đổi query, browser Back/Forward, title `Ôn ký hiệu · SignVoice`, không có lỗi runtime trong luồng fixture. Ảnh bảng Chrome tại `.runtime/browser-history.png`.
+
+
+## Không gian Web riêng dùng chung Flutter và dữ liệu — 29/10/2026
+
+- Áp dụng `ui-ux-pro-max`, `flutter-build-responsive-layout` và `flutter-setup-declarative-routing`. Giữ màu SignVoice và thiết kế/animation đăng nhập, đăng ký vừa hoàn thiện; chọn bố cục dashboard phẳng, khoảng cách 16/24/32 px, màu theo theme, hạn chế hiệu ứng nặng.
+- Web có sidebar mở rộng/thu gọn, mục Bộ sưu tập riêng, trạng thái chọn cho trang con và menu Quản trị theo quyền. Nội dung giới hạn 1440 px, tăng khoảng đệm desktop; cửa sổ nhỏ tiếp tục dùng điều hướng gọn. APK tiếp tục dùng Navigator và giao diện hiện có.
+- Thêm `WebDashboard`: tiến độ thật (từ mới/đã ôn hôm nay, đã nhớ/cần ôn), mục tiêu ngày, hoạt động 7 ngày, công cụ giao tiếp, bộ sưu tập, từ điển và hội thoại gần đây. Hai request tiến độ chạy song song, không tải toàn bộ từ điển, không gọi AI khi mở dashboard. Có loading/thử lại, chặn request trùng và kết quả của phiên tài khoản cũ; tải lại khi quay về foreground.
+- Web dùng `MaterialApp.router`/GoRouter, ánh xạ mã Sxx sang `/home`, `/login`, `/register`, `/dictionary`, `/profile`, `/history`, `/sign-to-speech`, `/speech-to-sign` và giữ các route học tập/bộ sưu tập/quản trị. Giữ hash URL để tương thích cách phục vụ hiện tại, ví dụ `http://localhost:3002/#/home`; chưa bật path strategy. Các lệnh điều hướng named và thông báo đi qua adapter, giữ arguments và kết quả trả về; route cũ tiếp tục được nhận và chuyển sang alias. Đăng nhập email từ trang được bảo vệ giữ đích đến; giao diện auth không thiết kế lại.
+- Đổi trang khỏi quiz chưa xong qua router có cảnh báo và lưu trước khi thoát, dùng cùng logic với nút quay lại. Quyền truy cập vẫn kiểm tra trong AccessGate và backend; dữ liệu riêng không được mở thêm cho Admin/Staff.
+- Lịch sử hội thoại có bảng trên desktop và card trên Mobile/chữ lớn. Từ điển, bộ sưu tập, hồ sơ và quản trị tiếp tục sử dụng bố cục thích ứng, phân trang, tìm kiếm và cache dịch vụ sẵn có. Web/Mobile dùng chung API, MongoDB, tài khoản và ID nội dung; Web đồng bộ dữ liệu tài khoản khi trở lại foreground. Chưa bổ sung WebSocket đồng bộ thời gian thực hoặc giải quyết xung đột chỉnh sửa đồng thời.
+- Kiểm tra: nhóm 132 bài (bộ sưu tập/quản trị/mobile/cache), nhóm 54 bài (auth/quiz/dashboard/router) và 9 bài desktop chuyên biệt đạt; các nhóm có bài trùng, không cộng thành số bài duy nhất. Dashboard được kiểm tra ở 1024/1440/1920 px, sáng/tối; kiểm tra riêng alias, phân quyền, kết quả push và xác nhận rời quiz. Ảnh `.runtime/dashboard-{dark,light}.png` là component harness, không phải ảnh nghiệm thu trình duyệt thật. Kiểm thử Chrome đang vướng bước nạp, chưa tính là đạt.
+- Bản release cuối build thành công; phân tích `lib` và kiểm thử desktop sạch. Nhóm cuối gồm desktop/sidebar/auth/đăng ký đạt 32 bài, 1 bài riêng Chrome bỏ qua trên VM. Đã khởi động lại local tại `http://localhost:3002`, backend/database và AI nhận diện 181 từ phản hồi HTTP 200. JavaScript được phục vụ khớp bản release. Dùng `http://localhost:3002/#/home` và Ctrl+F5 để kiểm tra; chưa build APK ở đợt này.
+
+
+## Hiệu ứng chuyển chế độ và đăng ký phải đăng nhập lại — 29/10/2026
+
+- Xem video `Recording 2026-10-29 153038.mp4`. Phát hiện máy đặt `HKCU\Control Panel\Desktop\WindowMetrics\MinAnimate=0`; code cũ chuyển ngay khi nhận giảm chuyển động, còn AnimationController mặc định có thể rút ngắn thời lượng. Transition xác thực hiện dùng `AnimationBehavior.preserve`, giữ 650 ms theo yêu cầu; nút **Giảm chuyển động / Bật hiệu ứng trượt** ở góc trang cho phép chọn riêng trong màn hình này, không sửa thiết lập Windows. Kiểm thử đã mô phỏng cả `accessibilityFeatures.disableAnimations=true` và xác nhận panel vẫn có vị trí trung gian, không nhảy thẳng.
+- Bỏ Google/Facebook khỏi đăng ký trên cả giao diện desktop và mobile; chỉ giữ ở đăng nhập. Tiêu đề đăng nhập desktop thành **Tiếp tục hành trình cùng SignVoice**, có logo và mô tả ngắn, phân cấp chữ và khoảng cách rõ hơn.
+- Web và mã nguồn mobile dùng chung luồng đăng ký: tạo tài khoản thành công → trở về biểu mẫu đăng nhập, giữ email, xóa mật khẩu/xác nhận; chỉ gọi điều hướng vào ứng dụng sau đăng nhập thành công. Provider không đi qua trạng thái authenticated khi đăng ký. Nâng cấp guest giữ nguyên ID/dữ liệu, thu hồi phiên khách và cũng yêu cầu đăng nhập lại.
+- Client gửi `requireLogin=true` ở `/auth/register` và `/auth/convert-guest`. Backend không lưu phiên mới, không trả tokens và xóa refresh cookie với luồng này. API giữ tương thích cho client cũ không gửi cờ; **APK đã cài trước đây cần build/cài lại để nhận luồng mới**, chưa build APK trong lượt này. OpenAPI đã mô tả hai dạng phản hồi.
+- Kiểm tra: **32 kiểm thử Flutter tập trung đạt, 1 bỏ qua dành riêng Chrome**, gồm animation, auth/OAuth và luồng đăng ký mới cho cookie Web/native token storage; **17 kiểm thử backend đạt** (15 auth-security và 2 luồng đăng ký/guest), sử dụng MongoDB cô lập. TypeScript build, Dart analyze và kiểm tra OpenAPI đạt. Không tạo tài khoản thử nghiệm trên database ứng dụng thật.
+- Đã build Web release và khởi động lại backend local tại **http://localhost:3002**. Trang, readiness/database, AI health và thư viện trả HTTP 200; JavaScript đang phục vụ khớp bản release mới. Nhấn Ctrl+F5 để nhận bản cập nhật; AI 181 từ tiếp tục hoạt động.
+
+## Làm mượt đăng nhập/đăng ký Web — 29/10/2026
+
+- Đã xem các khung hình video `Recording 2026-10-29 145903.mp4` người dùng cung cấp và áp dụng `ui-ux-pro-max`. Chuyển chế độ ngay trong cùng `AuthScreen`, dùng panel trượt 650 ms với đường cong ease-in-out và fade biểu mẫu ở giữa chuyển động; giữ màu xanh SignVoice, giá trị đã nhập và đích đến sau đăng nhập.
+- Google/Facebook chuyển thành hai nút biểu tượng 52×52 đặt cạnh nhau dưới tiêu đề, có tooltip và tên trợ năng; giữ xử lý OAuth hiện có. Bỏ dòng mô tả thừa bên đăng ký và liên kết đăng ký trùng bên đăng nhập desktop. Dùng thử chuyển thành nút phụ **Khám phá bản dùng thử** có biểu tượng la bàn.
+- Biểu mẫu được căn giữa, giới hạn chiều rộng, có khoảng cuộn cho cửa sổ thấp/chữ lớn; chỉ một form được gắn tại mỗi thời điểm. Trong chuyển động, tạm ngăn thao tác và focus vào biểu mẫu; panel có thể đảo chiều, chế độ giảm chuyển động chuyển ngay tới trạng thái cuối. Tách trạng thái validation đăng nhập/đăng ký để lỗi của chế độ trước không đi sang chế độ sau.
+- Kiểm tra: **38 kiểm thử đạt, 1 kiểm thử Chrome bỏ qua trong môi trường VM**, gồm auth, OAuth, đặt lại mật khẩu, bố cục và mobile; kiểm thử riêng xác nhận vị trí giữa chuyển động, đảo chiều nhanh, giữ email và reduced motion. Phân tích các file thay đổi sạch. Đã render và xem hai ảnh test harness tại `.runtime/auth-polished-{login,register}.png`; đây là ảnh component mô phỏng, không phải ảnh nghiệm thu trình duyệt thật.
+- Web release build thành công và đã khởi động lại **http://localhost:3002**. Trang, readiness/database, AI health và phiên bản thư viện trả HTTP 200; JavaScript đang phục vụ khớp bản release mới. Nhấn Ctrl+F5 để kiểm tra. Backend và AI nhận diện 181 từ tiếp tục hoạt động; chưa build APK trong lượt này.
+
+## Web desktop và skill Flutter — 29/10/2026
+
+- Web sử dụng toàn bộ cửa sổ trình duyệt. Từ 900 px, tài khoản đã đăng nhập có sidebar riêng; từ 1280 px sidebar hiện nhãn đầy đủ. APK giữ điều hướng mobile. Trang tổng quan chia hai thẻ giao tiếp, học tập/bộ sưu tập/cá nhân chia cột theo không gian, từ điển tự tăng số cột, quản trị có hàng thông tin theo cột ở desktop. Chữ lớn ưu tiên một cột để giữ khả năng đọc.
+- Đăng nhập/đăng ký desktop có hai panel tham khảo bố cục [Modern Login](https://github.com/AsmrProg-YT/Modern-Login), dựng bằng Flutter và màu xanh SignVoice. Panel đổi phía theo chế độ; giữ biểu mẫu, OAuth và xử lý guest hiện có. Trang cuộn được khi cửa sổ thấp/chữ 2×; hiệu ứng tôn trọng giảm chuyển động.
+- Dùng chung service/API/database với APK. Chưa bổ sung cơ chế giải quyết xung đột chỉnh sửa đồng thời giữa hai thiết bị; dữ liệu học tập vẫn đi qua API hiện có. Không coi đây là đồng bộ thời gian thực.
+- Kiểm tra: 104 kiểm thử auth/học tập/bộ sưu tập/quản trị/khởi động đạt; thêm 24 kiểm thử quản trị/mobile đạt; 6 kiểm thử mới cho panel sáng/tối, chữ 2× và phân quyền/điều hướng sidebar đạt. Kiểm thử Chrome tích hợp chưa chạy xong ở bước nạp và đã dừng, không tính là đạt. Chưa nghiệm thu bằng ảnh chụp trình duyệt. Phân tích các file thay đổi sạch; Web release build thành công với API `/api/v1` và AI `/sign-ai` cùng origin. Đã khởi động lại local tại **http://localhost:3002**, AI 181 từ được giữ chạy.
+- Đã đối chiếu danh sách [flutter/agent-plugins](https://github.com/flutter/agent-plugins): đủ 10 skill Flutter đã có `SKILL.md` trong `C:\Users\Phuoc Tue\.codex-plus2\skills`, gồm `flutter-setup-declarative-routing`; không cài trùng hoặc ghi đè skill hiện có.
+
+### Bước chuyển sang GoRouter đã xác định
+
+Đây là kế hoạch ban đầu trước đợt triển khai Web ở đầu README. Hiện Web đã dùng GoRouter và adapter tương thích; Mobile giữ Navigator/MaterialApp. Path URL strategy và nghiệm thu đầy đủ Back/Forward trên trình duyệt thật vẫn cần theo dõi như ghi chú phía trên.
+
+1. Tạo bộ ánh xạ URL rõ nghĩa (`/home`, `/login`, `/register`, `/dictionary`, `/collections`, `/history`, `/profile`) và alias cho các mã `Sxx`/liên kết chia sẻ cũ; giữ nguyên query và ID từ/bộ/quiz.
+2. Chuyển sang `MaterialApp.router`, GoRouter và shell phù hợp desktop/mobile. Chuyển đồng bộ helper điều hướng, các lệnh Navigator named trực tiếp và điều hướng từ thông báo; không chỉ đổi sidebar.
+3. Chờ khôi phục xác thực trước redirect; giữ đích đến sau đăng nhập. Kiểm tra role tại giao diện và tiếp tục dựa vào backend cho quyền dữ liệu. Không đặt query reset-password/token vào log.
+4. Kiểm tra refresh, deep link, URL không hợp lệ, Back/Forward, OAuth callback, xác nhận rời quiz và kết quả trả về sau hộp/form trước khi bật router mới.
+5. Chỉ chuyển sang path URL sau khi xác nhận backend trả `index.html` cho đường dẫn UI và không nuốt `/api`, `/sign-ai`, media hoặc asset bị thiếu; nghiệm thu local và Conveyor cùng APK. Hash URL hiện tại tiếp tục hoạt động trong lúc chuyển đổi.
+
 Ứng dụng hỗ trợ giao tiếp ngôn ngữ ký hiệu Việt Nam: Flutter Web/Android, backend Node.js/Express/TypeScript, MongoDB và service AI Python.
 
 Đơn vị vận hành: **SignVoice**. Người phụ trách: **Phạm Phước Tuệ**. Liên hệ: **phuoctue0312@gmail.com**.
+
+## Kế hoạch tính phí và giới hạn tính năng — 29/10/2026
+
+Đây là **đề xuất thiết kế**, chưa thay đổi mã nguồn, giá bán hoặc dữ liệu hiện tại. Mục tiêu là có doanh thu nhưng vẫn giữ các chức năng cốt lõi của SignVoice hữu ích cho người học và người cần hỗ trợ giao tiếp. Không khóa quyền truy cập từ điển công khai, nội dung trợ năng cơ bản hoặc dữ liệu người dùng chỉ vì tài khoản hết hạn.
+
+### 1. Cấu trúc gói đề xuất
+
+| Gói | Phù hợp | Giới hạn thử nghiệm ban đầu |
+|---|---|---|
+| Dùng thử/Khách | Xem nhanh trước khi đăng ký | Không đồng bộ; tối đa 20 từ hoặc 1 phiên học; AI giới hạn 5 lượt/ngày; không tạo bộ riêng |
+| Miễn phí | Người học cá nhân | Xem toàn bộ từ điển công khai, quiz cơ bản, 3 bộ sưu tập riêng, 20 từ tự tạo, 100 lượt nhận diện AI/ngày, 5 gợi ý AI/ngày, lịch sử 30 ngày |
+| Plus | Người học thường xuyên | 30 bộ sưu tập, 500 từ tự tạo, nhận diện/gợi ý AI ở hạn mức cao hơn, đồng bộ đầy đủ, lịch sử không giới hạn, thống kê nâng cao, xuất dữ liệu cá nhân và chia sẻ bộ sưu tập |
+| Giáo dục/nhóm | Lớp học hoặc đơn vị hỗ trợ | Quản lý thành viên, hạn mức theo nhóm, bộ dùng chung, báo cáo tiến độ tổng hợp và hóa đơn theo số lượng tài khoản |
+
+Các con số trên chỉ là mốc để A/B test. Phải đặt trong cấu hình máy chủ/feature flag, không hard-code trong APK. Có thể thêm gói Pro sau khi đo được chi phí AI, tỷ lệ giữ chân và nhu cầu xuất hiện trong thực tế.
+
+Người dùng bị hạ gói không mất dữ liệu: các bộ/từ vượt hạn mức chuyển sang chỉ đọc, không cho tạo thêm cho đến khi giảm số lượng hoặc nâng cấp. Hủy gói có thời gian gia hạn ngắn; hết thời gian vẫn giữ dữ liệu riêng, ghi chú và tiến độ, chỉ tắt quyền ghi mới hoặc tính năng nâng cao.
+
+### 2. Tách quyền gói khỏi quyền vai trò
+
+- `plan`/`entitlement` quyết định quyền thương mại của người dùng cuối.
+- `role` (`USER`, `STAFF`, `ADMIN`) quyết định quyền vận hành; quản lý tài khoản, role, phiên đăng nhập và kiểm duyệt không được mở khóa bằng gói trả phí.
+- ADMIN/STAFF vẫn bị kiểm tra quyền ở backend. Không dùng trường role trong client để cấp quyền.
+- Việc giới hạn AI chỉ giới hạn số lượt/thời gian sử dụng; không thay đổi dữ liệu media, ZIP, từ điển nguồn hoặc model 181 từ.
+
+### 3. Mô hình dữ liệu và quota phía backend
+
+Nên bổ sung các thực thể độc lập với dữ liệu học tập hiện có:
+
+- `plans`: mã gói, phiên bản, giá, tiền tệ, chu kỳ, danh sách entitlement và trạng thái phát hành.
+- `subscriptions`: `userId`, `planId`, nhà cung cấp, mã khách hàng/gói bên ngoài, trạng thái, kỳ hiện tại, thời điểm hết hạn, hủy/gia hạn và thời gian ân hạn.
+- `entitlement_snapshots`: bản quyền có hiệu lực để đọc nhanh; có `sourceVersion` và thời điểm đồng bộ.
+- `usage_counters`: `userId`, `feature`, cửa sổ đo (UTC), số đã dùng, hạn mức, `resetAt`; cập nhật nguyên tử trong transaction để tránh vượt hạn mức khi gửi song song.
+- `billing_events` và `audit_logs`: mã sự kiện duy nhất, payload tối thiểu cần đối soát, người/thành phần thực hiện, thời điểm và kết quả. Webhook lặp lại phải idempotent.
+
+Các feature nên dùng mã ổn định, ví dụ `ai_recognition`, `ai_suggestion`, `private_collection_create`, `custom_word_create`, `advanced_analytics`, `export_data`. Khi đổi giá hoặc hạn mức, tạo phiên bản cấu hình mới, không sửa ngược lịch sử giao dịch.
+
+### 4. API và luồng thanh toán
+
+Đề xuất API:
+
+- `GET /api/v1/billing/plans`: trả các gói đang bán và entitlement công khai.
+- `GET /api/v1/billing/me`: trả gói hiện tại, trạng thái, hạn mức còn lại và `resetAt`.
+- `GET /api/v1/billing/usage`: trả số liệu sử dụng đã tổng hợp, không trả dữ liệu nhạy cảm.
+- `POST /api/v1/billing/checkout` và `POST /api/v1/billing/portal`: tạo phiên mua/quản lý theo adapter nhà cung cấp.
+- `POST /api/v1/billing/webhooks/:provider`: xác minh chữ ký, chống replay, lưu mã sự kiện và cập nhật subscription trong transaction.
+- `POST /api/v1/billing/restore`: đồng bộ lại giao dịch khi đổi máy hoặc cài lại APK.
+
+Backend phải là nguồn quyết định cuối cùng. Khi bị giới hạn, trả lỗi có mã máy đọc được (ví dụ `QUOTA_EXCEEDED`, `FEATURE_NOT_INCLUDED`), `remaining`, `limit` và `resetAt` để app hiển thị đúng; không dùng lỗi 500 cho trường hợp hết quota.
+
+Nhà cung cấp thanh toán nên được bọc sau một interface chung. Mobile dùng cơ chế thanh toán được cửa hàng ứng dụng cho phép đối với nội dung số; web có thể dùng nhà cung cấp riêng nếu cần. Chưa chốt nhà cung cấp cho đến khi xác định thị trường, phí, thuế, hoàn tiền và chính sách cửa hàng.
+
+### 5. UI/UX cần triển khai
+
+- Thêm mục **Gói & sử dụng** trong Cá nhân, hiển thị gói hiện tại, thanh quota, ngày reset, trạng thái gia hạn và nút nâng cấp rõ ràng.
+- Khi chạm giới hạn, giải thích tính năng nào bị giới hạn, còn bao nhiêu, mở lại lúc nào và đưa lựa chọn chờ reset/giảm dữ liệu/nâng cấp. Không xóa nội dung đang có.
+- Cho phép dùng app ở chế độ offline với snapshot entitlement có thời hạn ngắn; khi chưa xác minh được thì không tự động khóa dữ liệu cũ, nhưng tạm dừng thao tác tốn quota cho đến khi đồng bộ.
+- Không hiển thị giá trị nội bộ, role quản trị hoặc thông tin webhook. Hỗ trợ chữ lớn, trạng thái tải, lỗi mạng, hoàn tác và màn hình xác nhận trước mua.
+
+### 6. Bảo mật, hoàn tiền và hạ cấp
+
+- Không lưu số thẻ hoặc bí mật thanh toán trong SignVoice; chỉ lưu mã tham chiếu do nhà cung cấp cấp.
+- Xác minh chữ ký webhook, timestamp/chống replay, idempotency key và kiểm tra trạng thái giao dịch từ máy chủ nhà cung cấp trước khi cấp quyền.
+- Khi hoàn tiền, chargeback hoặc hết thời gian ân hạn, thu hồi entitlement mới nhưng giữ dữ liệu người dùng và ghi audit log.
+- Giới hạn rate cho checkout, restore, webhook và endpoint usage; log lỗi không chứa token, mật khẩu hoặc payload thanh toán nhạy cảm.
+- Hỗ trợ xuất/xóa dữ liệu theo chính sách hiện có; dữ liệu hóa đơn cần giữ theo yêu cầu pháp lý áp dụng.
+
+### 7. Lộ trình triển khai an toàn
+
+1. **Đo lường (shadow mode):** thêm bảng entitlement/usage và log chi phí AI, chưa chặn người dùng; kiểm tra race condition và dữ liệu cũ.
+2. **Quota miễn phí:** bật giới hạn server-side cho AI, bộ riêng và từ tự tạo; UI hiển thị quota nhưng vẫn giữ dữ liệu khi hạ gói.
+3. **Thanh toán thử nghiệm:** adapter nhà cung cấp, webhook idempotent, sandbox, restore, hoàn tiền và đối soát thủ công.
+4. **Ra mắt hạn chế:** feature flag theo nhóm nhỏ, theo dõi chuyển đổi, lỗi thanh toán, chi phí mỗi người dùng và tỷ lệ bị chặn nhầm.
+5. **Mở rộng:** gói Plus/giáo dục, khuyến mãi, hóa đơn và bảng điều khiển doanh thu; mọi thay đổi hạn mức đều có phiên bản và audit.
+
+### 8. Tiêu chí nghiệm thu trước khi bật tính phí
+
+- Không thể vượt quota bằng gọi API song song, đổi thiết bị, sửa clock hoặc sửa request từ client.
+- Webhook lặp/mất thứ tự không làm nhân đôi hoặc mất entitlement; restore khôi phục đúng giao dịch.
+- Hạ gói không xóa bộ sưu tập, từ tự tạo, ghi chú, tiến độ hoặc dữ liệu media.
+- ADMIN/STAFF và USER được phân quyền độc lập; endpoint billing không làm lộ dữ liệu riêng.
+- Có kiểm thử cho hết quota, reset kỳ, offline, timeout, hoàn tiền, hủy giữa kỳ, nâng/hạ gói và lỗi nhà cung cấp.
+- Đo được chi phí AI theo feature trước khi chốt giá chính thức.
+
+Các quyết định còn cần chốt với sản phẩm: giá và chu kỳ, nhà cung cấp thanh toán, quota AI tính theo lượt hay thời gian, có trial bao nhiêu ngày, gói gia đình/giáo dục, chính sách hoàn tiền và thị trường phát hành.
+
+## Xây dựng và ổn định bản Web trước khi tính phí — 29/10/2026
+
+Đã thực hiện vòng kiểm tra nền tảng đầu tiên, chưa bật giới hạn thương mại hay thanh toán:
+
+- `flutter analyze`: **không có vấn đề**.
+- `npm run build` trong `backend`: **thành công**.
+- `flutter build web --release`: **thành công**, tạo bản phát hành tại `build/web`.
+- Kiểm thử Flutter khởi động, điều hướng và hiệu năng API: **11 kiểm thử đạt**.
+- Kiểm thử backend với MongoDB cô lập: **3 file / 9 kiểm thử đạt**, gồm asset khởi động Web, hiệu quả `auth/me` và đồng bộ thư viện media.
+- Build Web có cảnh báo Wasm từ dependency bên thứ ba (`flutter_secure_storage_web`, `flutter_tts`). Đây không chặn bản Web JavaScript hiện tại; chỉ cần xử lý khi chủ động chuyển sang Wasm.
+
+Phạm vi ổn định tiếp theo:
+
+1. Kiểm tra smoke trên môi trường Conveyor: đăng nhập/guest, tải từ điển, video/ảnh, quiz, bộ sưu tập, AI và quản trị theo đúng quyền.
+2. Ghi số đo khởi động, thời gian điều hướng, lỗi API, lỗi media và chi phí AI; không đưa giới hạn tính phí vào client.
+3. Sửa các lỗi thực tế phát hiện trên Web và kiểm tra lại mobile responsive, offline, refresh và phiên đăng nhập hết hạn.
+4. Khi Web đạt tiêu chí nghiệm thu mới bật entitlement/quota ở chế độ shadow, sau đó mới thử nghiệm thanh toán.
+
+Tiêu chí chuyển sang bước tính phí: release Web build lặp lại được; backend build/typecheck sạch; smoke flow chính không có lỗi chặn; dữ liệu media đồng bộ đúng revision; quota có thể kiểm tra phía server; và không còn lỗi mất dữ liệu khi refresh, hạ quyền hoặc mất mạng.
+
+
+## Tối ưu giao diện quản trị — 29/10/2026
+
+- Áp dụng `ui-ux-pro-max` cho quản trị Admin/STAFF: thay menu thả xuống phủ màn hình bằng hộp chọn bo góc, cao tối đa 520 dp, có nút đóng và dấu chọn rõ. Danh sách dài (danh mục/role) có tìm kiếm; nhãn dài xuống dòng trong hộp chọn. Dùng chung cho lọc tài khoản, từ điển, kiểm duyệt bộ/báo cáo và các trường trong biểu mẫu.
+- Chia biểu mẫu thành nhóm thông tin, media, phân loại/trạng thái và thông tin bổ sung. Nút **Lưu thay đổi** cố định, vùng bấm tối thiểu 56 dp, nằm phía trên bàn phím; chặn bấm lặp và tự cuộn đến trường lỗi đầu tiên. Thêm hiện/ẩn mật khẩu ban đầu; giữ nội dung khi lưu lỗi và cho nhập các trường văn bản trong lúc tải danh mục/role.
+- Gom bộ quyền thành 6 nhóm thu gọn, có số quyền đã chọn và chọn/bỏ chọn cả nhóm trong phạm vi người quản trị được cấp. Hộp xem role dùng cùng bố cục nhóm ở chế độ chỉ đọc. Không đổi quyền backend, API hoặc dữ liệu người dùng.
+- Đồng bộ thẻ danh sách và tổng quan với theme ứng dụng, phân cấp chữ/khoảng cách, trạng thái trống có hướng dẫn/xóa bộ lọc. Tìm kiếm, bộ lọc và phân trang cuộn cùng danh sách để dùng được trên màn hình thấp/chữ lớn; giữ dữ liệu cũ trong khi tải lại. Thống kê tự chia cột theo chiều rộng và cỡ chữ. Không thêm package hoặc API request khi mở hộp chọn.
+- Kiểm tra riêng: **45 kiểm thử quản trị/hộp chọn/bố cục đạt**, cùng **21 kiểm thử kiểm duyệt**; đã xem ảnh render sáng/tối. Các trường hợp gồm chữ 2×, 320×640, 375 px, màn hình ngang, tablet, bàn phím, giảm chuyển động, đóng bằng Escape, tìm/chọn danh mục, cấp role và giữ biểu mẫu khi API lỗi. Thao tác trên Android thật vẫn cần nghiệm thu; chưa build APK trong đợt này.
+- Kiểm thử toàn bộ Flutter sau hoàn thiện: **458 đạt, 1 bỏ qua**; 14 ảnh render quản trị sáng/tối đạt. `flutter analyze` không có vấn đề, TypeScript build thành công; thay đổi đợt này chỉ ở giao diện quản trị và kiểm thử.
+- Đã build Web release/backend và cập nhật **https://differentbrasspage69.conveyor.cloud** lúc **10:12 ngày 29/10**. Trang/API/readiness/AI trả HTTP 200; JavaScript public khớp bản build mới (`0bbc23fece2cb87934698046bfd7139505bc493b2de9af34e2f3da2477b91fd8`). API kiểm duyệt tiếp tục trả 401 khi chưa đăng nhập. AI 181 từ và LM Studio nền vẫn hoạt động. Link Conveyor là phiên tạm; không coi kiểm tra HTTP/render mô phỏng là nghiệm thu trên điện thoại thật.
+
+## Quản lý bộ sưu tập công khai — 29/10/2026
+
+- Đã triển khai **Quản trị → Bộ sưu tập công khai** cho ADMIN và STAFF: tìm theo tên trên server, lọc trạng thái, báo cáo mở hoặc yêu cầu kiểm tra lại, phân trang 10 bộ. Mở chi tiết mới tải từ thư viện; báo cáo và lịch sử tải riêng khi chọn mục tương ứng. Avatar/mô tả có trong bản xem trước, số từ lấy theo trạng thái từ điển hiện tại.
+- Kiểm duyệt có **Ẩn khỏi khám phá**, **Chặn chia sẻ**, **Khôi phục quyền chia sẻ**; mọi thao tác cần lý do và xác nhận. Ẩn vẫn cho người có link xem; chặn còn vô hiệu xem trước/link/QR và nhập bản sao mới. Không xóa bộ gốc, từ riêng, ghi chú, tiến độ hoặc bản sao đã lưu. Khôi phục tôn trọng lựa chọn chia sẻ hiện tại, không tự đăng lại bộ chủ đã rút khỏi khám phá.
+- Lưu bản tên/ảnh/mô tả/ID từ thư viện đã công khai để kiểm duyệt. Không liệt kê bộ riêng hoặc bộ chỉ gửi link chưa bị báo cáo; không trả danh tính chủ bộ/người báo cáo hay từ riêng/ghi chú/tiến độ qua API quản trị. Sau khi rút về riêng tư, chỉnh sửa mới không tự xuất hiện trong quản trị. Chủ bộ bị hạn chế thấy lý do và có thể chủ động **Gửi lại để kiểm tra**; việc gửi lại không tự khôi phục chia sẻ.
+- Người dùng mở bản xem trước → biểu tượng cờ **Báo cáo bộ sưu tập**, chọn loại và mô tả. Cần tài khoản chính thức, tối đa 10 request/giờ/tài khoản, một báo cáo mở/người/bộ; gửi lại không tạo trùng. Báo cáo không tự khóa nội dung. Nhân viên đánh dấu đã xử lý hoặc không ghi nhận vi phạm kèm lý do; trạng thái bộ được xử lý riêng sau khi kiểm tra.
+- Backend thêm quyền `collections:read`, `collections:moderate` cho ADMIN/STAFF mặc định; role tùy chỉnh được cấp riêng. Tài khoản, role/phân quyền và phiên đăng nhập tiếp tục chỉ ADMIN quản lý. Trạng thái và AuditLog được ghi cùng transaction, kiểm tra phiên bản chống ghi đè và ngăn mở lại nội dung đã đổi mà chưa gửi kiểm tra. Lịch sử ghi tên/vai trò nhân viên tại thời điểm xử lý, lý do, thời gian; dùng TTL AuditLog một năm hiện có.
+- Không thêm package. Có index kiểm duyệt, yêu cầu gửi lại và báo cáo; đếm báo cáo/từ theo lô cho trang hiện tại, không gọi API theo từng thẻ. Ảnh/video và tên từ vẫn tra từ điển chuẩn bằng ID, tiếp tục theo các lần đồng bộ media ZIP.
+- Kiểm chứng: **432 Flutter tests đạt, 1 bỏ qua; 266 backend tests / 38 file đạt** trên MongoDB tạm. Kiểm thử mới bao gồm quyền, dữ liệu riêng, chặn nhập qua link, khôi phục, rút bộ về riêng tư, gửi lại, báo cáo trùng, phiên bản cũ và rollback khi ghi lịch sử lỗi. Kiểm tra UI chữ 2×/bàn phím/320 px/ngang/tablet/sáng/tối; chạy lại 35 kiểm thử chức năng/render và 6 backend kiểm duyệt sau hoàn thiện. OpenAPI hợp lệ, **152/152 API có tài liệu**. Có 14 ảnh render sáng/tối để xem lại; thao tác trên điện thoại thật cần nghiệm thu sau khi build APK.
+- [Kế hoạch và quyết định thiết kế](docs/COLLECTION_MODERATION_PLAN.md). Không build APK hoặc push git trong đợt này.
+- Đã build Web/backend và cập nhật **https://longredrock50.conveyor.cloud** lúc 08:55 ngày 29/10. JavaScript public trùng bản local (`7b7ea4a29d8169d679054332fe9c1b86b2adc5a1caeecb1c21f03f0eeada987f`); trang/API công khai, readiness và AI đều hoạt động, API kiểm duyệt từ chối request chưa đăng nhập (401). AI 181 từ và LM Studio nền tiếp tục chạy. Dart analyze/TypeScript sạch; kiểm tra lại 21 widget và 6 backend kiểm duyệt đều đạt sau hoàn thiện. Thêm partial index cho các bản đã gửi kiểm duyệt để truy vấn không phải duyệt toàn bộ bộ riêng.
+
+## Hoàn thiện Bộ sưu tập, avatar và từ riêng — 28/10/2026
+
+- Áp dụng `ui-ux-pro-max` cho các nút trang Bộ sưu tập, hộp nhận mã và chia sẻ: cùng hình dạng, vùng bấm ≥48 dp, cách nhau 12 dp, phân biệt tác vụ chính/phụ và trạng thái không bấm được. Thẻ bộ chỉ có một vùng phản hồi bấm; bỏ nền hover lồng nhau. QR, mã chia sẻ, sao chép và thu hồi mã có khoảng cách riêng, hộp thoại vẫn cuộn được.
+- **Tạo bộ / Quản lý bộ → Chỉnh sửa bộ** cho thêm, đổi hoặc bỏ ảnh đại diện. Ảnh được thu nhỏ 128×128, tối đa 72 KiB, kiểm tra JPEG/PNG/WebP và base64 trên backend. Ảnh hiện ở danh sách/chi tiết/xem trước và đi theo bản sao khi nhận bộ; không thêm request tải avatar cho từng thẻ bộ.
+- Bỏ trang **Thẻ riêng** khỏi điều hướng ngoài. Trong mỗi bộ chọn **Thêm từ → Chọn từ thư viện / Tạo từ riêng / Thêm từ riêng đã có**. Từ riêng có ý nghĩa, ảnh, liên kết video HTTPS, ví dụ và mẹo; sửa/xóa ngay trong bộ. Form giữ nội dung khi API lỗi, chặn bấm lặp, cảnh báo bỏ thay đổi chưa lưu.
+- Các từ riêng cũ được giữ nguyên và xuất hiện trong danh sách chưa xếp bộ. Gắn nhiều từ trong một transaction, không sao chép nội dung/ảnh, không tạo trùng. Xóa bộ vẫn giữ từ riêng để thêm vào bộ khác; xóa riêng một từ cần xác nhận. Xuất dữ liệu tài khoản bao gồm từ riêng.
+- Từ riêng **chỉ bạn nhìn thấy**, không xuất hiện trong khám phá, link chia sẻ, bản sao nhận bộ hay quiz thư viện. Quiz tiếp tục dùng các ký hiệu đã xuất bản; UI giải thích rõ với bộ chỉ có từ riêng. Tổng từ riêng + thư viện tối đa 200/bộ, kiểm tra nguyên tử trên server.
+- Thêm index `(userId, collectionId, word, _id)`; đếm từ riêng theo lô, hợp nhất/tìm/phân trang 10 từ ở database. Ảnh riêng lớn được tải khi mở/sửa, chỉ cache tối đa 5 ảnh đầy đủ; có nút tải lại nếu lỗi. Sửa lỗi trạng thái mở mẫu dùng nhầm vị trí cuộn (`double` thành `bool`) khi thêm từ sau khi cuộn danh sách.
+- Kiểm chứng: **411 Flutter tests đạt, 1 bỏ qua; 260 backend tests / 37 file đạt** trên MongoDB tạm. Dart analyze/TypeScript sạch; OpenAPI hợp lệ, **144/144 API được mô tả**. Kiểm tra UI sáng/tối, chữ 2×, 320 px, ngang, tablet và bàn phím; tạo/sửa avatar qua picker giả lập, tạo/sửa/xóa từ riêng, giữ form lỗi, nhập từ cũ và cảnh báo khi đóng. Có 10 ảnh render sáng/tối để xem lại bố cục; chọn ảnh/chia sẻ qua ứng dụng thật vẫn cần nghiệm thu trên điện thoại.
+- [Chi tiết thiết kế và phạm vi quyền riêng tư](docs/SIGN_COLLECTIONS_DESIGN.md#ảnh-đại-diện-và-từ-riêng-trong-bộ--bổ-sung-28102026). Chưa build APK trong đợt này.
+- Đã build Web release/backend và cập nhật **https://earlyaquapen92.conveyor.cloud** lúc 23:46 ngày 28/10. Kiểm tra qua Internet: trang, API từ điển/khám phá/phiên bản media và AI đều HTTP 200; JavaScript public trùng bản mới (`fcf79e18c9509da8daad4fa1c63201308d82f05fd32450ecaac7c935f250799b`). Sau chỉnh màu nút vô hiệu hóa, chạy lại **76 kiểm thử Bộ sưu tập/render** đều đạt. AI 181 từ và LM Studio tiếp tục phản hồi. Đo hai lượt API khám phá: nội bộ 99–109 ms, qua Conveyor 1129–1166 ms; đường hầm vẫn có độ trễ mạng, không cam kết tải tức thì trên mọi kết nối.
+
+## Nhận bộ và kết nối cộng đồng — 28/10/2026
+
+- Thiết kế lại hộp **Nhận bộ sưu tập**: rộng, tiêu đề ngắn, nút đóng rõ, ô liên kết/mã nhiều dòng, nút **Dán từ bộ nhớ** và lỗi nhập tại chỗ. Không tự đọc clipboard hoặc tự bật bàn phím; toàn bộ hộp cuộn khi màn hình nhỏ/chữ lớn/bàn phím mở.
+- Người chưa có mã chọn **Khám phá bộ công khai** để tìm theo tên, xem trước và lưu bản riêng. Chủ bộ vào **Quản lý bộ → Chia sẻ bộ → Hiện trong khám phá công khai**, xác nhận rồi bộ mới xuất hiện cho người khác. Tài khoản chính thức và ít nhất một từ khả dụng mới được đăng. Không tự công khai các bộ có sẵn, không tạo bộ người dùng giả.
+- Trong **Chia sẻ bộ**, có **Chia sẻ qua ứng dụng**, sao chép liên kết/mã và **Hiện mã QR**. Người gửi tự chọn ứng dụng/người nhận; QR mở liên kết xem trước bằng camera điện thoại. Trình duyệt/ứng dụng không hỗ trợ chia sẻ hệ thống có hướng dẫn dùng sao chép liên kết. Không thêm chức năng bạn bè/chat hoặc bộ quét vào camera AI.
+- Chia sẻ riêng bằng link và đăng khám phá là hai lựa chọn riêng. Gỡ khỏi khám phá vẫn giữ link; tắt mã chia sẻ thu hồi cả link/QR và gỡ khỏi khám phá. Bản người nhận lưu vẫn độc lập, riêng tư mặc định. API công khai chỉ trả thông tin bộ/từ công khai, không trả danh tính tác giả, ghi chú hoặc tiến độ.
+- Thêm index khám phá, phân trang 10 bộ và lấy media theo lô, giới hạn 200 từ/bộ. Bộ có media vừa bị gỡ có trạng thái chờ cập nhật; không cho lưu bộ rỗng. Bản app/backend vẫn dùng một từ điển chuẩn để cập nhật media.
+- Dùng `share_plus 12.0.2` và `qr_flutter 4.1.0`; chọn bản chia sẻ tương thích để giữ nguyên secure storage/đăng nhập. [Phân tích thiết kế và nguồn kỹ thuật](docs/SIGN_COLLECTIONS_DESIGN.md#kết-nối-và-khám-phá-công-khai-bổ-sung-2810).
+- Kiểm chứng: **401 Flutter tests đạt, 1 bỏ qua; 256 backend tests / 36 file đạt** trên MongoDB tạm; 6 kiểm thử QR/công khai với chữ 2× qua sau khi tăng khoảng trắng QR. Dart analyze/TypeScript và OpenAPI đạt (**138/138 API có tài liệu**). Đã xem ảnh sáng/tối của hộp nhận bộ, khám phá và QR; giải mã QR mẫu đúng URL xem trước. Chia sẻ hệ thống được kiểm thử qua mock, chưa nghiệm thu gửi qua từng ứng dụng trên điện thoại thật.
+- Đã build lại Web/backend và kiểm tra trang/API khám phá/AI qua **https://earlyaquapen92.conveyor.cloud**; JavaScript public trùng bản mới. AI 181 từ và LM Studio nền tiếp tục chạy. Chưa build APK mới; APK cũ cần build/cài bản mới để có các nút này.
+
+## Công việc phiên 27–28/10/2026 — Bộ sưu tập ký hiệu
+
+- Đã viết [phân tích thiết kế](docs/SIGN_COLLECTIONS_DESIGN.md) và thay tab **Từ của tôi** bằng **Bộ sưu tập**. Tạo/sửa/xóa bộ theo tình huống, chọn nhiều ký hiệu có sẵn, tìm kiếm/phân trang, lưu từ màn hình chi tiết từ điển và viết ghi chú riêng. Thẻ riêng cũ vẫn nằm trong menu **Thẻ riêng đã tạo**.
+- Ôn bộ bằng quiz xem ký hiệu rồi nhập nghĩa, tối đa 10 từ nhiều chủ đề; dùng chung tiến độ theo từ, tiếp tục bài dở và giữ cảnh báo khi thoát. Chỉ tự nhớ đúng mới được ghi nhận độc lập; gợi ý/tự đối chiếu được tách riêng. Bỏ mô tả dataset chung ở phần đối chiếu; tải trước media có giới hạn và dùng lại phản hồi bắt đầu bài, giảm yêu cầu lặp. Bộ nhận diện camera **181 từ giữ nguyên**.
+- Chia sẻ bằng mã/liên kết có thể thu hồi; xem trước công khai và lưu bản độc lập vào tài khoản. Không chia sẻ email, ghi chú, tiến độ hoặc thẻ riêng. Nhập cùng bộ nhiều lần không tạo trùng; đăng nhập từ liên kết giữ trang quay lại.
+- Backend lưu ID từ chuẩn thay vì nhân bản video. Thêm index theo chủ tài khoản, mã chia sẻ và ghi chú; truy vấn theo lô, giới hạn 10 mục/trang, 100 bộ/tài khoản, 200 từ/bộ. Ghi trong transaction, chấm quiz theo lô và không ghi đè tiến độ mới hơn. Xuất/xóa dữ liệu tài khoản bao gồm bộ sưu tập và ghi chú. Cache client ngắn hạn, giới hạn số trang, gộp yêu cầu đang chạy, tách tài khoản và loại phản hồi cũ.
+- Đồng bộ media bằng [sync-sign-library.ps1](scripts/sync-sign-library.ps1): xác minh ZIP/checksum trước, giữ ID từ, URL media theo hash và metadata từng phiên bản. Bài ôn dở bị ảnh hưởng được yêu cầu bắt đầu lại; điểm bài đã nộp, ghi chú và tiến độ vẫn giữ. Các màn hình dùng cùng từ điển chuẩn, kiểm tra phiên bản khi mở/quay lại và mỗi 60 giây khi đang hoạt động. Văn bản → Ký hiệu giữ văn bản khi tải lại media.
+- Đã kiểm tra ZIP hiện có `E:\WorkSpace\SignVoice\SignVoice-Media-20261024.zip`: **3.424 mục, 3.423 video, 17.115 ảnh**, checksum đạt. Chưa áp dụng gói này vào database thật trong phiên làm việc này.
+- Kiểm chứng: **378 kiểm thử Flutter đạt, 1 bỏ qua**; **255 kiểm thử backend / 36 file đạt** trên MongoDB tạm, kèm **29 kiểm thử hồi quy đạt** sau chỉnh sửa backend cuối; **5 kiểm thử installer đạt**. OpenAPI hợp lệ, **136/136 API được ghi nhận có tài liệu**; phân tích mã Dart và TypeScript đạt. Đã xem 8 ảnh render sáng/tối; kiểm tra bố cục 320×640, 844×390 và 800×1024 với chữ 2×, bàn phím, lỗi mạng, lựa chọn qua nhiều trang và phản hồi cũ. Không xem kiểm thử mô phỏng là đo tốc độ trên điện thoại thật.
+- Mốc trước khi mở Web lại ngày **28/10**: đã tắt Conveyor `smallmintglass74.conveyor.cloud` và AI theo yêu cầu; lúc đó mới hoàn thành mã nguồn/kiểm thử, chưa phát hành lại Web/APK. Sau yêu cầu chạy Conveyor và bật AI mới, trạng thái được cập nhật ở mục **Mở lại bản Web kiểm tra** phía trên. Các URL/APK trong nhật ký cũ bên dưới là thông tin lịch sử.
+
 
 ## Cập nhật trên máy hiện tại — 27/10/2026
 
@@ -124,159 +405,6 @@ Xem [chính sách dùng thử, giới hạn định danh, đường API và kế
 - **Media:** không tạo video ký hiệu giả. Chất lượng, giấy phép và độ phủ video trong từ điển cần được người quản lý nội dung xác minh.
 - Trước khi phát hành public, người vận hành cần xác nhận chính sách log/backup và thời gian lưu trữ đúng với hạ tầng triển khai.
 
-## Kết quả kiểm tra
-
-| Kiểm tra | Kết quả |
-| --- | --- |
-| `flutter analyze --no-pub` | **Không có lỗi/cảnh báo/info.** |
-| Toàn bộ Flutter tests | **247 tests đạt, 1 test được đánh dấu bỏ qua trong suite**. Có test service/DTO/state, auth/STAFF, mobile layout/keyboard, routing, retry, chỉnh sửa văn bản, giọng đọc, media cache, thông báo/lịch học, khởi động và tiến độ/thống kê học tập. |
-| Bố cục desktop/mobile | Kiểm tra Cá nhân của ADMIN/STAFF, Quản trị, đổi tab, biểu mẫu và quay lại đều giữ khung gọn trên desktop; viewport điện thoại 390 px vẫn vừa màn hình. |
-| Flutter tests sau chỉnh giao diện | **52 tests liên quan đạt** sau chỉnh tìm kiếm; **9 tests user-data đạt** sau chỉnh STAFF/hồ sơ; **57 tests auth/widget đạt** sau thu gọn đăng nhập. |
-| Backend trên replica set tạm | **190 tests / 25 files đạt**; gồm import lặp giữ ID/yêu thích, bảo toàn nội dung thủ công, nguồn dữ liệu, đánh vần, thông báo, đồng bộ khởi động, nén Web và tiến độ/thống kê học tập. |
-| Bộ lọc dữ liệu tham khảo Python | **5 tests đạt**; bộ lọc TRAIN mặc định giữ nguyên, mở rộng tham khảo không nhận dữ liệu cá nhân/held-out. |
-| Backend sau chỉnh bộ đếm yêu thích | **13 tests user-data đạt**, gồm sửa bộ đếm cũ, dữ liệu riêng, export/reset, phiên, STAFF và giao dịch đồng thời. |
-| JavaScript hand worker | **33 tests đạt**. |
-| Python worker/delivery/replay/socket | **16 tests đạt**; không phải phép đo accuracy. |
-| Backend build và OpenAPI | TypeScript build đạt; OpenAPI hợp lệ, độ phủ **100%** của route đang mount. |
-| Android debug | Build thành công, tạo `build/app/outputs/flutter-apk/app-debug.apk`; chưa chạy nghiệm thu trên thiết bị. |
-| Android release ARM64 | Build thành công ngày 25/10, `build/app/outputs/flutter-apk/app-release.apk` khoảng 57,2 MiB; trỏ API/AI tới Conveyor hiện tại. Dùng khóa debug để cài thử; chưa đo cold start trên điện thoại thật. |
-| Flutter Web release | Build JavaScript thành công ở `build/web`. Wasm dry run còn cảnh báo từ `flutter_secure_storage_web` và `flutter_tts`; chưa nghiệm thu Wasm. |
-| Kiểm tra Chrome | Đã đăng nhập USER, lưu hồ sơ và tải lại giữ dữ liệu/phiên; kiểm tra cài đặt webcam và khu vực STAFF/ADMIN bằng database tạm. |
-
-Tests dùng mock và database tạm tùy loại. Kết quả này không thay thế đăng nhập Google thật, gửi email thật, kiểm tra camera/microphone hoặc nghiệm thu Android trên thiết bị. Log đợt hoàn thiện nằm trong `.runtime/completion-*.log`; đợt mở rộng từ điển có `.runtime/dictionary-*.log` và `.runtime/dictionary-final-verification.json` trên máy phát triển. Lần sửa bố cục sau đó có log `.runtime/layout-*.log` và `.runtime/compact-layout-*.log`; kiểm tra trình duyệt tự động ở lần này bị tắt trong Work settings, nên kích thước được xác minh bằng Flutter widget tests.
-
-## Chạy trên máy hiện tại
-
-Mở PowerShell tại thư mục dự án:
-
-```powershell
-cd E:\WorkSpace\SignVoice\SignVoice
-.\scripts\start-signvoice.ps1 Local
-```
-
-Script build Flutter/backend và chạy web + API cùng origin tại **http://localhost:3002**, kết nối service AI cổng 8001. Nếu đã build bản mới, có thể dùng `-SkipBuild`. Nếu báo AI đang chạy khác phiên bản code/model, đọc thông báo và dừng đúng service cũ trước khi chạy lại; không tắt mọi tiến trình Python/Node trên máy.
-
-### Cấu hình backend
-
-Backend cần MongoDB Atlas hoặc MongoDB local **replica set** để chạy các transaction. Cấu hình `backend/.env` theo `backend/.env.example`; không commit file chứa secret. Hai giá trị liên hệ public đã được điền ở máy hiện tại: `PRIVACY_OPERATOR_NAME="SignVoice — Phạm Phước Tuệ"`, `SUPPORT_EMAIL=phuoctue0312@gmail.com`. Máy khác cần điền lại để các trang thông tin không trả bản nháp HTTP 503.
-
-### Chuyển bộ từ điển sang máy khác
-
-Chỉ pull Git chưa tải được media/database từ điển. Gói **SignVoice-Media-20261024.zip** được gửi riêng, gồm **3.424 mục từ công khai, 3.423 video, 17.115 ảnh**, thông tin nguồn/giấy phép, danh mục và `README_VI.md`. File trên máy đóng gói nằm tại `.runtime/share/SignVoice-Media-20261024.zip`, kèm `.zip.sha256`; `.runtime` và ZIP không được đưa lên Git.
-
-Người nhận giải nén gói, mở terminal tại thư mục có `README_VI.md` rồi chạy:
-
-```powershell
-node .\install-media.cjs --verify-only
-node .\install-media.cjs --project "D:\Projects\SignVoice"
-```
-
-Trình cài kiểm tra SHA256 từng file, giữ file giống nhau và từ chối ghi đè file khác nội dung. Không chép `.env`, dữ liệu tài khoản hoặc thay source code. Mã nguồn đã pull cần có đủ bản cập nhật từ điển, kể cả cấu hình chủ đề mới.
-
-Sau khi cấu hình database riêng, người nhận cần một ADMIN hoạt động khớp `ADMIN_EMAIL` để nhập dữ liệu. Với **database phát triển trống**, script hiện có `npm run db:create-admin` trong `backend` tạo tài khoản dev `admin@signvoice.com`; đặt `ADMIN_EMAIL` khớp email đó trong `.env` riêng và đổi mật khẩu mẫu sau khi đăng nhập. Nếu đã có ADMIN riêng thì dùng email của ADMIN đó, không cần tạo tài khoản dev.
-
-Từ `backend`, kiểm tra trước rồi nhập (origin là backend của người nhận, không có `/api/v1`):
-
-```powershell
-npx tsx scripts/import-sign-library.ts --catalog .runtime/speech-sign-library/shared-20261024/library.json --origin http://localhost:3000
-npx tsx scripts/import-sign-library.ts --catalog .runtime/speech-sign-library/shared-20261024/library.json --origin http://localhost:3000 --apply
-```
-
-Để chỉ xem từ điển không cần cài model AI; chạy backend và frontend riêng như bên dưới. Luồng `start-signvoice.ps1 Local` chạy gộp còn cần model/service AI theo hướng dẫn dự án. Các cấu hình phân loại và ảnh đại diện trong gói đã được đối chiếu với dữ liệu công khai hiện tại. Gói không chứa model, không thay bộ nhận diện 181 từ.
-
-### Khởi động backend và frontend riêng
-
-```powershell
-cd backend
-npm ci
-npm run dev
-```
-
-Mở terminal khác tại gốc dự án:
-
-```powershell
-flutter pub get
-flutter run -d chrome --web-port 8080 --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=AI_SERVICE_URL=http://localhost:3000/sign-ai
-```
-
-Thêm origin chính xác vào `CORS_ALLOWED_ORIGINS`. Web dùng access token trong bộ nhớ và cookie refresh HttpOnly, SameSite=Strict; frontend/backend cần cùng site (ví dụ `localhost` ở hai cổng). Native dùng secure storage.
-
-Android emulator trỏ API tới máy chủ qua `http://10.0.2.2:3000/api/v1`; gateway AI qua `http://10.0.2.2:3000/sign-ai`. Máy thật cần IP LAN có thể truy cập của máy chạy backend/AI; xem `flutter devices` rồi chọn thiết bị:
-
-```powershell
-flutter run -d <device-id> --dart-define=API_BASE_URL=http://10.0.2.2:3000/api/v1 --dart-define=AI_SERVICE_URL=http://10.0.2.2:3000/sign-ai
-```
-
-Để cài thử trên điện thoại Android ARM64 qua Conveyor, build **release** thay vì dùng bản debug:
-
-```powershell
-$signVoiceOrigin = (Get-Content -Encoding UTF8 '.runtime/public-settings.json' -Raw | ConvertFrom-Json).publicOrigin
-.\scripts\build-ai-android.ps1 -SdkPath 'E:\Android\Sdk' -ApiBaseUrl "$signVoiceOrigin/api/v1" -AiServiceUrl "$signVoiceOrigin/sign-ai"
-```
-
-Kết quả ở `build/app/outputs/flutter-apk/app-release.apk`. Cài đè bản mới để nhận thay đổi; URL Conveyor đổi thì cần build lại APK với địa chỉ mới. Bản này vẫn dùng khóa debug theo cấu hình hiện có để cài thử, chưa phải bản ký để phát hành CH Play. Backend, AI và tunnel vẫn phải chạy khi dùng chức năng trực tuyến.
-
-Nếu build Android từ terminal của công cụ tự động trên Windows gặp `Unable to establish loopback connection` tại Java Selector, lần build này đã chạy được với biến môi trường chỉ áp dụng cho terminal hiện tại:
-
-```powershell
-$env:JAVA_TOOL_OPTIONS = '-Djdk.net.unixdomain.tmpdir=C:\Windows\Temp'
-flutter build apk --debug --no-pub
-```
-
-Tham khảo [báo cáo lỗi Java Selector và cách xử lý trong môi trường Windows](https://github.com/openai/codex/issues/40902). Đây là điều chỉnh nơi tạo socket tạm cho tiến trình Java; không cần đổi firewall hoặc cài đặt bảo mật. Build còn cảnh báo tương thích Kotlin tương lai của `flutter_tts` và phiên bản SDK XML; APK debug hiện vẫn build được.
-
-### AI và LM Studio
-
-Hướng dẫn chuẩn: **[SETUP_AI.md](docs/SETUP_AI.md)**. Cần Python 3.11 x64, Flutter stable, Node.js 20+ và Git. Model tải từ GitHub Release, kiểm tra SHA256; không cần tải dataset TRAIN 46 GB.
-
-```powershell
-git clone --branch dev https://github.com/phuoctue/SignVoice.git
-cd SignVoice
-.\scripts\setup-ai-service.ps1
-.\scripts\start-ai-service.ps1
-```
-
-Health mong đợi: `http://localhost:8001/health` có `ready: true`, `word_classes: 181`, `word_engine: probability_ensemble`. Model hiện dùng không bị thay bằng kết quả train chưa đạt yêu cầu.
-
-Nhận diện webcam hiện dùng model Python trực tiếp, không bắt buộc LM Studio. Giao diện Từ điển gồm **Khám phá / Đang học / Từ của tôi**. Trong **Đang học**, nút **Phân tích tiến độ cá nhân** gọi `POST /api/v1/learning/analysis` để xem tỷ lệ đã nhớ, kết quả theo chủ đề và nhận xét; nút **Gợi ý ôn tập** gọi `POST /api/v1/learning/coach` để lấy kế hoạch ôn ngắn. Backend kết nối LM Studio bằng `SIGNVOICE_LM_STUDIO_URL` (mặc định cổng 1235), `SIGNVOICE_LM_STUDIO_MODEL` và API key tùy chọn. Xem [kết nối LM Studio](docs/LMStudio-learning-progress.md) và [setup máy khác/cùng Wi-Fi](docs/SETUP_MAY_KHAC_LMSTUDIO.md). Các trang thử ảnh và proxy AI cũ không được ứng dụng sử dụng đã được dọn khỏi source.
-
-Trong **Đang học**, **Lịch sử học tập** hiển thị các lượt học/ôn đã ghi nhận; từng thẻ từ có **Lịch sử từ này**. **Thống kê & mục tiêu** có biểu đồ 7/30 ngày, từ thường chưa khớp trong quiz và mục tiêu ngày mặc định 5 từ mới/10 từ ôn, chỉnh được theo tài khoản. Xem [chi tiết học tập](docs/DICTIONARY_LEARNING.md).
-
-Public/tunnel là luồng riêng: [CONVEYOR_PUBLISHING.md](docs/CONVEYOR_PUBLISHING.md). Không cần public ứng dụng để kiểm thử local.
-
-## Kiểm tra bản build
-
-```powershell
-flutter analyze lib --no-pub
-flutter build web --release --no-pub --no-web-resources-cdn --dart-define=API_BASE_URL=/api/v1 --dart-define=AI_SERVICE_URL=/sign-ai
-cd backend
-npm ci
-npm run build
-npm run docs:validate
-npm run docs:coverage
-```
-
-Các kết quả kiểm thử trong báo cáo được chạy trên bộ kiểm thử local. Theo phạm vi phát hành lần này, những file test mới/cập nhật, môi trường QA tạm và trang thử camera AI được giữ trên máy phát triển, không đưa vào commit. Bộ test cũ có sẵn trong lịch sử Git chưa được đồng bộ với các thay đổi này. Khi kiểm thử database, dùng database riêng có replica set; không dùng database ứng dụng.
-
-## Index MongoDB khi nâng cấp
-
-Đã bỏ định nghĩa index trùng/xung đột trong schema: text index từ điển, TTL lịch sử/audit và một số index đơn lặp lại. Máy phát triển đã áp dụng sửa index và lần kiểm tra lại trả danh sách rỗng.
-
-Máy khác kiểm tra trước:
-
-```powershell
-cd backend
-npm run db:indexes
-```
-
-Mặc định chỉ **dry-run**. Sau khi xem danh sách, áp dụng:
-
-```powershell
-npm run db:indexes -- --apply
-```
-
-Script chỉ thay các index xung đột được nhận diện và tạo index theo schema, không xóa tài liệu. Định nghĩa index gốc được sao lưu trong `.runtime/index-backup-*.json`. Không chạy `db:clean` để sửa index.
-
 ## Phân quyền và dữ liệu
 
 | Vai trò | Khu vực |
@@ -329,50 +457,12 @@ Danh mục màn hình nằm ở **Cá nhân → Thông tin ứng dụng → Danh
 
 Đổi mật khẩu tại **Cá nhân → Đổi mật khẩu**. Admin có quyền quản lý tài khoản có thể **Đặt lại mật khẩu** cho tài khoản email khác qua menu Thao tác; xem [hướng dẫn mật khẩu](docs/ACCOUNT_PASSWORDS.md).
 
-### Đồng bộ và dọn source ngày 25/10/2026
-
-Đã đồng bộ nhánh `dev` từ `phuoctue/SignVoice` đến commit `390ca74`, ghép và giữ các thay đổi local. Đã bỏ 8 test của quiz trả lời văn bản/chấm LM Studio vì luồng hiện tại dùng camera; giữ các test quyền truy cập, xóa tài khoản và camera đang dùng. Đồng thời xóa 43 file Dart/TypeScript cũ không còn được ứng dụng, kiểm thử hoặc script import, gồm màn hình/provider/service cũ và proxy thử chưa mount; dọn cache Python và file khóa npm rỗng ở gốc.
-
-Danh sách file đã dọn và bản sao phục hồi nằm trong `.runtime/source-cleanup-*/manifest.json` và `removed-files.zip`. Sao lưu trước đồng bộ nằm trong `.runtime/git-sync-*/`; không nhập các bản ZIP này vào Git. Các tài liệu `BATCH_02_*` và `docs/plan/` là lịch sử triển khai, có thể nhắc tới đường dẫn cũ đã được thay thế bằng `lib/features/`.
-
-Chi tiết phạm vi và kết quả kiểm tra: [báo cáo dọn source](docs/SOURCE_CLEANUP_20261025.md).
-
-### Kiểm tra Flutter mobile ngày 25/10/2026
-
-- Kiến trúc: dùng chung `LearningPageController` cho tải dữ liệu/phân trang của màn hình chủ đề và từ điển học; service/API giữ nguyên. Controller bỏ qua response cũ và request hoàn tất sau khi đóng màn hình.
-- Layout/UX: mobile xoay ngang dùng toàn bộ chiều rộng; fallback ảnh nhỏ hỗ trợ chữ lớn và nhãn trợ năng; quiz tải lỗi có nút thử lại; tăng độ tương phản màu primary ở dark mode. Đã kiểm tra 320×640, 375×667, 844×390, chữ 200%, reduced motion và bàn phím.
-- Routing: `lib/core/app_route.dart` phân tích thống nhất link khởi động và link trong app, giữ query của bài học, giới hạn route hợp lệ và hiển thị trang phục hồi khi link sai. Giữ Navigator và các guard đăng nhập/quyền hiện tại.
-- GoRouter: chưa migration vì có 87 điểm điều hướng hiện hữu. Khi phát triển Web, chuyển lần lượt root sang `MaterialApp.router`, nhóm tab sang `StatefulShellRoute`, rồi thay các lời gọi Navigator; giữ tương thích ID Sxx và kiểm tra lại OAuth/reset password. Browser forward/history và Android App Links/iOS Universal Links chưa được triển khai trong đợt này; cần domain/chứng chỉ thật trước khi cấu hình liên kết đã xác minh.
-- Tests: thêm 5 widget tests, 5 controller tests, 4 route tests, 1 test tương phản. Hai luồng integration dùng fake API: đăng nhập → bài học → xem mẫu/tự thực hành → đánh giá → tiến độ; lỗi mạng → thử lại → tạo/mở lại từ cá nhân. Không dùng tài khoản hoặc database thật, không kiểm chứng độ chính xác camera AI.
-
-```powershell
-flutter analyze --no-pub
-flutter test --no-pub
-flutter drive --no-pub --driver=test_driver/integration_test.dart --target=integration_test/mobile_learning_test.dart -d emulator-5554
-```
-
-`integration_test` là dependency SDK chỉ phục vụ phát triển; driver nằm trong `test_driver/`, binding nằm trong entry integration, không bật driver trong `lib/main.dart`. Nếu Gradle trên Windows báo lỗi loopback/UnixDomainSockets, tạo thư mục tạm ngắn hợp lệ và đặt `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<đường dẫn thư mục đó>` cho riêng terminal build. iOS cần macOS/Xcode để xác minh trên thiết bị/simulator.
-
-Kết quả đợt này: `flutter analyze` sạch; 195 Flutter tests đạt, 1 test cũ bỏ qua; cả 2 integration flows đạt trên Android 15/API 35 emulator; APK debug build và cài thành công. Log nằm trong `.runtime/mobile-*.log`; bản sao trước sửa nằm ở `.runtime/mobile-audit-before-20261025.zip`.
-
 ### Điều chỉnh màn hình giọng nói ngày 25/10/2026
 
 - Hướng dẫn cấp quyền được rút gọn để vừa phía trên các nút trên điện thoại 375×812; nội dung vẫn cuộn được khi dùng chữ lớn/màn hình ngang.
 - Chỉnh sửa văn bản ngay trong khung kết quả, có Lưu/Hủy và kiểm tra nội dung trống; bàn phím không bị footer chiếm chỗ.
 - TTS thử `vi-VN`, `vi` và giọng Việt mà engine liệt kê. Khi thiết bị thiếu giọng Việt, nút **Cài giọng tiếng Việt** mở trình cài dữ liệu/cài đặt TTS Android; chọn tải Tiếng Việt rồi quay lại bấm Phát. Không tự tải giọng hoặc chuyển văn bản sang dịch vụ ngoài. Máy chưa có engine/giọng phù hợp vẫn cần cài dữ liệu trên thiết bị.
 - 8 test mới cho hướng dẫn, sửa trực tiếp và TTS/recovery; toàn bộ 203 tests đạt, 1 test cũ bỏ qua. Log: `.runtime/speech-ui-*.log`.
-
-### Tối ưu APK qua Conveyor ngày 26/10/2026
-
-- Ảnh xem trước JPEG được gửi kèm trong API từ điển/chủ đề (tối đa 20 ảnh, mỗi ảnh 96 KB), giữ nguyên ảnh gốc. APK dùng chung cache media 16 MB trong RAM và tối đa 64 MB trên bộ nhớ đệm riêng, hết hạn sau một ngày. Clip ký hiệu nhỏ được tải bằng một GET, phát từ file và dùng lại khi mở lại; media bên ngoài vẫn dùng player streaming.
-- Bấm Đã nhớ/Ôn tập hiển thị trạng thái đang lưu ngay; sau khi API xác nhận thì cập nhật thẻ/số đếm và báo thành công. Đối soát trang chạy nền, không làm trống danh sách và không chặn thông báo lưu thành công. Lỗi ghi không được báo thành công.
-- Dừng camera giữ kết quả AI để lưu quiz; các câu có `entryId` khác nhau không dùng lại video mẫu câu trước. Bỏ ảnh mẫu lặp lại ở vị trí camera chưa mở, ghi rõ cách nhận diện/lưu. Có thể chủ động bỏ qua sau khi thử camera nhưng chưa nhận diện; câu đó nhận 0 điểm và giữ ở Ôn tập. Bộ nhận diện vẫn giữ 181 từ.
-- Kiểm tra: 36 Flutter tests liên quan, 18 backend tests trên MongoDB tạm đạt. Đo qua Conveyor: từng ảnh/video trước sửa mất khoảng 1,4–2,1 giây/lượt; API mới trả danh sách kèm 6 ảnh trang chủ trong khoảng 2,3 giây, không còn lượt tải riêng cho 6 ảnh này. Đây là số đo trên máy phát triển qua tunnel, chưa phải đo lại trên điện thoại thật. Lần tải mới vẫn phụ thuộc Conveyor/mạng.
-- Backend cần chạy bản đã build mới để gửi preview; client tương thích API cũ nhưng ảnh đầu tiên sẽ còn cần request riêng. Log/số đo nằm trong `.runtime/apk-optimization-*.log`, `.runtime/media-before.json` và `.runtime/media-after.json`.
-
-- Bổ sung tối ưu từ điển: cache tối đa 8 trang trong phiên (đọc ngay tối đa 2 phút, làm mới nền sau 10 giây), gộp request trùng, xóa cache khi đổi tài khoản hoặc ghi tiến độ thành công. Tải trước danh mục từ trang chủ, tab học, trang kế tiếp và clip đầu tiên; danh sách dựng các thẻ gần vùng đang xem. Tiếp tục chủ đề đã tham gia không gọi đăng ký học lại.
-- API nén gzip cho các lượt đọc từ điển/chủ đề hỗ trợ nén, giữ nguyên `no-store` cho dữ liệu riêng. Trang chủ đề đo được giảm từ 213.937 xuống 118.862 byte truyền. Kiểm thử trực tiếp bằng service Flutter qua Conveyor: danh mục/chủ đề tải mới 2.973/2.088 ms, đọc lại cache 1/0 ms; 4 lần đọc chỉ gọi 2 GET. Đây là số đo truy xuất dữ liệu trên máy phát triển, chưa phải thời gian dựng giao diện trên điện thoại; tải mới vẫn phụ thuộc mạng/tunnel.
-- Bản bổ sung: 90 kiểm thử Flutter (gồm 1 lượt kiểm tra trực tiếp qua Conveyor) và 23 backend tests đạt; analyze không có vấn đề, build thành công. APK `E:\WorkSpace\SignVoice\SignVoice-Conveyor-dictionary-v2-20261026.apk` đã kiểm tra chữ ký giống bản trước và zipalign 16 KB. Log: `.runtime/dictionary-*.log`, `.runtime/dictionary-cache-live.json`, `.runtime/dictionary-perf-after.json`.
 
 ### Video, lịch nhắc và hồ sơ trên Android — 26/10/2026
 
@@ -382,13 +472,3 @@ Kết quả đợt này: `flutter analyze` sạch; 195 Flutter tests đạt, 1 t
 - Avatar hiện ngay từ thông tin đăng nhập, cache riêng theo tài khoản tối đa 512 KB và xóa khi đăng xuất. Dùng hồ sơ đã đồng bộ khi mở trình sửa; đổi ảnh không gọi lưu màu không đổi hoặc lấy lại hồ sơ lần nữa.
 - Kiểm tra: 278 Flutter tests đạt, 1 bỏ qua; analyze không có vấn đề. Log: `.runtime/mobile-reliability-*.log`. Chưa đo trực tiếp trên điện thoại thật; lịch nhắc vẫn cần quyền và cài đặt hoạt động nền phù hợp trên máy.
 - APK đã build và kiểm tra chữ ký/zipalign 16 KB: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-mobile-fixes-20261026.apk` (57,4 MB), dùng cùng chữ ký với bản trước và URL Conveyor hiện tại. SHA-256: `B651015019D6AD29F53CCA0C31B7504BC06957559B45CD956DC1AD49C187441F`.
-
-### Rà soát trước bản APK tiếp theo — 26/10/2026
-
-- Sửa thêm cache avatar: lượt tải ảnh cũ hoàn thành muộn không được ghi đè ảnh vừa đổi hoặc khôi phục cache sau khi xóa ảnh.
-- Đạt 280 Flutter tests (1 bỏ qua), toàn bộ 205 backend tests trên MongoDB tạm và 5 Android JVM tests; phân tích mã Flutter/backend đạt. Log: `.runtime/preflight-*.log`.
-- 4 kiểm thử tích hợp trên Android giả lập API 35 đạt: video phát từ file cache, avatar lưu/đọc qua plugin thật, Android phát lời nhắc hẹn một phút khi ứng dụng chạy nền, kiểm tra lại giọng Việt. Kết quả này chưa thay thế việc thử trên điện thoại thật. Chi tiết: `.runtime/preflight-android-results.json`.
-- Kiểm tra release phát hiện APK ARM64 còn chứa thư viện MediaPipe của ABI khác, khiến Android x86 nhận cài nhưng thiếu Flutter engine phù hợp. Gradle hiện lọc ABI theo `target-platform`; script build chạy `scripts/verify-android-apk.ps1` để chặn ABI ngoài mục tiêu hoặc thiếu `libapp.so`/`libflutter.so`. Bản universal dùng đủ ARMv7, ARM64 và x86_64. Tham khảo [quy tắc ABI của Android](https://developer.android.com/ndk/guides/abis).
-- Bản universal kiểm tra nhiều CPU, dùng phiên Conveyor trước: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-preflight-20261026.apk` (95,9 MB), đã cài và mở bản release trên giả lập, kiểm tra chữ ký giống bản trước, zipalign 16 KB và URL Conveyor ở cả ba ABI. SHA-256: `652F675E7CA388E50E29C58D9E6E753D5D57D3457E892ADB95D221AF1201997D`. Ảnh mở ứng dụng: `.runtime/preflight-release-screen.png`.
-- Conveyor đã hết giới hạn kết nối liên tục ở phiên cũ; kết nối lại được cấp `https://earlysparklyglass16.conveyor.cloud`. Wrapper hiện đánh dấu phiên hết hạn và dùng mã phiên để tránh tiến trình cũ ghi đè trạng thái khởi động mới. Backend/API và AI ở link mới đã trả HTTP 200. Conveyor vẫn là môi trường chạy thử có giới hạn phiên.
-- APK dùng cho điện thoại ARM64: `E:\WorkSpace\SignVoice\SignVoice-Conveyor-ARM64-verified-20261026.apk` **38,0 MB**, chỉ đóng gói ARM64 và đã xác minh API/AI trỏ tới link Conveyor mới, chữ ký giữ nguyên, zipalign 16 KB đạt. SHA-256: `7E4227A05F3FF97B57CBDD8D6115537B28360C153EEFFA787C4B8B9D6A8934C9`. Bản universal lớn hơn được dùng để mở thử release trên giả lập x86_64; bản ARM64 cần kiểm tra tiếp trên điện thoại thật.

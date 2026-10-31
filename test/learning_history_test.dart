@@ -10,6 +10,7 @@ class HistoryService extends DemoLearningService {
   final calls = <LearningRecord>[];
   @override
   Future<LearningPage> history({
+    int pageSize = 10,
     int page = 1,
     String search = '',
     String? entryId,
@@ -35,9 +36,10 @@ class HistoryService extends DemoLearningService {
             )
             .toList();
     return LearningPage(
-      items: all.skip((page - 1) * 10).take(10).toList(),
+      items: all.skip((page - 1) * pageSize).take(pageSize).toList(),
       page: page,
-      pages: (all.length / 10).ceil().clamp(1, 100),
+      pages: (all.length / pageSize).ceil().clamp(1, 100),
+      pageSize: pageSize,
       total: all.length,
     );
   }

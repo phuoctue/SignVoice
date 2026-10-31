@@ -3,15 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+
+import '../../providers/auth_provider.dart';
+import '../../screens/admin/admin_ui.dart';
+import '../../services/media/managed_media.dart';
+import '../../widgets/public_sign_preview.dart';
+import '../../widgets/public_catalog_page.dart';
 
 import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/web_history_table.dart';
 import '../../services/admin/admin_workspace_service.dart';
 import '../../services/api/api_exception.dart';
 import '../../services/api/api_config.dart';
 import '../speech/sign_sequence_panel.dart';
+import '../learning/collection_widgets.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -40,37 +49,109 @@ class _HistoryScreenState extends State<HistoryScreen> {
     super.dispose();
   }
 
-  Future<void> _load() => AppScope.of(context)
-      .loadHistory(
-        search: query,
-        direction: switch (filter) {
-          'Ký hiệu' => 'SIGN_TO_SPEECH',
-          'Giọng nói' => 'SPEECH_TO_TEXT',
-          'Văn bản' => 'TEXT',
-          _ => null,
-        },
-        favorite: filter == 'Yêu thích' ? true : null,
-      )
-      .then((_) {});
+  Future<void> _load({int? page, int? pageSize}) =>
+      AppScope.of(context)
+          .loadHistory(
+            pageNumber: page,
+            pageSize: pageSize,
+            search: query,
+            direction: switch (filter) {
+              'Ký hiệu' => 'SIGN_TO_SPEECH',
+              'Giọng nói' => 'SPEECH_TO_TEXT',
+              'Văn bản' => 'TEXT',
+              _ => null,
+            },
+            favorite: filter == 'Yêu thích' ? true : null,
+          )
+          .then((_) {
+            if (mounted) setState(() {});
+          });
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final desktopTable =
+        isDesktopLayout(context) &&
+        MediaQuery.textScalerOf(context).scale(1) < 1.6;
     final items = state.history
         .where(
           (item) =>
-              (item.content.toLowerCase().contains(query.toLowerCase()) &&
-              (filter == 'Tất cả' ||
-                  filter == 'Yêu thích' && item.favorite ||
-                  filter == 'Ký hiệu' &&
-                      item.direction == ConversationDirection.signToSpeech ||
-                  filter == 'Giọng nói' &&
-                      item.direction == ConversationDirection.speechToText ||
-                  filter == 'Văn bản' &&
-                      item.direction == ConversationDirection.text)),
+              (state.persisted ||
+              item.content.toLowerCase().contains(query.toLowerCase()) &&
+                  (filter == 'Tất cả' ||
+                      filter == 'Yêu thích' && item.favorite ||
+                      filter == 'Ký hiệu' &&
+                          item.direction ==
+                              ConversationDirection.signToSpeech ||
+                      filter == 'Giọng nói' &&
+                          item.direction ==
+                              ConversationDirection.speechToText ||
+                      filter == 'Văn bản' &&
+                          item.direction == ConversationDirection.text)),
         )
         .toList();
+    final clearAction = PopupMenuButton<String>(
+      tooltip: 'Quản lý hội thoại',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.delete_sweep_outlined,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Xóa tất cả hội thoại',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ),
+      ),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'clear',
+          enabled:
+              !state.syncing &&
+              items.isNotEmpty &&
+              query.trim().isEmpty &&
+              filter == 'Tất cả' &&
+              state.historySearch.isEmpty &&
+              state.historyDirection == null &&
+              state.historyFavorite == null,
+          child: Text(
+            query.trim().isNotEmpty || filter != 'Tất cả'
+                ? 'Bỏ bộ lọc để xóa tất cả'
+                : 'Xóa tất cả hội thoại',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      ],
+      onSelected: (_) async {
+        final total = state.persisted
+            ? state.historyTotal
+            : state.history.length;
+        if (await confirm(
+          context,
+          title: 'Xóa toàn bộ $total hội thoại?',
+          message:
+              'Thao tác này xóa tất cả $total hội thoại trong tài khoản, kể cả các trang khác. Không thể hoàn tác.',
+          confirmLabel: 'Xóa $total hội thoại',
+          destructive: true,
+        )) {
+          if (!context.mounted) return;
+          final success = await state.clearHistory();
+          if (mounted) {
+            setState(() {});
+            if (!success && context.mounted) {
+              toast(context, state.error ?? 'Chưa xóa được lịch sử.');
+            }
+          }
+        }
+      },
+    );
     return AppPage(
-      title: 'Lịch sử hội thoại',
+      title: 'Hội thoại',
       showBack: false,
       tabIndex: 2,
       actions: [
@@ -131,37 +212,164 @@ class _HistoryScreenState extends State<HistoryScreen> {
               description:
                   'Lưu nội dung từ một phiên giao tiếp để xem lại tại đây.',
             ),
-          for (final item in items)
-            Card(
-              child: ListTile(
-                title: Text(item.content),
-                subtitle: Text('${item.label}\n${item.time}'),
-                isThreeLine: true,
-                onTap: () {
-                  state.selectConversation(item);
-                  openScreen(context, '/conversations/${item.id}');
-                },
-                trailing: IconButton(
-                  tooltip: item.favorite ? 'Bỏ yêu thích' : 'Yêu thích',
-                  icon: Icon(
-                    item.favorite ? Icons.favorite : Icons.favorite_border,
-                  ),
-                  onPressed: () async {
+          if (desktopTable && items.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WebHistoryTable(
+                  items: items,
+                  total: state.persisted ? state.historyTotal : items.length,
+                  onOpen: (item) {
+                    state.selectConversation(item);
+                    openScreen(context, '/conversations/${item.id}');
+                  },
+                  onFavorite: (item) async {
                     final success = await state.toggleConversation(item);
+                    if (!mounted) return;
+                    setState(() {});
                     if (!success && context.mounted) {
                       toast(context, state.error ?? 'Không lưu được thay đổi.');
                     }
                   },
+                  onDelete: (item) async {
+                    if (await confirm(
+                      context,
+                      title: 'Xóa hội thoại?',
+                      destructive: true,
+                      message: 'Hội thoại này sẽ được xóa khỏi lịch sử.',
+                    )) {
+                      if (!context.mounted) return;
+                      if (!await state.removeConversation(item.id) &&
+                          context.mounted) {
+                        toast(
+                          context,
+                          state.error ?? 'Chưa xóa được hội thoại.',
+                        );
+                      }
+                      if (mounted) setState(() {});
+                    }
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text('Hiển thị'),
+                      DropdownButton<int>(
+                        value: state.historyPageSize,
+                        items: [10, 20, 50]
+                            .map(
+                              (n) =>
+                                  DropdownMenuItem(value: n, child: Text('$n')),
+                            )
+                            .toList(),
+                        onChanged: state.syncing
+                            ? null
+                            : (n) => _load(page: 1, pageSize: n),
+                      ),
+                      if (state.persisted && state.historyPages > 1)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Trang trước',
+                              onPressed: state.syncing || state.historyPage <= 1
+                                  ? null
+                                  : () => _load(page: state.historyPage - 1),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Text(
+                              'Trang ${state.historyPage}/${state.historyPages}',
+                            ),
+                            IconButton(
+                              tooltip: 'Trang sau',
+                              onPressed:
+                                  state.syncing ||
+                                      state.historyPage >= state.historyPages
+                                  ? null
+                                  : () => _load(page: state.historyPage + 1),
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            for (final item in items)
+              Card(
+                child: ListTile(
+                  title: Text(item.content),
+                  subtitle: Text('${item.label}\n${item.time}'),
+                  isThreeLine: true,
+                  onTap: () {
+                    state.selectConversation(item);
+                    openScreen(context, '/conversations/${item.id}');
+                  },
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: item.favorite ? 'Bỏ yêu thích' : 'Yêu thích',
+                        icon: Icon(
+                          item.favorite
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                        ),
+                        onPressed: () async {
+                          final success = await state.toggleConversation(item);
+                          if (mounted) setState(() {});
+                          if (!success && context.mounted) {
+                            toast(
+                              context,
+                              state.error ?? 'Không lưu được thay đổi.',
+                            );
+                          }
+                        },
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Thao tác hội thoại',
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Xóa hội thoại'),
+                          ),
+                        ],
+                        onSelected: (_) async {
+                          if (await confirm(
+                                context,
+                                title: 'Xóa hội thoại?',
+                                message:
+                                    'Hội thoại này sẽ được xóa khỏi lịch sử.',
+                                destructive: true,
+                              ) &&
+                              context.mounted) {
+                            await state.removeConversation(item.id);
+                            if (mounted) setState(() {});
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          if (state.persisted && state.historyPage < state.historyPages)
+          if (!desktopTable &&
+              state.persisted &&
+              state.historyPage < state.historyPages)
             TextButton(
               onPressed: state.syncing
                   ? null
                   : () => state.loadHistory(more: true),
               child: const Text('Tải thêm hội thoại'),
             ),
+          const SizedBox(height: 16),
+          Align(alignment: Alignment.centerRight, child: clearAction),
         ],
       ),
     );
@@ -207,13 +415,15 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
         item = AppScope.of(context).selectedConversation;
     if (loading) {
       return const AppPage(
-        title: 'Chi tiết lịch sử',
+        title: 'Chi tiết hội thoại',
+        contentMaxWidth: 900,
         child: Center(child: CircularProgressIndicator()),
       );
     }
     if (item == null || missing) {
       return AppPage(
-        title: 'Chi tiết lịch sử',
+        title: 'Chi tiết hội thoại',
+        contentMaxWidth: 900,
         child: Column(
           children: [
             EmptyView(
@@ -227,89 +437,105 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       );
     }
     return AppPage(
-      title: 'Chi tiết lịch sử',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SignVoiceBadge(item.label),
-          const SizedBox(height: 20),
-          SelectableText(
-            item.content,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 14),
-          BodyText(item.time),
-          const SizedBox(height: 20),
-          AppButton(
-            'Phát giọng nói',
-            icon: Icons.volume_up,
-            onPressed: () {
-              state.update(() {
-                state.sentence
-                  ..clear()
-                  ..add(item.content);
-              });
-              openScreen(context, 'S14');
-            },
-          ),
-          AppButton(
-            'Sao chép',
-            outlined: true,
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: item.content));
-              if (context.mounted) toast(context, 'Đã sao chép hội thoại.');
-            },
-          ),
-          AppButton(
-            item.favorite ? 'Bỏ yêu thích' : 'Thêm yêu thích',
-            secondary: true,
-            onPressed: busy
-                ? null
-                : () async {
-                    setState(() => busy = true);
-                    final success = await state.toggleConversation(item);
+      title: 'Chi tiết hội thoại',
+      contentMaxWidth: 900,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SignVoiceBadge(item.label),
+            ),
+            const SizedBox(height: 20),
+            SelectableText(
+              item.content,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 14),
+            BodyText(item.time),
+            const SizedBox(height: 20),
+            ActionGroup(
+              children: [
+                AppButton(
+                  'Phát giọng nói',
+                  icon: Icons.volume_up,
+                  onPressed: () {
+                    state.update(() {
+                      state.sentence
+                        ..clear()
+                        ..add(item.content);
+                    });
+                    openScreen(context, 'S14');
+                  },
+                ),
+                AppButton(
+                  'Sao chép',
+                  outlined: true,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: item.content));
                     if (context.mounted) {
-                      setState(() => busy = false);
-                      if (!success) {
-                        toast(context, state.error ?? 'Không lưu được.');
+                      toast(context, 'Đã sao chép hội thoại.');
+                    }
+                  },
+                ),
+                AppButton(
+                  item.favorite ? 'Bỏ yêu thích' : 'Thêm yêu thích',
+                  secondary: true,
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() => busy = true);
+                          final success = await state.toggleConversation(item);
+                          if (context.mounted) {
+                            setState(() => busy = false);
+                            if (!success) {
+                              toast(context, state.error ?? 'Không lưu được.');
+                            }
+                          }
+                        },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 12),
+            AppButton(
+              'Xóa hội thoại',
+              color: AppColors.red,
+              secondary: true,
+              onPressed: busy
+                  ? null
+                  : () async {
+                      final epoch = state.accountEpoch;
+                      if (!await confirm(
+                        context,
+                        title: 'Xóa hội thoại?',
+                        message: 'Bản ghi này sẽ được xóa trên máy chủ.',
+                        destructive: true,
+                      )) {
+                        return;
                       }
-                    }
-                  },
-          ),
-          AppButton(
-            'Xóa hội thoại',
-            color: AppColors.red,
-            secondary: true,
-            onPressed: busy
-                ? null
-                : () async {
-                    final epoch = state.accountEpoch;
-                    if (!await confirm(
-                      context,
-                      title: 'Xóa hội thoại?',
-                      message: 'Bản ghi này sẽ được xóa trên máy chủ.',
-                    )) {
-                      return;
-                    }
-                    if (!context.mounted ||
-                        (state.persisted && !state.isCurrent(epoch))) {
-                      return;
-                    }
-                    setState(() => busy = true);
-                    final success = await state.removeConversation(item.id);
-                    if (!context.mounted ||
-                        (state.persisted && !state.isCurrent(epoch))) {
-                      return;
-                    }
-                    setState(() => busy = false);
-                    if (success) {
-                      backOrHome(context);
-                    } else {
-                      toast(context, state.error ?? 'Không xóa được.');
-                    }
-                  },
-          ),
-        ],
+                      if (!context.mounted ||
+                          (state.persisted && !state.isCurrent(epoch))) {
+                        return;
+                      }
+                      setState(() => busy = true);
+                      final success = await state.removeConversation(item.id);
+                      if (!context.mounted ||
+                          (state.persisted && !state.isCurrent(epoch))) {
+                        return;
+                      }
+                      setState(() => busy = false);
+                      if (success) {
+                        backOrHome(context);
+                      } else {
+                        toast(context, state.error ?? 'Không xóa được.');
+                      }
+                    },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -323,14 +549,15 @@ class DictionaryScreen extends StatefulWidget {
 }
 
 class _DictionaryScreenState extends State<DictionaryScreen> {
-  String query = '';
-  String sort = 'word_asc';
+  String query = '', sort = '';
   String? categoryId, error;
-  int page = 1, pages = 1, _request = 0;
-  bool loading = true;
+  int page = 1, pages = 1, total = 0, _request = 0;
+  bool loading = true, _categoriesLoaded = false;
   Timer? _debounce;
-  List<SignEntry> catalog = [];
-  List<AdminRecord> topics = [];
+  final search = TextEditingController(), pageInput = TextEditingController();
+  final searchFocus = FocusNode();
+  final gridTop = GlobalKey();
+  List<AdminRecord> catalog = [], topics = [];
   @override
   void initState() {
     super.initState();
@@ -341,33 +568,35 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
 
   @override
   void dispose() {
+    _request++;
     _debounce?.cancel();
+    search.dispose();
+    pageInput.dispose();
+    searchFocus.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     _debounce?.cancel();
-    final request = ++_request;
-    final state = AppScope.of(context),
-        epoch = AppScope.of(context).accountEpoch;
+    final request = ++_request, state = AppScope.of(context);
+    final epoch = state.accountEpoch;
     bool current() =>
         mounted &&
         request == _request &&
-        (!state.persisted || state.isCurrent(epoch));
+        (!state.persisted || state.accountId == null || state.isCurrent(epoch));
     final service = context.read<AdminWorkspaceService>();
     setState(() {
       loading = true;
       error = null;
     });
     try {
-      final categories = (await service.activeCategories())
-          .where((topic) => topic['wordCount'] != 0)
-          .toList();
-      if (!current()) return;
-      if (categoryId != null &&
-          !categories.any((topic) => '${topic['_id']}' == categoryId)) {
-        categoryId = null;
-        page = 1;
+      if (!_categoriesLoaded) {
+        final categories = (await service.activeCategories())
+            .where((topic) => topic['wordCount'] != 0)
+            .toList();
+        if (!current()) return;
+        topics = categories;
+        _categoriesLoaded = true;
       }
       final result = widget.favoritesOnly
           ? await service.favoriteEntries(state.favorites)
@@ -378,31 +607,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
               sort: sort,
             );
       if (!current()) return;
-      if (current()) {
-        setState(() {
-          topics = categories;
-          pages = result.pages;
-          catalog = result.items
-              .map(
-                (item) => SignEntry(
-                  '${item['word']}',
-                  item['categoryId'] is Map
-                      ? '${item['categoryId']['name']}'
-                      : 'Danh mục',
-                  '${item['definition']}',
-                  '${item['usageExample'] ?? ''}',
-                  id: '${item['_id']}',
-                  videoUrl: item['videoUrl'] as String?,
-                  thumbnailUrl: item['thumbnailUrl'] as String?,
-                  imageUrls: List<String>.from(
-                    item['imageUrls'] as List? ?? [],
-                  ),
-                  instructions: item['notes'] as String?,
-                ),
-              )
-              .toList();
-        });
-      }
+      primeImagePreviews(result.items);
+      setState(() {
+        total = result.total;
+        pages = result.pages.clamp(1, 1000000);
+        catalog = result.items;
+        pageInput.text = '$page';
+      });
     } catch (e) {
       if (current()) {
         setState(
@@ -416,284 +627,543 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     }
   }
 
+  void _search(String value, {bool immediately = false}) {
+    _request++;
+    setState(() {
+      query = value;
+      page = 1;
+      loading = true;
+      error = null;
+    });
+    _debounce?.cancel();
+    if (immediately) {
+      _load();
+    } else {
+      _debounce = Timer(const Duration(milliseconds: 350), _load);
+    }
+  }
+
+  SignEntry _sign(AdminRecord item) => SignEntry(
+    '${item['word']}',
+    item['categoryId'] is Map
+        ? '${item['categoryId']['name']}'
+        : 'Ký hiệu công khai',
+    '${item['definition'] ?? ''}',
+    '${item['usageExample'] ?? ''}',
+    id: '${item['_id']}',
+    videoUrl: item['videoUrl'] as String?,
+    thumbnailUrl: item['thumbnailUrl'] as String?,
+    imageUrls: List<String>.from(item['imageUrls'] as List? ?? []),
+    instructions: item['notes'] as String?,
+  );
+  Future<void> _favorite(SignEntry sign) async {
+    final state = AppScope.of(context), auth = context.read<AuthProvider>();
+    if (!auth.isAuthenticated ||
+        auth.user?.isGuest == true ||
+        state.guest ||
+        state.persisted && state.accountId == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          constraints: const BoxConstraints(maxWidth: 460),
+          title: const Text('Lưu ký hiệu yêu thích'),
+          content: const Text(
+            'Đăng nhập để lưu ký hiệu yêu thích và xem lại trên các thiết bị của bạn.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Để sau'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                openScreen(this.context, 'S05');
+              },
+              child: const Text('Đăng nhập'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final ok = await state.toggleSign(sign.favoriteKey);
+    if (!ok && mounted) {
+      toast(context, state.error ?? 'Không lưu được yêu thích.');
+    }
+  }
+
+  void _changePage(int value) {
+    if (loading || value < 1 || value > pages || value == page) {
+      pageInput.text = '$page';
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => page = value);
+    _load().then((_) {
+      if (mounted && gridTop.currentContext != null) {
+        Scrollable.ensureVisible(
+          gridTop.currentContext!,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 240),
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final entries = catalog
-        .where(
-          (s) =>
-              !widget.favoritesOnly ||
-              state.favorites.contains(s.favoriteKey) &&
-                  (s.name.toLowerCase().contains(query.toLowerCase()) ||
-                      s.meaning.toLowerCase().contains(query.toLowerCase())),
-        )
-        .toList();
-    return AppPage(
-      title: widget.favoritesOnly ? 'Ký hiệu yêu thích' : 'Từ điển ký hiệu',
-      showBack: widget.favoritesOnly,
-      tabIndex: widget.favoritesOnly ? null : 1,
-      actions: widget.favoritesOnly
-          ? null
-          : [
-              IconButton(
-                tooltip: 'Làm mới',
-                onPressed: loading ? null : _load,
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: 'Xem yêu thích',
-                onPressed: () => openScreen(context, 'S24'),
-                icon: const Icon(Icons.favorite_border),
-              ),
-            ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            decoration: InputDecoration(
-              hintText: 'Tìm kiếm ký hiệu...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(
-                tooltip: 'Tìm kiếm',
-                onPressed: () {
-                  page = 1;
-                  _load();
-                },
-                icon: const Icon(Icons.arrow_forward),
-              ),
-            ),
-            onChanged: (v) {
-              setState(() => query = v);
-              _debounce?.cancel();
-              page = 1;
-              _debounce = Timer(const Duration(milliseconds: 350), _load);
-            },
-            onSubmitted: (_) {
-              page = 1;
-              _load();
-            },
-          ),
-          const SizedBox(height: 14),
-          if (!widget.favoritesOnly) ...[
-            DropdownButtonFormField<String>(
-              key: ValueKey(categoryId),
-              initialValue: categoryId ?? '',
-              isExpanded: true,
-              menuMaxHeight: 360,
-              decoration: const InputDecoration(labelText: 'Chủ đề từ điển'),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('Tất cả chủ đề')),
-                for (final topic in topics)
-                  DropdownMenuItem(
-                    value: '${topic['_id']}',
-                    child: Text(
-                      '${topic['name']}${topic['wordCount'] is num ? ' (${topic['wordCount']})' : ''}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-              onChanged: loading
-                  ? null
-                  : (value) {
-                      setState(() {
-                        categoryId = value == '' ? null : value;
-                        page = 1;
-                      });
-                      _load();
-                    },
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              key: ValueKey('dictionary-sort-$sort'),
-              initialValue: sort,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Sắp xếp từ vựng',
-                prefixIcon: Icon(Icons.sort_by_alpha),
-              ),
-              items: const [
-                DropdownMenuItem(
-                  value: 'word_asc',
-                  child: Text('Tăng dần (A–Z)'),
-                ),
-                DropdownMenuItem(
-                  value: 'word_desc',
-                  child: Text('Giảm dần (Z–A)'),
-                ),
-              ],
-              onChanged: loading
-                  ? null
-                  : (value) {
-                      if (value == null) return;
-                      setState(() {
-                        sort = value;
-                        page = 1;
-                      });
-                      _load();
-                    },
-            ),
-            const SizedBox(height: 14),
-          ],
-          if (loading) const LinearProgressIndicator(),
-          if (error != null) ...[
-            Text(error!),
-            TextButton(onPressed: _load, child: const Text('Thử lại')),
-          ],
-          if (entries.isEmpty && !loading && error == null)
-            EmptyView(
-              title: widget.favoritesOnly
-                  ? 'Chưa có ký hiệu yêu thích'
-                  : 'Không tìm thấy kết quả',
-              description: widget.favoritesOnly
-                  ? 'Nhấn vào trái tim trên ký hiệu để lưu tại đây.'
-                  : 'Hãy thử từ khóa khác.',
-              icon: widget.favoritesOnly ? Icons.favorite_border : Icons.search,
-            ),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: entries.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 14,
-              mainAxisExtent:
-                  185 * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6),
-            ),
-            itemBuilder: (context, i) {
-              final s = entries[i];
-              final favorite = state.favorites.contains(s.favoriteKey);
-              return AppCard(
-                padding: EdgeInsets.zero,
-                onTap: () {
-                  state.selectSign(s);
-                  openScreen(context, '/dictionary/${s.id}');
-                },
-                child: Column(
+    final scheme = Theme.of(context).colorScheme, state = AppScope.of(context);
+    final entries = widget.favoritesOnly
+        ? catalog.where((record) {
+            final sign = _sign(record);
+            return state.favorites.contains(sign.favoriteKey) &&
+                (sign.name.toLowerCase().contains(query.toLowerCase()) ||
+                    sign.meaning.toLowerCase().contains(query.toLowerCase()));
+          }).toList()
+        : catalog;
+    final content = CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.slash): () =>
+            searchFocus.requestFocus(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Container(
-                        color:
-                            (widget.favoritesOnly
-                                    ? AppColors.red
-                                    : AppColors.blue)
-                                .withAlpha(15),
-                        child: Stack(
-                          children: [
-                            if (s.thumbnailUrl != null)
-                              Positioned.fill(
-                                child: Image.network(
-                                  ApiConfig.mediaUrl(s.thumbnailUrl!),
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) =>
-                                      const Icon(Icons.broken_image_outlined),
-                                ),
-                              )
-                            else
-                              const Center(
-                                child: Icon(
-                                  Icons.back_hand_outlined,
-                                  size: 42,
-                                  color: AppColors.blue,
-                                ),
-                              ),
-                            Positioned(
-                              right: 2,
-                              top: 2,
-                              child: IconButton(
-                                tooltip: favorite
-                                    ? 'Bỏ yêu thích'
-                                    : 'Yêu thích',
-                                onPressed: () async {
-                                  if (state.guest) {
-                                    openScreen(context, 'S06');
-                                    return;
-                                  }
-                                  final success = await state.toggleSign(
-                                    s.favoriteKey,
-                                  );
-                                  if (!success && context.mounted) {
-                                    toast(
-                                      context,
-                                      state.error ??
-                                          'Không lưu được yêu thích.',
-                                    );
-                                  }
-                                },
-                                icon: Icon(
-                                  favorite
-                                      ? Icons.favorite
-                                      : Icons.favorite_border,
-                                  color: favorite
-                                      ? AppColors.red
-                                      : Theme.of(context).colorScheme.outline,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    Text(
+                      widget.favoritesOnly
+                          ? 'Ký hiệu yêu thích'
+                          : 'Từ điển ký hiệu',
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            s.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            s.category,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.favoritesOnly
+                          ? 'Các mẫu ký hiệu bạn đã lưu.'
+                          : 'Xem rõ động tác, khám phá từ theo chủ đề.',
+                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ],
                 ),
-              );
-            },
-          ),
-          if (pages > 1)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  tooltip: 'Trang trước',
-                  onPressed: !loading && page > 1
-                      ? () {
-                          page--;
-                          _load();
-                        }
-                      : null,
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text('$page / $pages'),
-                IconButton(
-                  tooltip: 'Trang sau',
-                  onPressed: !loading && page < pages
-                      ? () {
-                          page++;
-                          _load();
-                        }
-                      : null,
-                  icon: const Icon(Icons.chevron_right),
+                TextButton.icon(
+                  onPressed: loading ? null : _load,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Làm mới'),
                 ),
               ],
             ),
-        ],
+            const SizedBox(height: 24),
+            LayoutBuilder(
+              builder: (context, box) {
+                final compact =
+                    box.maxWidth < 850 ||
+                    MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+                final field = TextField(
+                  key: const ValueKey('dictionary-search'),
+                  controller: search,
+                  focusNode: searchFocus,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    labelText: 'Tìm kiếm ký hiệu',
+                    hintText: 'Nhập từ tiếng Việt',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: query.isEmpty
+                        ? const Tooltip(
+                            message: 'Phím / để tìm kiếm',
+                            child: Icon(Icons.keyboard, size: 20),
+                          )
+                        : IconButton(
+                            tooltip: 'Xóa tìm kiếm',
+                            onPressed: () {
+                              search.clear();
+                              _search('', immediately: true);
+                              searchFocus.requestFocus();
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                  ),
+                  onChanged: _search,
+                  onSubmitted: (value) => _search(value, immediately: true),
+                );
+                final category = AdminSelectField(
+                  label: 'Chủ đề',
+                  value: categoryId ?? '',
+                  searchable: true,
+                  options: {
+                    '': 'Tất cả chủ đề',
+                    for (final topic in topics)
+                      '${topic['_id']}': '${topic['name']}',
+                  },
+                  onChanged: loading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            categoryId = value.isEmpty ? null : value;
+                            page = 1;
+                          });
+                          _load();
+                        },
+                );
+                final sorting = AdminSelectField(
+                  label: 'Sắp xếp',
+                  value: sort,
+                  options: const {
+                    '': 'Mới xuất bản',
+                    'word_asc': 'Tên: A–Z',
+                    'word_desc': 'Tên: Z–A',
+                  },
+                  onChanged: loading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            sort = value;
+                            page = 1;
+                          });
+                          _load();
+                        },
+                );
+                if (widget.favoritesOnly) return field;
+                if (!compact) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 5, child: field),
+                      const SizedBox(width: 14),
+                      Expanded(flex: 3, child: category),
+                      const SizedBox(width: 14),
+                      Expanded(flex: 2, child: sorting),
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    field,
+                    const SizedBox(height: 14),
+                    category,
+                    const SizedBox(height: 14),
+                    sorting,
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            if (!widget.favoritesOnly)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final topic
+                      in ([...topics]..sort((a, b) {
+                            int rank(AdminRecord topic) =>
+                                RegExp(
+                                  'giao tiếp|gia đình|cảm xúc|đời sống',
+                                  caseSensitive: false,
+                                ).hasMatch('${topic['name']}')
+                                ? 0
+                                : 1;
+                            return rank(a).compareTo(rank(b));
+                          }))
+                          .take(5))
+                    ChoiceChip(
+                      label: Text('${topic['name']}'),
+                      selected: categoryId == '${topic['_id']}',
+                      onSelected: loading
+                          ? null
+                          : (selected) {
+                              setState(() {
+                                categoryId = selected
+                                    ? '${topic['_id']}'
+                                    : null;
+                                page = 1;
+                              });
+                              _load();
+                            },
+                    ),
+                ],
+              ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 4,
+              child: loading
+                  ? const LinearProgressIndicator()
+                  : const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              loading && catalog.isEmpty
+                  ? 'Đang mở thư viện…'
+                  : '${total == 0 ? 0 : (page - 1) * 20 + 1}–${((page - 1) * 20 + entries.length).clamp(0, total)} / ${NumberFormat.decimalPattern('vi').format(total)} ký hiệu${query.isNotEmpty ? ' · “$query”' : ''}',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Notice(error!, color: scheme.error),
+              ),
+            if (entries.isEmpty && !loading && error == null)
+              EmptyView(
+                title: widget.favoritesOnly
+                    ? 'Chưa có ký hiệu yêu thích'
+                    : 'Không tìm thấy ký hiệu',
+                description: widget.favoritesOnly
+                    ? 'Nhấn vào trái tim để lưu ký hiệu tại đây.'
+                    : 'Thử từ khóa hoặc chủ đề khác.',
+                icon: widget.favoritesOnly
+                    ? Icons.favorite_border
+                    : Icons.search,
+              ),
+            if (loading && entries.isEmpty)
+              LayoutBuilder(
+                builder: (context, box) {
+                  final count = box.maxWidth >= 900
+                      ? 4
+                      : box.maxWidth >= 600
+                      ? 2
+                      : 1;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      for (var i = 0; i < count * 2; i++)
+                        SizedBox(
+                          width: (box.maxWidth - (count - 1) * 16) / count,
+                          height: 280,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: const PublicPreviewSkeleton(),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            if (entries.isNotEmpty)
+              AnimatedOpacity(
+                key: gridTop,
+                opacity: loading ? .45 : 1,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                child: IgnorePointer(
+                  ignoring: loading,
+                  child: LayoutBuilder(
+                    builder: (context, box) {
+                      final scale = MediaQuery.textScalerOf(context).scale(1);
+                      final columns = scale >= 1.5
+                          ? (box.maxWidth >= 900 ? 2 : 1)
+                          : box.maxWidth >= 1050
+                          ? 4
+                          : box.maxWidth >= 720
+                          ? 3
+                          : box.maxWidth >= 500
+                          ? 2
+                          : 1;
+                      final width =
+                              (box.maxWidth - (columns - 1) * 16) / columns,
+                          imageHeight = width * .625;
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: entries.length,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          mainAxisExtent:
+                              imageHeight + 44 + 112 * scale.clamp(1, 2.5),
+                        ),
+                        itemBuilder: (context, i) {
+                          final record = entries[i],
+                              sign = _sign(record),
+                              favorite = state.favorites.contains(
+                                sign.favoriteKey,
+                              );
+                          return Semantics(
+                            button: true,
+                            label:
+                                'Ký hiệu: ${sign.name}, chủ đề ${sign.category}',
+                            child: Material(
+                              color: scheme.surfaceContainerLow,
+                              clipBehavior: Clip.antiAlias,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                side: BorderSide(color: scheme.outlineVariant),
+                              ),
+                              child: InkWell(
+                                onTap: () {
+                                  state.selectSign(sign);
+                                  openScreen(context, '/dictionary/${sign.id}');
+                                },
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    PublicSignPreview(
+                                      key: ValueKey('preview-${sign.id}'),
+                                      word: record,
+                                      height: imageHeight,
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          16,
+                                          10,
+                                          8,
+                                          10,
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    sign.name,
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    sign.category,
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: scheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: favorite
+                                                  ? 'Bỏ yêu thích ${sign.name}'
+                                                  : 'Yêu thích ${sign.name}',
+                                              onPressed: () => _favorite(sign),
+                                              icon: Icon(
+                                                favorite
+                                                    ? Icons.favorite
+                                                    : Icons.favorite_border,
+                                                color: favorite
+                                                    ? scheme.error
+                                                    : scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ),
+            if (pages > 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 12,
+                  children: [
+                    IconButton(
+                      tooltip: 'Trang trước',
+                      onPressed: !loading && page > 1
+                          ? () => _changePage(page - 1)
+                          : null,
+                      icon: const Icon(Icons.chevron_left),
+                    ),
+                    for (final number in {
+                      1,
+                      if (page > 2) page - 1,
+                      page,
+                      if (page < pages - 1) page + 1,
+                      pages,
+                    }.toList()..sort())
+                      TextButton(
+                        onPressed: loading ? null : () => _changePage(number),
+                        style: TextButton.styleFrom(
+                          backgroundColor: number == page
+                              ? scheme.primaryContainer
+                              : null,
+                        ),
+                        child: Text('$number'),
+                      ),
+                    IconButton(
+                      tooltip: 'Trang sau',
+                      onPressed: !loading && page < pages
+                          ? () => _changePage(page + 1)
+                          : null,
+                      icon: const Icon(Icons.chevron_right),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 110,
+                      child: TextField(
+                        key: const ValueKey('dictionary-page'),
+                        controller: pageInput,
+                        enabled: !loading,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.go,
+                        decoration: const InputDecoration(
+                          labelText: 'Đến trang',
+                          isDense: true,
+                        ),
+                        onSubmitted: (value) =>
+                            _changePage(int.tryParse(value) ?? page),
+                      ),
+                    ),
+                    Text('/ $pages'),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
+    );
+    if (!widget.favoritesOnly &&
+        !context.watch<AuthProvider>().isAuthenticated) {
+      return PublicCatalogPage(title: 'Từ điển ký hiệu', child: content);
+    }
+    return AppPage(
+      title: widget.favoritesOnly ? 'Ký hiệu yêu thích' : 'Từ điển ký hiệu',
+      preferDesktop: true,
+      showBack: true,
+      tabIndex: widget.favoritesOnly ? null : 1,
+      child: content,
     );
   }
 }
@@ -737,7 +1207,12 @@ class _SignDetailScreenState extends State<SignDetailScreen> {
       final record = state.service != null
           ? await state.service!.dictionaryEntry(id)
           : await context.read<AdminWorkspaceService>().publishedEntry(id);
-      if (!mounted || (state.persisted && !state.isCurrent(epoch))) return;
+      if (!mounted ||
+          (state.persisted &&
+              state.accountId != null &&
+              !state.isCurrent(epoch))) {
+        return;
+      }
       final item = SignEntry(
         '${record['word']}',
         record['categoryId'] is Map
@@ -809,12 +1284,27 @@ class _SignDetailScreenState extends State<SignDetailScreen> {
     return AppPage(
       title: item.name,
       actions: [
+        if (item.id != null)
+          IconButton(
+            tooltip: 'Thêm vào bộ sưu tập',
+            onPressed: () async {
+              final saved = await pushAppRoute(
+                context,
+                '/collections/save/${item.id}',
+              );
+              if (context.mounted && saved == true) {
+                toast(context, 'Đã lưu ký hiệu vào bộ sưu tập.');
+              }
+            },
+            icon: const Icon(Icons.playlist_add),
+          ),
         IconButton(
           tooltip: favorite ? 'Bỏ yêu thích' : 'Yêu thích',
           onPressed: saving
               ? null
               : () async {
-                  if (state.guest) {
+                  if (state.guest ||
+                      state.persisted && state.accountId == null) {
                     openScreen(context, 'S06');
                     return;
                   }
@@ -837,6 +1327,12 @@ class _SignDetailScreenState extends State<SignDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SignVoiceBadge(item.category),
+          if (item.id != null)
+            TextButton.icon(
+              onPressed: () => editSignNote(context, item.id!),
+              icon: const Icon(Icons.edit_note),
+              label: const Text('Ghi chú riêng'),
+            ),
           const SizedBox(height: 20),
           if (pictures.isNotEmpty)
             SignReferenceImages(urls: pictures, word: item.name)

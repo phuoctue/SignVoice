@@ -86,6 +86,7 @@ class UserDataService {
       record((await api.patch('/users/settings', body: body))['data']);
   Future<UserRecord> conversations({
     int page = 1,
+    int limit = 20,
     String search = '',
     String? direction,
     bool? favorite,
@@ -94,7 +95,7 @@ class UserDataService {
       '/conversations',
       queryParameters: {
         'page': '$page',
-        'limit': '20',
+        'limit': '$limit',
         if (search.isNotEmpty) 'search': search,
         'direction': ?direction,
         if (favorite != null) 'favorite': '$favorite',
@@ -146,7 +147,7 @@ class UserDataService {
   }
 
   Future<UserRecord> dictionaryEntry(String id) async =>
-      record((await api.get('/dictionary/$id'))['data']);
+      record((await api.get('/dictionary/$id', requiresAuth: false))['data']);
   Future<List<UserRecord>> sessions() async =>
       ((await api.get('/users/sessions'))['data'] as List).map(record).toList();
   Future<bool> revokeSession(String id) async =>

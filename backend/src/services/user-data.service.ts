@@ -12,6 +12,7 @@ import { ReviewQuiz } from '../models/ReviewQuiz.model';
 import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.model';
 import { LearningEvent } from '../models/LearningEvent.model';
 import {NotificationDevice, UserNotification} from '../models/Notification.model';
+import {SignCollection,SignNote,CollectionReport} from '../models/SignCollection.model';
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
 export async function safeUser(user: IUser) {
@@ -37,6 +38,8 @@ export async function userTransaction<T>(userId: Types.ObjectId, operation: (ses
   });
 }
 export async function clearOwnedData(userId: Types.ObjectId, session: ClientSession) {
+  const collections=await SignCollection.find({userId}).select('_id').session(session).lean();
+  await CollectionReport.deleteMany({$or:[{userId},{collectionId:{$in:collections.map(row=>row._id)}}]},{session});
   const favorites = await Favorite.find({userId}).session(session);
   const removedFavorites = await Favorite.deleteMany({userId}, {session});
   for (const item of favorites) {
@@ -46,7 +49,7 @@ export async function clearOwnedData(userId: Types.ObjectId, session: ClientSess
   const conversations = await Conversation.deleteMany({userId}, {session});
   const history = await SearchHistory.deleteMany({userId}, {session});
   await UserSettings.deleteOne({userId}, {session});
-  for (const model of [TopicEnrollment, WordProgress, PersonalWord, ReviewQuiz, LearningEvent, NotificationDevice, UserNotification]) {
+  for (const model of [TopicEnrollment, WordProgress, PersonalWord, ReviewQuiz, LearningEvent, NotificationDevice, UserNotification,SignCollection,SignNote,CollectionReport]) {
     await model.collection.deleteMany({userId}, {session});
   }
   return {favorites: removedFavorites.deletedCount, conversations: conversations.deletedCount, searchHistory: history.deletedCount};

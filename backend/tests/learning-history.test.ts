@@ -64,6 +64,11 @@ describe('Personal learning history', () => {
     expect(first.headers['cache-control']).toBe('no-store');
     expect(first.body.data.items).toHaveLength(10); expect(second.body.data.items).toHaveLength(3);
     expect(first.body.data.pagination).toMatchObject({ total: 13, pages: 2 });
+    const wider = await request(app).get('/api/v1/learning/history?pageSize=20').set('Authorization', a).expect(200);
+    expect(wider.body.data.items).toHaveLength(13);
+    expect(wider.body.data.pagination).toMatchObject({ total: 13, pages: 1, pageSize: 20 });
+    await request(app).get('/api/v1/learning/history?pageSize=1000').set('Authorization', a).expect(400);
+    await request(app).get('/api/v1/learning/history?pageSize=0').set('Authorization', a).expect(400);
     expect(first.body.data.items.every((item: { userId?: string }) => item.userId === undefined)).toBe(true);
     const word = await request(app).get(`/api/v1/learning/history?entryId=${entries[0]}`).set('Authorization', a).expect(200);
     expect(word.body.data.items).toHaveLength(1);

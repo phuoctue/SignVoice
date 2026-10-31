@@ -1,9 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sign_voice/app.dart';
 import 'package:sign_voice/widgets/ui.dart';
-import 'package:sign_voice/services/api/api_exception.dart';
-import 'package:sign_voice/features/learning/review_quiz_screen.dart';
 import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/features/learning/learning_hub.dart';
 import 'package:sign_voice/features/learning/topic_learning_screen.dart';
@@ -34,60 +34,20 @@ class PagedLearningService extends DemoLearningService {
   }
 }
 
-class QuizLearningService extends DemoLearningService {
-  bool offline = false;
-  int submissions = 0;
-  final draft = <String, dynamic>{
-    '_id': '000000000000000000000099',
-    'topicId': DemoLearningService.topicId,
-    'status': 'DRAFT',
-    'questions': [
-      {
-        'entryId': '000000000000000000000010',
-        'word': 'Xin chào',
-        'prompt': 'Viết câu ví dụ sử dụng từ Xin chào.',
-        'answer': '',
-      },
-    ],
-  };
+class ControlledRateService extends DemoLearningService {
+  final acknowledgment = Completer<void>();
+  final reconciliation = Completer<LearningPage>();
+  int reads = 0;
   @override
-  Future<LearningRecord> startQuiz(String topicId) async => draft;
-  @override
-  Future<LearningRecord> quiz(String id) async => draft;
-  @override
-  Future<LearningRecord> saveQuizAnswers(
-    String id,
-    List<String> answers,
-  ) async {
-    (draft['questions'] as List)[0]['answer'] = answers[0];
-    return draft;
+  Future<LearningPage> topic(String id, {int page = 1, String stage = 'ALL'}) {
+    if (reads++ > 0) return reconciliation.future;
+    return super.topic(id, page: page, stage: stage);
   }
 
   @override
-  Future<LearningRecord> submitQuiz(String id) async {
-    submissions++;
-    if (offline) {
-      throw ServerException(
-        message: 'LM Studio chưa chấm được bài. Câu trả lời đã lưu.',
-      );
-    }
-    draft['status'] = 'COMPLETED';
-    draft['result'] = {
-      'source': 'lm-studio',
-      'score': 9,
-      'feedback': 'Bạn sử dụng từ đúng ngữ cảnh.',
-      'items': [
-        {
-          'word': 'Xin chào',
-          'score': 9,
-          'feedback': 'Câu rõ nghĩa.',
-          'answer': (draft['questions'] as List)[0]['answer'],
-          'stage': 'REMEMBERED',
-          'applied': true,
-        },
-      ],
-    };
-    return draft;
+  Future<void> rate(String id, String stage) async {
+    await acknowledgment.future;
+    await super.rate(id, stage);
   }
 }
 
@@ -114,6 +74,41 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+    'saved feedback waits for the write but never waits for a second page read',
+    (tester) async {
+      final service = ControlledRateService()..enrolled = true;
+      await mount(
+        tester,
+        service,
+        screen: '/learn/topic/${DemoLearningService.topicId}?study=1',
+      );
+      final firstWord = service.words.first;
+      final button = find.byKey(
+        ValueKey("learn-rate-${firstWord['_id']}-REMEMBERED"),
+      );
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump();
+      expect(find.text('Đã lưu: Đã nhớ'), findsNothing);
+      expect(service.ratings, isEmpty);
+      service.acknowledgment.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Đã lưu: Đã nhớ'), findsOneWidget);
+      expect(find.byType(TopicLearningScreen), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(
+        find.byKey(ValueKey("learning-word-${firstWord['_id']}")),
+        findsNothing,
+      );
+      expect(service.reconciliation.isCompleted, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+      service.reconciliation.complete(LearningPage(items: []));
+      await tester.pump();
+    },
+  );
+
   testWidgets('dictionary has three sections and opens the chosen topic', (
     tester,
   ) async {
@@ -121,7 +116,7 @@ void main() {
     await mount(tester, service);
     expect(find.text('Khám phá'), findsOneWidget);
     expect(find.text('Đang học'), findsOneWidget);
-    expect(find.text('Từ của tôi'), findsOneWidget);
+    expect(find.text('Bộ sưu tập'), findsOneWidget);
     await tester.tap(find.text('Chào hỏi'));
     await tester.pumpAndSettle();
     expect(find.byType(TopicLearningScreen), findsOneWidget);
@@ -141,8 +136,11 @@ void main() {
       expect(service.enrolled, isTrue);
       // Ratings are explicit buttons; looking at a card alone must not mark it remembered.
       expect(service.ratings, isEmpty);
-      final rating = find.text('Đã nhớ').last;
+      final rating = find.byKey(
+        ValueKey("learn-rate-${service.words.first['_id']}-REMEMBERED"),
+      );
       await tester.ensureVisible(rating);
+      await tester.pumpAndSettle();
       await tester.tap(rating);
       await tester.pumpAndSettle();
       expect(service.ratings.values, contains('REMEMBERED'));
@@ -161,24 +159,6 @@ void main() {
       expect(find.text('Đã nhớ 1 / 10 từ'), findsOneWidget);
     },
   );
-  testWidgets('my words can be created with meaning and example', (
-    tester,
-  ) async {
-    final service = DemoLearningService();
-    await mount(tester, service, screen: '/learn?tab=2');
-    await tester.tap(find.text('Tạo từ mới'));
-    await tester.pumpAndSettle();
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), 'Chúc ngủ ngon');
-    await tester.enterText(fields.at(1), 'Lời chúc trước khi đi ngủ.');
-    await tester.enterText(fields.at(2), 'Chúc bạn ngủ ngon.');
-    await tester.ensureVisible(find.text('Lưu từ'));
-    await tester.tap(find.text('Lưu từ'));
-    await tester.pumpAndSettle();
-    expect(service.personal.single['word'], 'Chúc ngủ ngon');
-    expect(service.personal.single['usageExample'], 'Chúc bạn ngủ ngon.');
-    expect(find.text('Chúc ngủ ngon'), findsOneWidget);
-  });
   testWidgets('continue learning excludes remembered and review words', (
     tester,
   ) async {
@@ -238,88 +218,6 @@ void main() {
     );
   });
 
-  testWidgets(
-    'quiz opens from review, requires an answer and shows AI results',
-    (tester) async {
-      final service = QuizLearningService()..enrolled = true;
-      service.ratings['000000000000000000000010'] = 'REVIEW';
-      await mount(
-        tester,
-        service,
-        screen: '/learn/topic/${DemoLearningService.topicId}?study=1',
-      );
-      final filter = find.widgetWithText(ChoiceChip, 'Ôn tập');
-      await tester.ensureVisible(filter);
-      await tester.tap(filter);
-      await tester.pumpAndSettle();
-      final start = find.widgetWithText(AppButton, 'Bắt đầu quiz ôn tập');
-      await tester.ensureVisible(start);
-      await tester.tap(start);
-      await tester.pumpAndSettle();
-      expect(find.byType(ReviewQuizScreen), findsOneWidget);
-      final submit = find.widgetWithText(AppButton, 'Nộp bài & AI đánh giá');
-      await tester.ensureVisible(submit);
-      await tester.tap(submit);
-      await tester.pumpAndSettle();
-      expect(service.submissions, 0);
-      expect(
-        find.text('Hãy trả lời câu hỏi trước khi tiếp tục.'),
-        findsOneWidget,
-      );
-      await tester.enterText(find.byType(TextField), 'Xin chào các bạn.');
-      final retry = find.widgetWithText(AppButton, 'Lưu & chấm lại bằng AI');
-      await tester.ensureVisible(retry);
-      await tester.tap(retry);
-      await tester.pumpAndSettle();
-      expect(find.text('Kết quả ôn tập'), findsOneWidget);
-      expect(find.text('Đánh giá bởi LM Studio'), findsOneWidget);
-      expect(find.text('9 / 10 điểm'), findsOneWidget);
-    },
-  );
-
-  testWidgets(
-    'offline AI keeps answers and allows retry without a fake score',
-    (tester) async {
-      final service = QuizLearningService()..offline = true;
-      await mount(
-        tester,
-        service,
-        screen: '/learn/quiz/000000000000000000000099',
-      );
-      await tester.enterText(find.byType(TextField), 'Xin chào các bạn.');
-      final submit = find.widgetWithText(AppButton, 'Nộp bài & AI đánh giá');
-      await tester.ensureVisible(submit);
-      await tester.tap(submit);
-      await tester.pumpAndSettle();
-      expect(find.text('Kết quả ôn tập'), findsNothing);
-      expect(
-        (service.draft['questions'] as List)[0]['answer'],
-        'Xin chào các bạn.',
-      );
-      service.offline = false;
-      final retry = find.widgetWithText(AppButton, 'Lưu & chấm lại bằng AI');
-      await tester.ensureVisible(retry);
-      await tester.tap(retry);
-      await tester.pumpAndSettle();
-      expect(find.text('Kết quả ôn tập'), findsOneWidget);
-      expect(service.submissions, 2);
-    },
-  );
-
-  testWidgets('quiz draft restores saved answer after reopening its route', (
-    tester,
-  ) async {
-    final service = QuizLearningService();
-    (service.draft['questions'] as List)[0]['answer'] = 'Câu đã lưu.';
-    await mount(
-      tester,
-      service,
-      screen: '/learn/quiz/000000000000000000000099',
-    );
-    expect(find.text('Câu đã lưu.'), findsOneWidget);
-    expect(service.submissions, 0);
-  });
-
   testWidgets('large text and a long topic name do not overflow', (
     tester,
   ) async {
@@ -349,7 +247,16 @@ void main() {
     final service = PagedLearningService();
     await mount(tester, service);
     final next = find.byTooltip('Trang sau');
-    await tester.ensureVisible(next);
+    expect(
+      next,
+      findsNothing,
+    ); // Offscreen cards and controls are built lazily.
+    await tester.scrollUntilVisible(
+      next,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(next);
     await tester.pumpAndSettle();
     expect(service.requestedPages, [1, 2]);

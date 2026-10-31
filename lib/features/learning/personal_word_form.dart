@@ -12,17 +12,30 @@ Future<bool> editPersonalWord(
   BuildContext context,
   LearningService service, {
   LearningRecord? word,
+  String? collectionId,
 }) async =>
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => PersonalWordForm(service: service, word: word),
+      isDismissible: false,
+      enableDrag: false,
+      builder: (_) => PersonalWordForm(
+        service: service,
+        word: word,
+        collectionId: collectionId,
+      ),
     ) ??
     false;
 
 class PersonalWordForm extends StatefulWidget {
-  const PersonalWordForm({super.key, required this.service, this.word});
+  const PersonalWordForm({
+    super.key,
+    required this.service,
+    this.word,
+    this.collectionId,
+  });
+  final String? collectionId;
   final LearningService service;
   final LearningRecord? word;
   @override
@@ -49,6 +62,59 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   late String image = widget.word?['imageUrl'] as String? ?? '';
   String? error;
   bool saving = false, picking = false;
+  bool exitAllowed = false, confirmingExit = false;
+  bool get dirty =>
+      name.text != (widget.word?['word'] ?? '') ||
+      meaning.text != (widget.word?['definition'] ?? '') ||
+      example.text != (widget.word?['usageExample'] ?? '') ||
+      notes.text != (widget.word?['notes'] ?? '') ||
+      video.text != (widget.word?['videoUrl'] ?? '') ||
+      image != (widget.word?['imageUrl'] ?? '');
+  @override
+  void initState() {
+    super.initState();
+    for (final controller in [name, meaning, example, notes, video]) {
+      controller.addListener(changed);
+    }
+  }
+
+  void changed() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> leave() async {
+    if (saving || picking || confirmingExit) return;
+    confirmingExit = true;
+    final discard =
+        !dirty ||
+        await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                scrollable: true,
+                title: const Text('Bỏ thay đổi chưa lưu?'),
+                content: const Text(
+                  'Nội dung đang nhập cho từ riêng chưa được lưu.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Viết tiếp'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Bỏ thay đổi'),
+                  ),
+                ],
+              ),
+            ) ==
+            true;
+    confirmingExit = false;
+    if (!mounted || !discard) return;
+    setState(() => exitAllowed = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.pop(context);
+  }
+
   @override
   void dispose() {
     for (final c in [name, meaning, example, notes, video]) {
@@ -58,6 +124,7 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   }
 
   Future<void> pick() async {
+    if (saving || picking) return;
     setState(() {
       picking = true;
       error = null;
@@ -102,20 +169,29 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   }
 
   Future<void> save() async {
-    if (!form.currentState!.validate()) return;
+    if (saving || picking || !form.currentState!.validate()) return;
     setState(() {
       saving = true;
       error = null;
     });
     try {
-      await widget.service.saveWord({
+      final body = <String, dynamic>{
         'word': name.text.trim(),
         'definition': meaning.text.trim(),
         'usageExample': example.text.trim(),
         'notes': notes.text.trim(),
         'imageUrl': image,
         'videoUrl': video.text.trim(),
-      }, id: widget.word?['_id'] as String?);
+      };
+      if (widget.collectionId == null) {
+        await widget.service.saveWord(body, id: widget.word?['_id'] as String?);
+      } else {
+        await widget.service.saveCollectionWord(
+          widget.collectionId!,
+          body,
+          id: widget.word?['_id'] as String?,
+        );
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -131,125 +207,142 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: MediaQuery.sizeOf(context).height * .93,
-    child: Scaffold(
-      resizeToAvoidBottomInset: false,
-      appBar: AppBar(
-        title: Text(widget.word == null ? 'Tạo từ của tôi' : 'Chỉnh sửa từ'),
-        leading: IconButton(
-          tooltip: 'Đóng',
-          onPressed: saving ? null : () => Navigator.pop(context),
-          icon: const Icon(Icons.close),
+  Widget build(BuildContext context) => PopScope(
+    canPop: !saving && !picking && (exitAllowed || !dirty),
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) leave();
+    },
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * .93,
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        appBar: AppBar(
+          title: Text(
+            widget.word == null
+                ? 'Tạo từ riêng trong bộ'
+                : 'Chỉnh sửa từ riêng',
+          ),
+          leading: IconButton(
+            tooltip: 'Đóng',
+            onPressed: saving || picking ? null : leave,
+            icon: const Icon(Icons.close),
+          ),
         ),
-      ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          12,
-          20,
-          MediaQuery.viewInsetsOf(context).bottom + 24,
-        ),
-        child: Form(
-          key: form,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const BodyText(
-                'Tạo thẻ học theo cách của bạn. Chỉ tài khoản của bạn nhìn thấy những từ này.',
-              ),
-              const SizedBox(height: 18),
-              TextFormField(
-                controller: name,
-                maxLength: 100,
-                decoration: const InputDecoration(
-                  labelText: 'Từ hoặc cụm từ *',
-                  hintText: 'Ví dụ: Xin chào',
+        body: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 24,
+          ),
+          child: Form(
+            key: form,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const BodyText(
+                  'Tạo thẻ học theo cách của bạn. Chỉ tài khoản của bạn nhìn thấy những từ này.',
                 ),
-                validator: (v) => v == null || v.trim().isEmpty
-                    ? 'Nhập từ bạn muốn học.'
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: meaning,
-                minLines: 2,
-                maxLines: 4,
-                maxLength: 2000,
-                decoration: const InputDecoration(labelText: 'Ý nghĩa *'),
-                validator: (v) => v == null || v.trim().isEmpty
-                    ? 'Thêm ý nghĩa để dễ ôn tập.'
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              if (image.isNotEmpty) ...[
-                SignPhoto(image, word: name.text, height: 160),
-                TextButton.icon(
-                  onPressed: saving ? null : () => setState(() => image = ''),
-                  icon: const Icon(Icons.close),
-                  label: const Text('Bỏ ảnh'),
+                const SizedBox(height: 18),
+                TextFormField(
+                  controller: name,
+                  readOnly: saving || picking,
+                  maxLength: 100,
+                  decoration: const InputDecoration(
+                    labelText: 'Từ hoặc cụm từ *',
+                    hintText: 'Ví dụ: Xin chào',
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty
+                      ? 'Nhập từ bạn muốn học.'
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: meaning,
+                  readOnly: saving || picking,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: 2000,
+                  decoration: const InputDecoration(labelText: 'Ý nghĩa *'),
+                  validator: (v) => v == null || v.trim().isEmpty
+                      ? 'Thêm ý nghĩa để dễ ôn tập.'
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                if (image.isNotEmpty) ...[
+                  SignPhoto(image, word: name.text, height: 160),
+                  TextButton.icon(
+                    onPressed: saving || picking
+                        ? null
+                        : () => setState(() => image = ''),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Bỏ ảnh'),
+                  ),
+                ],
+                OutlinedButton.icon(
+                  onPressed: saving || picking ? null : pick,
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: Text(
+                    picking
+                        ? 'Đang chọn ảnh...'
+                        : image.isEmpty
+                        ? 'Thêm ảnh ký hiệu'
+                        : 'Đổi ảnh',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: example,
+                  readOnly: saving || picking,
+                  maxLength: 1000,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Câu ví dụ (không bắt buộc)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: video,
+                  readOnly: saving || picking,
+                  maxLength: 2000,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Link video HTTPS (không bắt buộc)',
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return null;
+                    final url = Uri.tryParse(v.trim());
+                    return url?.scheme == 'https' && url!.host.isNotEmpty
+                        ? null
+                        : 'Nhập link bắt đầu bằng https://';
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: notes,
+                  readOnly: saving || picking,
+                  maxLength: 2000,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Mẹo ghi nhớ / nguồn tham khảo',
+                  ),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Notice(error!),
+                  ),
+                AppButton(
+                  'Lưu từ',
+                  key: const ValueKey('personal-word-save'),
+                  icon: Icons.check,
+                  busy: saving,
+                  onPressed: saving || picking ? null : save,
                 ),
               ],
-              OutlinedButton.icon(
-                onPressed: saving || picking ? null : pick,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: Text(
-                  picking
-                      ? 'Đang chọn ảnh...'
-                      : image.isEmpty
-                      ? 'Thêm ảnh ký hiệu'
-                      : 'Đổi ảnh',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: example,
-                maxLength: 1000,
-                minLines: 1,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Câu ví dụ (không bắt buộc)',
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: video,
-                maxLength: 2000,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Link video HTTPS (không bắt buộc)',
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return null;
-                  final url = Uri.tryParse(v.trim());
-                  return url?.scheme == 'https' && url!.host.isNotEmpty
-                      ? null
-                      : 'Nhập link bắt đầu bằng https://';
-                },
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: notes,
-                maxLength: 2000,
-                minLines: 2,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Mẹo ghi nhớ / nguồn tham khảo',
-                ),
-              ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Notice(error!),
-                ),
-              AppButton(
-                'Lưu từ',
-                key: const ValueKey('personal-word-save'),
-                icon: Icons.check,
-                busy: saving,
-                onPressed: saving || picking ? null : save,
-              ),
-            ],
+            ),
           ),
         ),
       ),

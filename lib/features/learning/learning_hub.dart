@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,9 +12,15 @@ import 'learning_page_controller.dart';
 import 'learning_widgets.dart';
 import 'personal_word_form.dart';
 import 'learning_analysis_card.dart';
+import 'collection_widgets.dart';
 
 class LearningHub extends StatefulWidget {
-  const LearningHub({super.key, this.initialTab = 0});
+  const LearningHub({
+    super.key,
+    this.initialTab = 0,
+    this.personalOnly = false,
+  });
+  final bool personalOnly;
   final int initialTab;
   @override
   State<LearningHub> createState() => _LearningHubState();
@@ -34,6 +42,22 @@ class _LearningHubState extends State<LearningHub> {
   LearningRecord? advice;
   final search = TextEditingController();
   Timer? _warmup;
+  Timer? _searchDebounce;
+  @override
+  void didUpdateWidget(LearningHub oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab != widget.initialTab ||
+        oldWidget.personalOnly != widget.personalOnly) {
+      _warmup?.cancel();
+      _searchDebounce?.cancel();
+      tab = widget.initialTab;
+      query = '';
+      search.clear();
+      advice = null;
+      load(page: 1);
+    }
+  }
+
   LearningService get service => context.read<LearningService>();
   @override
   void initState() {
@@ -59,6 +83,7 @@ class _LearningHubState extends State<LearningHub> {
   @override
   void dispose() {
     _warmup?.cancel();
+    _searchDebounce?.cancel();
     analysisRequest++;
     controller.dispose();
     search.dispose();
@@ -75,6 +100,7 @@ class _LearningHubState extends State<LearningHub> {
       try {
         if (tab == 0) {
           await source.progress();
+          if (mounted && tab == 0) setState(() {});
         } else {
           await source.topics();
         }
@@ -96,10 +122,7 @@ class _LearningHubState extends State<LearningHub> {
   }
 
   Future<void> openTopic(String id, {bool study = false}) async {
-    await Navigator.pushNamed(
-      context,
-      '/learn/topic/$id${study ? '?study=1' : ''}',
-    );
+    await pushAppRoute(context, '/learn/topic/$id${study ? '?study=1' : ''}');
     if (mounted) load(background: true);
   }
 
@@ -153,6 +176,7 @@ class _LearningHubState extends State<LearningHub> {
     if (!await confirm(
       context,
       title: 'Xóa “${word['word']}”?',
+      destructive: true,
       message: 'Từ này sẽ được xóa khỏi danh sách riêng của bạn.',
     )) {
       return;
@@ -165,65 +189,96 @@ class _LearningHubState extends State<LearningHub> {
     }
   }
 
+  Map? topicProgress(LearningRecord topic) {
+    final cached = service.cachedPage('progress', {
+      'page': '1',
+      'stage': 'ALL',
+    });
+    for (final row in cached?.items ?? <LearningRecord>[]) {
+      if ((row['topic'] as Map?)?['_id'] == topic['_id']) {
+        return row['summary'] as Map?;
+      }
+    }
+    return null;
+  }
+
   Widget topicCard(LearningRecord topic) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
+    padding: const EdgeInsets.only(bottom: 2),
     child: AppCard(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       onTap: () => openTopic('${topic['_id']}'),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SignPhoto(
-            topic['imageUrl'] as String?,
-            word: '${topic['name']}',
-            width: 92,
-            height: 112,
-            fit: BoxFit.cover,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${topic['name']}',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: isDesktopLayout(context) ? 150 : 112,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SignPhoto(
+              topic['imageUrl'] as String?,
+              word: '${topic['name']}',
+              width: 92,
+              height: 112,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${topic['name']}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${topic['wordCount']} từ',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(height: 8),
+                  Text(
+                    '${topic['wordCount']} từ',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Row(
-                  children: [
-                    const Icon(Icons.people_outline, size: 16),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        '${topic['learnerCount'] ?? 0} người đã tham gia',
-                        style: const TextStyle(fontSize: 12),
-                      ),
+                  const SizedBox(height: 5),
+                  if ((topic['learnerCount'] as num? ?? 0) > 0)
+                    Row(
+                      children: [
+                        const Icon(Icons.people_outline, size: 16),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            '${topic['learnerCount'] ?? 0} người đã tham gia',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 8),
+                  if (topic['enrolled'] == true)
+                    const SignVoiceBadge('Đang học'),
+                  if (topicProgress(topic) case final counts?) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: (counts['total'] as num? ?? 0) == 0
+                          ? 0
+                          : ((counts['remembered'] as num? ?? 0) /
+                                    (counts['total'] as num))
+                                .clamp(0, 1)
+                                .toDouble(),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Đã nhớ ${counts['remembered'] ?? 0}/${counts['total']} từ',
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  topic['enrolled'] == true
-                      ? 'Đang trong lộ trình của bạn'
-                      : 'Khám phá chủ đề →',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -339,10 +394,19 @@ class _LearningHubState extends State<LearningHub> {
 
   @override
   Widget build(BuildContext context) => AppPage(
-    title: 'Từ điển ký hiệu',
-    showBack: false,
-    tabIndex: 1,
+    title: widget.personalOnly
+        ? 'Thẻ riêng'
+        : tab == 1
+        ? 'Đang học'
+        : 'Khám phá ký hiệu',
+    showBack: widget.personalOnly,
+    tabIndex: widget.personalOnly ? null : 1,
     actions: [
+      IconButton(
+        tooltip: 'Từ điển công khai',
+        onPressed: () => pushAppRoute(context, '/dictionary/browse'),
+        icon: const Icon(Icons.menu_book_outlined),
+      ),
       IconButton(
         tooltip: 'Làm mới',
         onPressed: loading ? null : () => load(force: true),
@@ -350,7 +414,7 @@ class _LearningHubState extends State<LearningHub> {
       ),
       IconButton(
         tooltip: 'Ký hiệu yêu thích',
-        onPressed: () => Navigator.pushNamed(context, 'S24'),
+        onPressed: () => pushAppRoute(context, 'S24'),
         icon: const Icon(Icons.favorite_border),
       ),
     ],
@@ -358,75 +422,14 @@ class _LearningHubState extends State<LearningHub> {
     padding: EdgeInsets.zero,
     child: ListView(
       key: PageStorageKey('learning-hub-$tab'),
-      padding: const EdgeInsets.all(20),
+      padding: pageInsets(context),
       children: [
-        Row(
-          children: [
-            for (var i = 0; i < 3; i++)
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: i == 2 ? 0 : 5),
-                  child: Semantics(
-                    selected: tab == i,
-                    button: true,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () {
-                        if (tab != i) {
-                          Navigator.pushReplacementNamed(
-                            context,
-                            '/learn?tab=$i',
-                          );
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                          horizontal: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: tab == i
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              [
-                                Icons.explore_outlined,
-                                Icons.school_outlined,
-                                Icons.bookmark_add_outlined,
-                              ][i],
-                              size: 23,
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              ['Khám phá', 'Đang học', 'Từ của tôi'][i],
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: tab == i
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        if (!widget.personalOnly) LearningTabs(selected: tab),
         const SizedBox(height: 24),
         Heading(
           [
             'Học ký hiệu theo chủ đề',
-            'Tiến độ học tập',
+            'Chủ đề đang học',
             'Bộ từ mang dấu ấn của bạn',
           ][tab],
           size: 23,
@@ -443,6 +446,15 @@ class _LearningHubState extends State<LearningHub> {
         if (tab != 1)
           TextField(
             controller: search,
+            onChanged: (value) {
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+                if (mounted) {
+                  query = value.trim();
+                  load(page: 1);
+                }
+              });
+            },
             decoration: InputDecoration(
               hintText: tab == 0
                   ? 'Tìm chủ đề bạn quan tâm...'
@@ -452,12 +464,14 @@ class _LearningHubState extends State<LearningHub> {
                 tooltip: 'Tìm kiếm',
                 icon: const Icon(Icons.arrow_forward),
                 onPressed: () {
+                  _searchDebounce?.cancel();
                   query = search.text.trim();
                   load(page: 1);
                 },
               ),
             ),
             onSubmitted: (v) {
+              _searchDebounce?.cancel();
               query = v.trim();
               load(page: 1);
             },
@@ -469,22 +483,39 @@ class _LearningHubState extends State<LearningHub> {
         if (tab == 1) ...[
           LearningSummary(data?.summary ?? {}),
           const SizedBox(height: 12),
-          TextButton.icon(
-            onPressed: () => Navigator.pushNamed(context, '/learn/history'),
-            icon: const Icon(Icons.history),
-            label: const Text('Lịch sử học tập'),
-          ),
-          TextButton.icon(
-            onPressed: () => Navigator.pushNamed(context, '/learn/insights'),
-            icon: const Icon(Icons.bar_chart_outlined),
-            label: const Text('Thống kê & mục tiêu'),
-          ),
+          if (!isDesktopLayout(context))
+            TextButton.icon(
+              onPressed: () => pushAppRoute(context, '/learn/history'),
+              icon: const Icon(Icons.history),
+              label: const Text('Lịch sử học tập'),
+            ),
+          if (!isDesktopLayout(context))
+            TextButton.icon(
+              onPressed: () => pushAppRoute(context, '/learn/insights'),
+              icon: const Icon(Icons.bar_chart_outlined),
+              label: const Text('Thống kê & mục tiêu'),
+            ),
           const SizedBox(height: 16),
-          AppButton(
-            'Phân tích tiến độ cá nhân',
-            icon: Icons.analytics_outlined,
-            busy: analyzing,
-            onPressed: analyzing || coaching || loading ? null : analyze,
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              AppButton(
+                'Phân tích tiến độ cá nhân',
+                compact: isDesktopLayout(context),
+                icon: Icons.analytics_outlined,
+                busy: analyzing,
+                onPressed: analyzing || coaching || loading ? null : analyze,
+              ),
+              AppButton(
+                'Gợi ý ôn tập',
+                compact: isDesktopLayout(context),
+                icon: Icons.auto_awesome_outlined,
+                secondary: true,
+                busy: coaching,
+                onPressed: coaching || analyzing ? null : coach,
+              ),
+            ],
           ),
           if (analysisError != null) ...[
             const SizedBox(height: 12),
@@ -494,14 +525,7 @@ class _LearningHubState extends State<LearningHub> {
             const SizedBox(height: 12),
             LearningAnalysisCard(result: analysis!),
           ],
-          const SizedBox(height: 16),
-          AppButton(
-            'Gợi ý ôn tập',
-            icon: Icons.auto_awesome_outlined,
-            secondary: true,
-            busy: coaching,
-            onPressed: coaching || analyzing ? null : coach,
-          ),
+
           if (advice != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -552,19 +576,22 @@ class _LearningHubState extends State<LearningHub> {
                 : Icons.auto_stories_outlined,
             action: tab == 1
                 ? TextButton(
-                    onPressed: () =>
-                        Navigator.pushReplacementNamed(context, '/learn?tab=0'),
+                    onPressed: () => replaceAppRoute(context, '/learn?tab=0'),
                     child: const Text('Khám phá chủ đề'),
                   )
                 : null,
           ),
         if (!loading && error == null && data != null) ...[
-          for (final item in data!.items)
-            switch (tab) {
-              0 => topicCard(item),
-              1 => progressCard(item),
-              _ => personalCard(item),
-            },
+          AdaptiveCardGrid(
+            children: [
+              for (final item in data!.items)
+                switch (tab) {
+                  0 => topicCard(item),
+                  1 => progressCard(item),
+                  _ => personalCard(item),
+                },
+            ],
+          ),
           if (data!.pages > 1)
             LearningPager(
               page: page,
@@ -573,7 +600,7 @@ class _LearningHubState extends State<LearningHub> {
                 load(page: v);
               },
             ),
-          if (data!.total > 0)
+          if (data!.pages > 1)
             Text(
               tab == 2
                   ? '${data!.total} từ của bạn · 10 từ/trang'

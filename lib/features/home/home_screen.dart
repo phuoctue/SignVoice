@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
+import 'web_dashboard.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -52,6 +56,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    if (kIsWeb && MediaQuery.sizeOf(context).width >= 900) {
+      return const WebDashboard();
+    }
     final name = state.guest ? 'Khách' : state.name;
     final hour = DateTime.now().hour;
     final greeting = hour < 12
@@ -67,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
         IconButton(
           tooltip: 'Thông báo',
           icon: const Icon(Icons.notifications_none),
-          onPressed: () => Navigator.pushNamed(context, '/notifications'),
+          onPressed: () => pushAppRoute(context, '/notifications'),
         ),
         Padding(
           padding: const EdgeInsets.only(right: 14),
@@ -91,24 +98,46 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 4),
           Heading('$name 👋', size: 24),
           const SizedBox(height: 24),
-          const Heading('Hôm nay bạn muốn giao tiếp\nnhư thế nào?', size: 18),
+          const Heading('Hôm nay bạn muốn giao tiếp như thế nào?', size: 18),
           const SizedBox(height: 16),
-          _FeatureCard(
-            title: 'Ký hiệu → Giọng nói',
-            description: 'Chuyển ký hiệu tay thành văn bản và lời nói.',
-            label: 'Bắt đầu nhận diện',
-            color: AppColors.blue,
-            icon: Icons.back_hand_outlined,
-            onTap: () => openScreen(context, 'S10'),
-          ),
-          const SizedBox(height: 14),
-          _FeatureCard(
-            title: 'Giọng nói → Hình ảnh',
-            description: 'Nói hoặc nhập văn bản để xem ảnh và video ký hiệu.',
-            label: 'Nói hoặc nhập văn bản',
-            color: AppColors.teal,
-            icon: Icons.mic_none,
-            onTap: () => openScreen(context, 'S15'),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width =
+                  constraints.maxWidth >= 720 &&
+                      MediaQuery.textScalerOf(context).scale(1) < 1.6
+                  ? (constraints.maxWidth - 16) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _FeatureCard(
+                      title: 'Ký hiệu → Giọng nói',
+                      description:
+                          'Chuyển ký hiệu tay thành văn bản và lời nói.',
+                      label: 'Bắt đầu nhận diện',
+                      color: AppColors.blue,
+                      icon: Icons.back_hand_outlined,
+                      onTap: () => openScreen(context, 'S10'),
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _FeatureCard(
+                      title: 'Giọng nói → Hình ảnh',
+                      description:
+                          'Nói hoặc nhập văn bản để xem ảnh và video ký hiệu.',
+                      label: 'Nói hoặc nhập văn bản',
+                      color: AppColors.teal,
+                      icon: Icons.mic_none,
+                      onTap: () => openScreen(context, 'S15'),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 24),
           _SectionTitle('Khám phá từ điển', () => openRoot(context, 'S22')),

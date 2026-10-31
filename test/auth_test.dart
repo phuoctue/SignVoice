@@ -1,3 +1,5 @@
+import 'package:sign_voice/core/app_state.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -321,7 +323,9 @@ void main() {
   testWidgets('unauthenticated direct routes show login', (tester) async {
     final auth = AuthProvider(authService: FakeAuthService());
     await auth.initialize();
-    await tester.pumpWidget(SignVoiceApp(initialScreen: 'S08', auth: auth));
+    await tester.pumpWidget(
+      SignVoiceApp(initialScreen: 'S08', auth: auth, state: AppState()),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(HomeScreen), findsNothing);
     expect(find.widgetWithText(FilledButton, 'Đăng nhập'), findsOneWidget);
@@ -333,7 +337,12 @@ void main() {
     final auth = await authenticatedProvider();
     for (final route in ['admin', 'staff']) {
       await tester.pumpWidget(
-        SignVoiceApp(key: ValueKey(route), initialScreen: route, auth: auth),
+        SignVoiceApp(
+          key: ValueKey(route),
+          initialScreen: route,
+          auth: auth,
+          state: AppState(),
+        ),
       );
       await tester.pumpAndSettle();
       expect(
@@ -350,7 +359,9 @@ void main() {
     (tester) async {
       final auth = AuthProvider(authService: FakeAuthService());
       await auth.initialize();
-      await tester.pumpWidget(SignVoiceApp(initialScreen: 'S05', auth: auth));
+      await tester.pumpWidget(
+        SignVoiceApp(initialScreen: 'S05', auth: auth, state: AppState()),
+      );
       await tester.enterText(
         find.byType(TextFormField).at(0),
         'user@example.com',
@@ -374,7 +385,9 @@ void main() {
     final service = FakeAuthService()..failLogin = true;
     final auth = AuthProvider(authService: service);
     await auth.initialize();
-    await tester.pumpWidget(SignVoiceApp(initialScreen: 'S05', auth: auth));
+    await tester.pumpWidget(
+      SignVoiceApp(initialScreen: 'S05', auth: auth, state: AppState()),
+    );
     await tester.enterText(
       find.byType(TextFormField).at(0),
       'user@example.com',

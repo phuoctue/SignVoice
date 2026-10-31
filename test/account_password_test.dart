@@ -152,6 +152,10 @@ void main() {
         SignVoiceApp(auth: auth, state: AppState(), initialScreen: 'S25'),
       );
       await tester.pumpAndSettle();
+      expect(find.text('Đổi mật khẩu'), findsNothing);
+      await tester.ensureVisible(find.text('Chỉnh sửa hồ sơ'));
+      await tester.tap(find.text('Chỉnh sửa hồ sơ'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Đổi mật khẩu'));
       await tester.tap(find.text('Đổi mật khẩu'));
       await tester.pumpAndSettle();

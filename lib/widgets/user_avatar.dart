@@ -3,7 +3,15 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../services/api/api_config.dart';
+import '../core/theme.dart';
 import '../services/user/avatar_image_cache.dart';
+
+const avatarColors = [
+  AppColors.blue,
+  AppColors.teal,
+  AppColors.purple,
+  AppColors.green,
+];
 
 class UserAvatar extends StatefulWidget {
   const UserAvatar({

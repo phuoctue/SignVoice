@@ -84,6 +84,73 @@ class _TrackedCamera extends _StreamingCamera implements LocalTrackingCamera {
 }
 
 void main() {
+  testWidgets(
+    'word phase pacing keeps 15Hz with a 20Hz detector and immediate ACKs',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({'sign_ai_mode': 'words'});
+      final channel = _Channel();
+      final camera = _TrackedCamera();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveCameraScreen(
+            ticketLoader: () async => 'test-stream-ticket',
+            cameraFactory: ({required front}) => camera,
+            channelFactory: (_) => channel,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cho phép camera'));
+      await tester.pumpAndSettle();
+      channel.events.add(
+        jsonEncode({
+          'type': 'ready',
+          'stream_protocol': 2,
+          'live_word_observations': true,
+        }),
+      );
+      await tester.pump();
+      for (var stamp = 1000; stamp <= 2000; stamp += 50) {
+        camera.observations.add(
+          LocalHandObservation(
+            [],
+            20,
+            10,
+            handObservation: {
+              'timestamp_ms': stamp,
+              'landmarks': [],
+              'handedness': [],
+            },
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        final sent = channel.sent
+            .where((m) => m['type'] == 'hand_observation')
+            .toList();
+        if (sent.isNotEmpty &&
+            sent.last['observation']['timestamp_ms'] == stamp) {
+          channel.events.add(
+            jsonEncode({'type': 'observation_received', 'timestamp_ms': stamp}),
+          );
+          await tester.pump();
+          await tester.pump();
+        }
+      }
+      final sent = channel.sent
+          .where((m) => m['type'] == 'hand_observation')
+          .toList();
+      expect(
+        sent,
+        hasLength(16),
+      ); // 15 intervals in one second, including endpoints.
+      expect(sent.last['observation']['timestamp_ms'], 2000);
+      expect(channel.frames, isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+    skip: !const bool.fromEnvironment('CAMERA_PHASE_PACING'),
+  );
   for (final mode in ['letters', 'words']) {
     testWidgets(
       '$mode XYZ sends without JPEG and waits for its own receipt ACK',
@@ -158,6 +225,26 @@ void main() {
           2,
         );
         expect(channel.frames, isEmpty);
+        measured(1190); // Replaces 1140 while waiting for receipt of 1120.
+        await tester.pump();
+        channel.events.add(
+          jsonEncode({'type': 'observation_received', 'timestamp_ms': 1000}),
+        );
+        await tester.pump();
+        expect(
+          channel.sent.where((m) => m['type'] == 'hand_observation'),
+          hasLength(2),
+        );
+        channel.events.add(
+          jsonEncode({'type': 'observation_received', 'timestamp_ms': 1120}),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(channel.sent.last['observation']['timestamp_ms'], 1190);
+        expect(
+          channel.sent.where((m) => m['type'] == 'hand_observation'),
+          hasLength(3),
+        );
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
       },

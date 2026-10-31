@@ -1,3 +1,5 @@
+import 'package:sign_voice/core/app_state.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -56,8 +58,8 @@ void main() {
             jsonEncode({
               'error': {'message': 'Gửi email chưa khả dụng'},
             }),
-              503,
-              headers: {'content-type': 'application/json; charset=utf-8'},
+            503,
+            headers: {'content-type': 'application/json; charset=utf-8'},
           ),
         ),
       );
@@ -141,7 +143,7 @@ void main() {
     );
     final auth = AuthProvider(authService: FakeAuthService());
     addTearDown(auth.dispose);
-    await tester.pumpWidget(SignVoiceApp(auth: auth));
+    await tester.pumpWidget(SignVoiceApp(auth: auth, state: AppState()));
     await tester.pump(const Duration(seconds: 3));
     expect(find.byType(ResetPasswordScreen), findsOneWidget);
     expect(find.text('Tạo mật khẩu mới'), findsOneWidget);

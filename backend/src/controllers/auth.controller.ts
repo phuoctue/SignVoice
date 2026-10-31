@@ -6,7 +6,8 @@ import { env } from '../config/env';
 import { ITokenPair } from '../utils/jwt.util';
 import * as passwordResetService from '../services/password-reset.service';
 import { authorizationFor } from '../services/authorization.service';
-import {trialForDevice} from '../services/guest-trial.service';
+import {Types} from 'mongoose';
+import {trialForDevice, guestTrialStatus} from '../services/guest-trial.service';
 import {guestDeviceKey} from '../services/guest-device.service';
 
 export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -64,9 +65,14 @@ export async function register(req: Request, res: Response, next: NextFunction):
     
     const result = await authService.registerUser(
       { email, password, displayName },
-      getRequestMeta(req)
+      getRequestMeta(req),
+      req.body.requireLogin !== true
     );
-    
+    if (req.body.requireLogin === true) {
+      res.clearCookie(refreshCookie, cookieOptions);
+      res.status(201).json({success: true, data: {user: result.user, loginRequired: true}});
+      return;
+    }
     setRefreshCookie(res, result.tokens);
     res.status(201).json({
       success: true,
@@ -108,6 +114,7 @@ export async function createGuest(req: Request, res: Response, next: NextFunctio
   try {
     const trial = await trialForDevice(guestDeviceKey(req, res));
     const result = await authService.createGuestAccount(getRequestMeta(req), trial._id);
+    await guestTrialStatus(new Types.ObjectId(result.user.id), true);
     setRefreshCookie(res, result.tokens);
     
     res.status(201).json({
@@ -138,8 +145,14 @@ export async function convertGuest(req: Request, res: Response, next: NextFuncti
     const result = await authService.convertGuestToPermanent(
       req.user.id,
       { email, password, displayName },
-      getRequestMeta(req)
+      getRequestMeta(req),
+      req.body.requireLogin !== true
     );
+    if (req.body.requireLogin === true) {
+      res.clearCookie(refreshCookie, cookieOptions);
+      res.status(200).json({success: true, data: {user: result.user, loginRequired: true}});
+      return;
+    }
     setRefreshCookie(res, result.tokens);
     
     res.status(200).json({

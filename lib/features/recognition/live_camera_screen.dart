@@ -18,6 +18,7 @@ import '../../services/sign_ai/sign_ai_access.dart';
 import '../../services/sign_ai/speech_output.dart';
 import '../../services/sign_ai/stream_timing.dart';
 import '../../widgets/device_permission_page.dart';
+import '../../widgets/ui.dart' show showAdaptivePanel;
 
 const _ink = Color(0xFF111827);
 const _card = Color(0xFF202938);
@@ -658,9 +659,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   Future<void> _settings() async {
     final controller = TextEditingController(text: _url);
     var mode = _mode, overlays = _showOpenCv, speak = _autoSpeak;
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showAdaptivePanel<bool>(
       context: context,
-      isScrollControlled: true,
       backgroundColor: _card,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, update) => SafeArea(
@@ -675,26 +675,26 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Cài đặt nhận diện',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 21,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Cài đặt nhận diện',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 21,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Đóng cài đặt',
+                      onPressed: () => Navigator.pop(sheetContext, false),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  style: const TextStyle(color: Colors.white),
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'Địa chỉ service AI',
-                    labelStyle: TextStyle(color: _muted),
-                    fillColor: _ink,
-                  ),
-                ),
-                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: mode,
                   dropdownColor: _card,
@@ -719,71 +719,91 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                   contentPadding: EdgeInsets.zero,
                   activeThumbColor: _blue,
                   title: const Text(
-                    'Hiện phân tích OpenCV',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  subtitle: const Text(
-                    'OpenCV vẫn xử lý chuyển động khi ẩn lớp vẽ.',
-                    style: TextStyle(color: _muted),
-                  ),
-                  value: overlays,
-                  onChanged: (v) => update(() => overlays = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  activeThumbColor: _blue,
-                  title: const Text(
                     'Tự đọc kết quả',
                     style: TextStyle(color: Colors.white),
                   ),
                   value: speak,
                   onChanged: (v) => update(() => speak = v),
                 ),
-                Text(
-                  '$_hands tay · ${_fps.toStringAsFixed(1)} FPS dò tay · ${_processingMs.round()} ms xử lý AI\n'
-                  '${_streamTiming.sendFps.toStringAsFixed(1)} ảnh/giây gửi đi · ${_streamTiming.encodeMs.round()} ms mã hóa ảnh\n'
-                  '${_streamTiming.resultMs == null ? "Chưa có" : _streamTiming.resultMs.toString()} ms gửi → kết quả (gồm hàng chờ và xử lý)\n'
-                  '$_classes từ trong model · $_dropped khung cũ được bỏ qua',
-                  style: const TextStyle(color: _muted, fontSize: 12),
-                ),
-                if (_inference.isNotEmpty)
-                  Text(
-                    '${_inference["inference_ms"] ?? "—"} ms nhận diện chuỗi · '
-                    '${_inference["observation_overruns"] ?? 0} quan sát bị quá tải',
-                    style: const TextStyle(color: _muted, fontSize: 12),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Nâng cao & chẩn đoán',
+                    style: TextStyle(color: Colors.white),
                   ),
-                if (_wordEngine.isNotEmpty)
-                  Text(
-                    'Bộ nhận diện từ: ${_wordEngine.toUpperCase()} · '
-                    'trọng số embedding ${(_embeddingWeight * 100).round()}%',
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
-                const SizedBox(height: 8),
-                Text(
-                  (_landmarkSource == 'browser_gpu' ||
-                          _landmarkSource == 'android_gpu')
-                      ? 'AI dùng landmark GPU cùng khung hình'
-                      : 'AI dùng landmark CPU (dự phòng)',
-                  style: const TextStyle(color: _muted),
-                ),
-                ValueListenableBuilder<LocalHandObservation?>(
-                  valueListenable: _localHands,
-                  builder: (_, observation, _) => Text(
-                    observation?.captureSource == 'initializing'
-                        ? 'Đang khởi tạo bộ dò tay tại thiết bị…'
-                        : observation == null
-                        ? 'Landmark từ service AI.'
-                        : '${observation.fps.toStringAsFixed(1)} FPS landmark tại thiết bị · ${observation.processingMs.round()} ms. '
-                              '${observation.captureSource.startsWith("android_")
-                                  ? "MediaPipe Android ${observation.captureSource.substring(8).toUpperCase()}."
-                                  : observation.captureSource == "track_processor"
-                                  ? "Luồng camera trực tiếp."
-                                  : "Luồng ảnh từ video."} '
-                              'Model Colab xác nhận ký hiệu. '
-                              '${observation.captureAgeMs == null ? "" : "Ảnh → mốc tay ${observation.captureAgeMs!.round()} ms. "}'
-                              '${observation.initializationMs == null ? "" : "Khởi tạo ${(observation.initializationMs! / 1000).toStringAsFixed(1)} s."}',
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
+                  children: [
+                    TextField(
+                      controller: controller,
+                      style: const TextStyle(color: Colors.white),
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Địa chỉ service AI',
+                        labelStyle: TextStyle(color: _muted),
+                        fillColor: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeThumbColor: _blue,
+                      title: const Text(
+                        'Hiện phân tích OpenCV',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      subtitle: const Text(
+                        'OpenCV vẫn xử lý chuyển động khi ẩn lớp vẽ.',
+                        style: TextStyle(color: _muted),
+                      ),
+                      value: overlays,
+                      onChanged: (v) => update(() => overlays = v),
+                    ),
+                    Text(
+                      '$_hands tay · ${_fps.toStringAsFixed(1)} FPS dò tay · ${_processingMs.round()} ms xử lý AI\n'
+                      '${_streamTiming.sendFps.toStringAsFixed(1)} ảnh/giây gửi đi · ${_streamTiming.encodeMs.round()} ms mã hóa ảnh\n'
+                      '${_streamTiming.resultMs == null ? "Chưa có" : _streamTiming.resultMs.toString()} ms gửi → kết quả (gồm hàng chờ và xử lý)\n'
+                      '$_classes từ trong model · $_dropped khung cũ được bỏ qua',
+                      style: const TextStyle(color: _muted, fontSize: 12),
+                    ),
+                    if (_inference.isNotEmpty)
+                      Text(
+                        '${_inference["inference_ms"] ?? "—"} ms nhận diện chuỗi · '
+                        '${_inference["observation_overruns"] ?? 0} quan sát bị quá tải',
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    if (_wordEngine.isNotEmpty)
+                      Text(
+                        'Bộ nhận diện từ: ${_wordEngine.toUpperCase()} · '
+                        'trọng số embedding ${(_embeddingWeight * 100).round()}%',
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      (_landmarkSource == 'browser_gpu' ||
+                              _landmarkSource == 'android_gpu')
+                          ? 'AI dùng landmark GPU cùng khung hình'
+                          : 'AI dùng landmark CPU (dự phòng)',
+                      style: const TextStyle(color: _muted),
+                    ),
+                    ValueListenableBuilder<LocalHandObservation?>(
+                      valueListenable: _localHands,
+                      builder: (_, observation, _) => Text(
+                        observation?.captureSource == 'initializing'
+                            ? 'Đang khởi tạo bộ dò tay tại thiết bị…'
+                            : observation == null
+                            ? 'Landmark từ service AI.'
+                            : '${observation.fps.toStringAsFixed(1)} FPS landmark tại thiết bị · ${observation.processingMs.round()} ms. '
+                                  '${observation.captureSource.startsWith("android_")
+                                      ? "MediaPipe Android ${observation.captureSource.substring(8).toUpperCase()}."
+                                      : observation.captureSource == "track_processor"
+                                      ? "Luồng camera trực tiếp."
+                                      : "Luồng ảnh từ video."} '
+                                  'Model Colab xác nhận ký hiệu. '
+                                  '${observation.captureAgeMs == null ? "" : "Ảnh → mốc tay ${observation.captureAgeMs!.round()} ms. "}'
+                                  '${observation.initializationMs == null ? "" : "Khởi tạo ${(observation.initializationMs! / 1000).toStringAsFixed(1)} s."}',
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 FilledButton(

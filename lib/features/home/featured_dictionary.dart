@@ -1,3 +1,5 @@
+import '../../core/navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -61,54 +63,65 @@ class _FeaturedDictionaryState extends State<FeaturedDictionary> {
     if (entries!.isEmpty) {
       return const BodyText('Chưa có ký hiệu được xuất bản.');
     }
-    final labelHeight = MediaQuery.textScalerOf(context).scale(12) * 3;
-    return SizedBox(
-      height: 128 + labelHeight,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: entries!.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          final item = entries![index];
-          final word = '${item['word']}';
-          return SizedBox(
-            width: 136,
-            child: AppCard(
-              padding: const EdgeInsets.all(10),
-              onTap: () => Navigator.pushNamed(
-                context,
-                '/dictionary/${Uri.encodeComponent('${item['_id']}')}',
-              ),
-              child: Column(
-                children: [
-                  SignPhoto(
-                    item['thumbnailUrl'] as String?,
-                    word: word,
-                    width: 116,
-                    height: 100,
-                    fit: BoxFit.cover,
+    final labelHeight = MediaQuery.textScalerOf(context).scale(14) * 3;
+    Widget tile(AdminRecord item, double width) => SizedBox(
+      width: width,
+      height: 134 + labelHeight,
+      child: AppCard(
+        padding: const EdgeInsets.all(10),
+        onTap: () => pushAppRoute(
+          context,
+          '/dictionary/${Uri.encodeComponent('${item['_id']}')}',
+        ),
+        child: Column(
+          children: [
+            SignPhoto(
+              item['thumbnailUrl'] as String?,
+              word: '${item['word']}',
+              width: (width - 20).clamp(0.0, 160.0),
+              height: 100,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Center(
+                child: Text(
+                  '${item['word']}',
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        word,
-                        textAlign: TextAlign.center,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          );
-        },
+          ],
+        ),
       ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (isDesktopLayout(context)) {
+          final columns = constraints.maxWidth >= 1000 ? 6 : 3;
+          final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [for (final item in entries!.take(6)) tile(item, width)],
+          );
+        }
+        return SizedBox(
+          height: 134 + labelHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: entries!.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (_, i) => tile(entries![i], 148),
+          ),
+        );
+      },
     );
   }
 }
