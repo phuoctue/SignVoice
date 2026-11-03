@@ -34,6 +34,7 @@ const webPaths = <String, String>{
   'S24': '/favorites',
   'S25': '/profile',
   'S26': '/profile/edit',
+  'change-password': '/change-password',
   'admin': '/admin',
   'staff': '/staff',
 };
@@ -129,6 +130,11 @@ void openScreen(BuildContext context, String id, {bool replace = false}) {
     pushAppRoute(context, id);
   }
 }
+
+String authLocation({bool register = false, String? returnRoute}) => Uri(
+  path: register ? 'S06' : 'S05',
+  queryParameters: returnRoute == null ? null : {'returnTo': returnRoute},
+).toString();
 
 void openRoot(BuildContext context, String id) {
   final router = GoRouter.maybeOf(context);

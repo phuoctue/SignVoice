@@ -14,6 +14,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  setPasswordSchema,
   guestSchema,
 } from '../validation/auth.validation';
 
@@ -42,6 +43,7 @@ const passwordResetLimiter = rateLimit({
 router.post('/forgot-password', passwordResetLimiter, validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', passwordResetLimiter, validate(resetPasswordSchema), authController.resetPassword);
 router.post('/change-password', passwordResetLimiter, requireAuth, validate(changePasswordSchema), authController.changePassword);
+router.post('/set-password', passwordResetLimiter, requireAuth, validate(setPasswordSchema), authController.setPassword);
 
 /**
  * @route POST /api/v1/auth/register

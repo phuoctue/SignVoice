@@ -1645,6 +1645,42 @@ paths:
           }
         '401': { description: Missing or invalid bearer session }
         '422': { description: Unchanged new password }
+  /api/v1/auth/set-password:
+    post:
+      tags: [ Authentication ]
+      security: [ { bearerAuth: [] } ]
+      summary: Add an email password to the currently signed-in Google account
+      description: Requires a Google-only account and a login family created within 10 minutes. Preserves the Google identity and user data; revokes all sessions after setting the password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ newPassword ]
+              properties:
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '200': { description: Password created; sign in again with Google or email/password }
+        '400': { description: Invalid password or account is not Google-only }
+        '401': { description: Missing or invalid bearer session }
+        '403': { description: Account disabled or fresh Google sign-in required }
+        '409': { description: Account changed concurrently }
+  /.well-known/assetlinks.json:
+    get:
+      tags: [ System ]
+      summary: Android App Links signing association
+      responses:
+        '200': { description: Explicit package and SHA-256 signing fingerprints }
+        '404': { description: App Links signing association not configured }
+  /auth/reset-password:
+    get:
+      tags: [ Authentication ]
+      summary: Open the Android reset screen or continue to the Web form
+      description: Reset token is accepted only in the client-side fragment and is never read by this HTTP endpoint.
+      responses:
+        '200': { description: No-store native/Web reset handoff page }
   # System Health
   /health/live:
     get:
@@ -1839,6 +1875,9 @@ paths:
               type: object
               additionalProperties: false
               properties:
+                newGuest:
+                  type: boolean
+                  description: Tạo tài khoản khách với hạn mức 10 phút mới; khôi phục phiên cũ vẫn giữ thời hạn đã cấp.
                 deviceKey:
                   type: string
                   pattern: '^[a-f0-9]{64}$'

@@ -27,6 +27,7 @@ export interface IAuthSession extends Document {
   userId: Types.ObjectId;
   sessionFamily?: string;
   passwordVersion: number;
+  authenticatedAt?: Date;
   
   // Token data
   sessionType: SessionType;
@@ -80,6 +81,7 @@ const AuthSessionSchema = new Schema<IAuthSession>(
     },
     sessionFamily: { type: String, index: true },
     passwordVersion: { type: Number, default: 0 },
+    authenticatedAt: { type: Date },
     
     tokenHash: {
       type: String,

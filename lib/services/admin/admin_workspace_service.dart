@@ -117,7 +117,7 @@ class AdminWorkspaceService {
           .map((item) => Map<String, dynamic>.from(item))
           .toList();
   Future<List<AdminRecord>> activeCategories() async =>
-      ((await _api.get('/categories'))['data'] as List)
+      ((await _api.get('/categories', requiresAuth: false))['data'] as List)
           .map((item) => Map<String, dynamic>.from(item))
           .toList();
   Future<AdminPageData> published({
@@ -128,6 +128,7 @@ class AdminWorkspaceService {
   }) async {
     final response = await _api.get(
       '/dictionary',
+      requiresAuth: false,
       queryParameters: {
         'limit': '20',
         'skip': '${(page - 1) * 20}',

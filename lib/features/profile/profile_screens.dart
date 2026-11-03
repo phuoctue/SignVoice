@@ -540,11 +540,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         : _save,
                   ),
                   if (!state.guest &&
-                      auth.user?.accountType == AccountType.local) ...[
+                      (auth.user?.accountType == AccountType.local ||
+                          auth.user?.accountType == AccountType.google)) ...[
                     const SizedBox(height: 28),
                     const Heading('Đăng nhập & bảo mật', size: 18),
                     const SizedBox(height: 12),
-                    if (NativeGoogleSignIn.supported) ...[
+                    if (NativeGoogleSignIn.supported &&
+                        auth.user?.accountType == AccountType.local) ...[
                       IconTile(
                         icon: Icons.link,
                         title: auth.user!.googleLinked
@@ -567,7 +569,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                     IconTile(
                       icon: Icons.lock_reset,
-                      title: 'Đổi mật khẩu',
+                      title: auth.user?.accountType == AccountType.google
+                          ? 'Tạo mật khẩu đăng nhập'
+                          : 'Đổi mật khẩu',
                       onTap: saving || picking || linkingGoogle
                           ? null
                           : () => openScreen(context, 'change-password'),

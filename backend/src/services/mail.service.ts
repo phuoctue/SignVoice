@@ -38,10 +38,14 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   // The token is in the fragment, so HTTP requests and referrers do not expose it.
   resetUrl.hash = `/reset-password?token=${token}`;
   const link = resetUrl.toString();
+  const appUrl = new URL('/auth/reset-password', env.PASSWORD_RESET_ORIGIN);
+  appUrl.hash = 'token=' + token;
+  const nativeLink = appUrl.toString();
   await createMailTransport().sendMail({
     from: env.SMTP_FROM,
     to: email,
     subject: 'Đặt lại mật khẩu SignVoice',
-    text: `Bạn đã yêu cầu đặt lại mật khẩu SignVoice.\n\nMở liên kết sau để đặt mật khẩu mới:\n${link}\n\nLiên kết chỉ dùng được một lần và hết hạn sau 15 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`,
+    text: `Bạn đã yêu cầu đặt lại mật khẩu SignVoice.\n\nMở ứng dụng Android hoặc tiếp tục trên trình duyệt:\n${nativeLink}\n\nLiên kết trình duyệt trực tiếp:\n${link}\n\nLiên kết chỉ dùng được một lần và hết hạn sau 15 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`,
+    html: `<p>Bạn đã yêu cầu đặt lại mật khẩu SignVoice.</p><p><a href="${nativeLink}">Đặt lại mật khẩu — mở SignVoice</a></p><p><a href="${link}">Tiếp tục trên trình duyệt</a></p><p>Liên kết có hiệu lực 15 phút, chỉ dùng một lần. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>`,
   });
 }

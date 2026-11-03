@@ -89,6 +89,7 @@ ai_service/runtime_provenance.json
 /package-lock.json
 **/.env
 **/.env.local
+**/.env.test
 **/drive_oauth_client.json
 **/client_secret*.json
 **/*token*.pickle

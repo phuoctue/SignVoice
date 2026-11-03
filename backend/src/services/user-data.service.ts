@@ -13,6 +13,21 @@ import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.
 import { LearningEvent } from '../models/LearningEvent.model';
 import {NotificationDevice, UserNotification} from '../models/Notification.model';
 import {SignCollection,SignNote,CollectionReport} from '../models/SignCollection.model';
+import {AuthSession} from '../models/AuthSession.model';
+import {GuestTrial} from '../models/GuestTrial.model';
+
+export async function deleteGuestOnLogout(userId: Types.ObjectId) {
+  await userTransaction(userId, async session => {
+    const guest = await User.findOne({_id: userId, isGuest: true}).select('+guestTrialId').session(session);
+    if (!guest) throw new AppError('Tài khoản không còn là khách.', 409, 'NOT_GUEST');
+    await clearOwnedData(userId, session);
+    await AuthSession.deleteMany({userId}, {session});
+    await User.deleteOne({_id: userId, isGuest: true}, {session});
+    if (guest.guestTrialId && !await User.exists({guestTrialId: guest.guestTrialId}).session(session)) {
+      await GuestTrial.deleteOne({_id: guest.guestTrialId}, {session});
+    }
+  });
+}
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
 export async function safeUser(user: IUser) {

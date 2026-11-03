@@ -678,7 +678,10 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             FilledButton(
               onPressed: () {
                 Navigator.pop(context);
-                openScreen(this.context, 'S05');
+                openScreen(
+                  this.context,
+                  authLocation(returnRoute: '/dictionary/browse'),
+                );
               },
               child: const Text('Đăng nhập'),
             ),
@@ -1305,7 +1308,14 @@ class _SignDetailScreenState extends State<SignDetailScreen> {
               : () async {
                   if (state.guest ||
                       state.persisted && state.accountId == null) {
-                    openScreen(context, 'S06');
+                    openScreen(
+                      context,
+                      authLocation(
+                        register: true,
+                        returnRoute:
+                            '/dictionary/${widget.entryId ?? state.selectedSign.id}',
+                      ),
+                    );
                     return;
                   }
                   setState(() => saving = true);

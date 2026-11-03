@@ -24,6 +24,15 @@ class AuthProvider extends ChangeNotifier {
   int? _userRefreshEpoch;
   int _profileRevision = 0;
   String? _errorMessage;
+  bool guestResumePending = false;
+  bool _restoringSession = false;
+  bool get isRestoringSession => _restoringSession;
+
+  void acceptRestoredGuest() {
+    guestResumePending = false;
+    _notify();
+  }
+
   GuestTrialAccess? _trial;
   Timer? _trialTimer;
   final Stopwatch _trialClock;
@@ -100,6 +109,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _sessionExpired() {
+    _restoringSession = false;
     _clearTrial();
     _epoch++;
     _user = null;
@@ -112,6 +122,8 @@ class AuthProvider extends ChangeNotifier {
       ? error.message
       : 'Không thể xác thực. Vui lòng thử lại.';
   Future<bool> _authenticate(Future<UserModel> Function() request) async {
+    _restoringSession = false;
+    guestResumePending = false;
     _clearTrial();
     final epoch = ++_epoch, previous = _user;
     _state = AuthState.loading;
@@ -137,6 +149,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     _clearTrial();
+    _restoringSession = true;
     final epoch = ++_epoch;
     _state = AuthState.loading;
     _notify();
@@ -144,13 +157,16 @@ class AuthProvider extends ChangeNotifier {
       final result = await _authService.restoreSession();
       if (!_current(epoch)) return;
       _user = result;
+      _restoringSession = false;
       _state = result == null
           ? AuthState.unauthenticated
           : AuthState.authenticated;
+      guestResumePending = result?.isGuest == true;
       _notify();
       if (result?.isGuest == true) await loadGuestTrial(start: true);
     } catch (error) {
       if (!_current(epoch)) return;
+      _restoringSession = false;
       _user = null;
       _state = AuthState.unauthenticated;
       _errorMessage = _message(error);
@@ -238,10 +254,14 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     final epoch = _epoch;
     try {
-      await _authService.changePassword(
-        currentPassword: currentPassword,
-        newPassword: newPassword,
-      );
+      if (_user?.accountType == AccountType.google) {
+        await _authService.setPassword(newPassword: newPassword);
+      } else {
+        await _authService.changePassword(
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        );
+      }
       if (_current(epoch)) {
         _user = null;
         _state = AuthState.unauthenticated;
@@ -260,6 +280,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _restoringSession = false;
+    guestResumePending = false;
     _clearTrial();
     final epoch = ++_epoch;
     try {

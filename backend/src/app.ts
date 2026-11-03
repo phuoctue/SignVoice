@@ -15,6 +15,7 @@ import {serveWebStartupAssets} from './web-startup-assets';
 import { servePublicInformation } from './public-information';
 import {createAvatarMediaRouter} from './services/avatar-media.service';
 import {dictionaryCompression} from './common/middlewares/dictionary-compression';
+import {servePasswordResetLinks} from './password-reset-links';
 
 /**
  * Create and configure Express application
@@ -74,6 +75,7 @@ export async function createApp(): Promise<Application> {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use(cookieParser());
+  servePasswordResetLinks(app);
 
   // Request tracking
   app.use(addRequestId);

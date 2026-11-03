@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'dart:async';
 
@@ -20,6 +21,7 @@ import 'core/app_state.dart';
 import 'core/app_route.dart';
 import 'core/theme.dart';
 import 'core/navigation.dart';
+import 'core/password_reset_link.dart';
 import 'features/auth/auth_screens.dart';
 import 'features/auth/oauth_complete_screen.dart';
 import 'features/auth/change_password_screen.dart';
@@ -157,6 +159,109 @@ class _SignVoiceAppState extends State<SignVoiceApp>
   }
 
   String? pendingNotificationRoute;
+  static const _authLinks = MethodChannel('signvoice/auth-links');
+  String? _activeResetLink;
+
+  void _receiveResetLink(Object? value) {
+    final route = validatedPasswordResetRoute(value);
+    if (!mounted || route == null || _activeResetLink == route) return;
+    _activeResetLink = route;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final navigator = navigatorKey.currentState;
+      if (navigator == null) {
+        _activeResetLink = null;
+        return;
+      }
+      navigator.pushNamed(route).whenComplete(() {
+        if (_activeResetLink == route) _activeResetLink = null;
+      });
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool _guestChoiceVisible = false;
+
+  Future<void> _chooseGuest() async {
+    if (!mounted || !auth.guestResumePending) {
+      _guestChoiceVisible = false;
+      return;
+    }
+    final dialogContext = navigatorKey.currentContext;
+    if (dialogContext == null) {
+      _guestChoiceVisible = false;
+      return;
+    }
+    var busy = false;
+    String? error;
+    await showDialog<void>(
+      context: dialogContext,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            scrollable: true,
+            title: const Text('Tiếp tục với tài khoản khách'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Dùng khách cũ để giữ phiên và thời hạn 10 phút trước đó, hoặc tạo khách mới để bắt đầu 10 phút mới. Thời gian khách cũ vẫn chạy khi bạn đóng ứng dụng.',
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () {
+                        auth.acceptRestoredGuest();
+                        Navigator.pop(context);
+                      },
+                child: const Text('Dùng khách cũ'),
+              ),
+              FilledButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        update(() {
+                          busy = true;
+                          error = null;
+                        });
+                        final success = await auth.loginAsGuest();
+                        if (!context.mounted) return;
+                        if (success) {
+                          Navigator.pop(context);
+                        } else {
+                          update(() {
+                            busy = false;
+                            error =
+                                auth.errorMessage ??
+                                'Không thể tạo khách mới. Vui lòng thử lại.';
+                          });
+                        }
+                      },
+                child: Text(busy ? 'Đang tạo…' : 'Tạo khách mới · 10 phút'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    _guestChoiceVisible = false;
+  }
+
   late final notifications = NotificationService(
     state,
     onOpen: (route) {
@@ -203,6 +308,15 @@ class _SignVoiceAppState extends State<SignVoiceApp>
   @override
   void initState() {
     super.initState();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _authLinks.setMethodCallHandler((call) async {
+        if (call.method == 'open') _receiveResetLink(call.arguments);
+      });
+      _authLinks
+          .invokeMethod<String>('takePending')
+          .then(_receiveResetLink)
+          .catchError((Object _) {});
+    }
     if (useWebRouter) GoRouter.optionURLReflectsImperativeAPIs = true;
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -221,6 +335,10 @@ class _SignVoiceAppState extends State<SignVoiceApp>
   }
 
   void _syncUser() {
+    if (auth.guestResumePending && !_guestChoiceVisible) {
+      _guestChoiceVisible = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _chooseGuest());
+    }
     final user = auth.user;
     if (auth.isAuthenticated && user != null) {
       if (_currentUserId != user.id) {
@@ -271,6 +389,9 @@ class _SignVoiceAppState extends State<SignVoiceApp>
 
   @override
   void dispose() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _authLinks.setMethodCallHandler(null);
+    }
     WidgetsBinding.instance.removeObserver(this);
     notifications.dispose();
     if (useWebRouter) webRouter.dispose();
@@ -316,6 +437,12 @@ class _SignVoiceAppState extends State<SignVoiceApp>
     if (route.uri.path == '/reset-password') {
       return ResetPasswordScreen(
         token: route.uri.queryParameters['token'] ?? '',
+      );
+    }
+    if (route.screenId == 'S05' || route.screenId == 'S06') {
+      return AuthScreen(
+        register: route.screenId == 'S06',
+        returnRoute: route.uri.queryParameters['returnTo'],
       );
     }
     if (route.uri.pathSegments.length == 3 &&
@@ -524,7 +651,9 @@ class AccessGate extends StatelessWidget {
       return screenFor(screenId);
     }
     final auth = context.watch<AuthProvider>();
-    if (auth.state == AuthState.initial || auth.isLoading) {
+    if (auth.state == AuthState.initial ||
+        auth.isRestoringSession ||
+        (auth.isLoading && auth.user != null)) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!auth.isAuthenticated) {
@@ -593,6 +722,7 @@ class AccessGate extends StatelessWidget {
             uri.path == '/learn' && uri.queryParameters['tab'] == '2';
         return GuestAccessGate(
           permanentOnly: permanent,
+          returnRoute: screenId,
           child: AccessGate(screenId: screenId, guestChecked: true),
         );
       }
@@ -666,7 +796,11 @@ class AccessGate extends StatelessWidget {
           ? const NotificationsScreen()
           : const StudyReminderScreen();
       return auth.user?.isGuest == true
-          ? GuestAccessGate(permanentOnly: true, child: page)
+          ? GuestAccessGate(
+              permanentOnly: true,
+              returnRoute: screenId,
+              child: page,
+            )
           : page;
     }
     if (screenId.startsWith('/staff/')) {
@@ -706,7 +840,11 @@ class AccessGate extends StatelessWidget {
     if (screenId.startsWith('/conversations/')) {
       final child = HistoryDetailScreen(id: screenId.split('/').last);
       return auth.user?.isGuest == true
-          ? GuestAccessGate(permanentOnly: true, child: child)
+          ? GuestAccessGate(
+              permanentOnly: true,
+              returnRoute: screenId,
+              child: child,
+            )
           : child;
     }
     final page = screenFor(screenId);

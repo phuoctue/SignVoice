@@ -1,5 +1,16 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import {readFileSync} from 'node:fs';
 import {GoogleAuth} from 'google-auth-library';
+
+if (process.argv.includes('--test')) {
+  const config = dotenv.parse(readFileSync('.env.test'));
+  if (new URL(config.MONGODB_URI).pathname !== '/signvoice_test') throw new Error('Expected signvoice_test');
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  delete process.env.FIREBASE_PROJECT_ID;
+  Object.assign(process.env, config);
+} else {
+  dotenv.config({path: process.env.SIGNVOICE_ENV_FILE || '.env'});
+}
 
 async function main() {
   if (!process.env.FIREBASE_PROJECT_ID || !process.env.GOOGLE_APPLICATION_CREDENTIALS) throw new Error('Missing Firebase server configuration');

@@ -15,8 +15,36 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var hands: NativeHandTracker? = null
     private var google: NativeGoogleSignIn? = null
+    private var authLinks: MethodChannel? = null
+    private var pendingResetRoute: String? = null
+
+    private fun resetRoute(intent: Intent?): String? = if (intent?.action == Intent.ACTION_VIEW)
+        PasswordResetLinks.route(intent.dataString, getString(R.string.signvoice_app_link_host)) else null
+
+    override fun getInitialRoute(): String? = resetRoute(intent) ?: super.getInitialRoute()
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val route = resetRoute(intent) ?: return
+        pendingResetRoute = route
+        authLinks?.invokeMethod("open", route, object : MethodChannel.Result {
+            override fun success(result: Any?) { if (pendingResetRoute == route) pendingResetRoute = null }
+            override fun error(code: String, message: String?, details: Any?) {}
+            override fun notImplemented() {}
+        })
+    }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        authLinks = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "signvoice/auth-links").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method == "takePending") {
+                    val route = pendingResetRoute
+                    pendingResetRoute = null
+                    result.success(route)
+                } else result.notImplemented()
+            }
+        }
         val googleSignIn = NativeGoogleSignIn(this)
         google = googleSignIn
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "signvoice/google")
@@ -89,6 +117,7 @@ class MainActivity : FlutterActivity() {
         return false
     }
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        authLinks?.setMethodCallHandler(null); authLinks = null
         google?.close(); google = null
         hands?.close(); hands = null
         super.cleanUpFlutterEngine(flutterEngine)

@@ -28,6 +28,9 @@ export function setupSwagger(app: Application): void {
 
     const openApiFile = fs.readFileSync(openApiPath, 'utf8');
     const swaggerDocument = yaml.parse(openApiFile);
+    if (env.isTest) {
+      swaggerDocument.servers = [{ url: '/api/v1', description: 'Testing (same origin)' }];
+    }
 
     // Swagger UI options
     const swaggerOptions: swaggerUi.SwaggerUiOptions = {

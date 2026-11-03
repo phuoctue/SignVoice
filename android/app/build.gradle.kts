@@ -17,6 +17,7 @@ val signVoiceTargetAbis = providers.gradleProperty("target-platform")
 val signVoiceSplitPerAbi = providers.gradleProperty("split-per-abi").orElse("false").get().toBoolean()
 
 android {
+    buildFeatures { resValues = true }
     // Bundle exactly the same verified hand model as the web detector.
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("handModelAssets").get().asFile)
     namespace = "com.example.sign_voice"
@@ -30,6 +31,9 @@ android {
     }
 
     defaultConfig {
+        val appLinkHost = providers.gradleProperty("signVoiceAppLinkHost").orElse("localhost").get()
+        manifestPlaceholders["signVoiceAppLinkHost"] = appLinkHost
+        resValue("string", "signvoice_app_link_host", appLinkHost)
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.sign_voice"
         // You can update the following values to match your application needs.

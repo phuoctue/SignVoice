@@ -1,6 +1,6 @@
 import { z } from 'zod';
 export const guestDeviceFields = z.object({deviceKey: z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict();
-export const guestSchema = z.object({body: guestDeviceFields.default({})});
+export const guestSchema = z.object({body: guestDeviceFields.extend({newGuest: z.boolean().optional()}).default({})});
 
 /**
  * Password validation schema
@@ -69,6 +69,8 @@ export const changePasswordSchema = z.object({
     newPassword: passwordSchema,
   }),
 });
+
+export const setPasswordSchema = z.object({body: z.object({newPassword: passwordSchema}).strict()});
 
 /**
  * Forgot password request validation

@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: process.env.SIGNVOICE_ENV_FILE || '.env' });
 
 /**
  * Environment configuration

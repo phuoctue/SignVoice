@@ -258,6 +258,13 @@ class LearningService {
                   path != '/shared-collections' &&
                   !path.startsWith('/shared-collections/'),
             );
+            if (epoch != _client.sessionEpoch &&
+                (path == '/shared-collections' ||
+                    path.startsWith('/shared-collections/'))) {
+              // Public data survives session restoration, but must not populate
+              // a cache belonging to a different account.
+              return LearningRecord.from(response['data'] as Map);
+            }
             _client.checkSession(epoch);
             _checkCacheOwner();
             if (revision != _revision) {

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "411448560050",
+    "project_id": "signvoice-143c9",
+    "storage_bucket": "signvoice-143c9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:411448560050:android:7d9b5fd660e51bd7cdbcab",
+        "android_client_info": {
+          "package_name": "com.example.sign_voice"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAwcYeKzKfRnLlw70Iq9XSmIod9qBsUtBQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

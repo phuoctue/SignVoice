@@ -446,8 +446,9 @@ export async function refreshTokens(
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create new sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  const authenticatedAt = session.authenticatedAt || new Date(0);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, authenticatedAt);
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, authenticatedAt);
 
   // Audit log
   await AuditLog.log({
@@ -524,7 +525,8 @@ export async function createAuthSession(
   token: string,
   expiresAt: Date,
   meta: IRequestMeta,
-  passwordVersion = 0
+  passwordVersion = 0,
+  authenticatedAt = new Date()
 ): Promise<void> {
   const tokenHash = hashToken(token);
   // Both token types have similar lengths; derive the type from verified claims.
@@ -538,6 +540,7 @@ export async function createAuthSession(
 
   await AuthSession.create({
     userId,
+    authenticatedAt,
     sessionFamily: payload.sid,
     passwordVersion,
     sessionType,
@@ -582,4 +585,25 @@ export async function changePassword(userId: Types.ObjectId, currentPassword: st
     $unset: { passwordResetTokenHash: 1, passwordResetExpiresAt: 1, passwordResetRequestedAt: 1 } });
   if (!claimed) throw new AppError('Tài khoản vừa thay đổi. Vui lòng đăng nhập lại.', 409, 'AUTH_SESSION_INVALID');
   await AuthSession.revokeAllForUser(user._id);
+}
+
+export async function setGooglePassword(userId: Types.ObjectId, sessionId: Types.ObjectId, newPassword: string): Promise<void> {
+  const user = await User.findById(userId).select('+passwordHash');
+  if (!user || !user.isActive()) throw new AppError('Account unavailable', 403, ErrorCodes.USER_DISABLED);
+  if (user.isGuest || user.accountType !== AccountType.GOOGLE || user.passwordHash || !user.email || !user.googleProvider?.providerId) {
+    throw new AppError('Chức năng này chỉ dành cho tài khoản Google chưa có mật khẩu.', 400, 'AUTH_PASSWORD_NOT_SUPPORTED');
+  }
+  const session = await AuthSession.findOne({_id: sessionId, userId});
+  const authenticatedAt = session?.authenticatedAt;
+  if (!session?.isValid() || !authenticatedAt || authenticatedAt.getTime() < Date.now() - 10 * 60 * 1000) {
+    throw new AppError('Vui lòng đăng xuất và đăng nhập lại bằng Google trước khi tạo mật khẩu (trong vòng 10 phút).', 403, 'AUTH_REAUTHENTICATION_REQUIRED');
+  }
+  const passwordHash = await hashPassword(newPassword);
+  const claimed = await User.findOneAndUpdate({_id: userId, accountType: AccountType.GOOGLE,
+    status: AccountStatus.ACTIVE, passwordVersion: user.passwordVersion, passwordHash: {$exists: false}},
+    {$set: {passwordHash, accountType: AccountType.LOCAL}, $inc: {passwordVersion: 1},
+      $unset: {passwordResetTokenHash: 1, passwordResetExpiresAt: 1, passwordResetRequestedAt: 1}});
+  if (!claimed) throw new AppError('Tài khoản vừa thay đổi. Vui lòng đăng nhập lại.', 409, 'AUTH_SESSION_INVALID');
+  // Keep the Google provider subject, account ID, roles and learning data intact.
+  await AuthSession.revokeAllForUser(userId);
 }

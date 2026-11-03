@@ -14,7 +14,7 @@ try {
  */
 export async function connectDatabase(): Promise<void> {
   try {
-    if (process.env.NODE_ENV === 'test' && !/^signvoice_test_[a-z0-9_]+$/i.test(new URL(env.MONGODB_URI).pathname.slice(1))) {
+    if (process.env.NODE_ENV === 'test' && !/^signvoice_test(?:_[a-z0-9_]+)?$/i.test(new URL(env.MONGODB_URI).pathname.slice(1))) {
       throw new Error('Refusing to connect tests to a non-test database');
     }
     for (let attempt = 0; attempt < 2; attempt++) {

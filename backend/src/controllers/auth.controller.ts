@@ -9,6 +9,7 @@ import { authorizationFor } from '../services/authorization.service';
 import {Types} from 'mongoose';
 import {trialForDevice, guestTrialStatus} from '../services/guest-trial.service';
 import {guestDeviceKey} from '../services/guest-device.service';
+import {deleteGuestOnLogout} from '../services/user-data.service';
 
 export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -42,6 +43,15 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
     await authService.changePassword(req.user.id, req.body.currentPassword, req.body.newPassword);
     res.clearCookie(refreshCookie, cookieOptions);
     res.json({ success: true, data: { message: 'Đã đổi mật khẩu. Vui lòng đăng nhập lại trên các thiết bị.' } });
+  } catch (error) { next(error); }
+}
+
+export async function setPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user || !req.sessionId) throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
+    await authService.setGooglePassword(req.user.id, req.sessionId, req.body.newPassword);
+    res.clearCookie(refreshCookie, cookieOptions);
+    res.json({success: true, data: {message: 'Đã tạo mật khẩu. Vui lòng đăng nhập lại bằng Google hoặc email và mật khẩu.'}});
   } catch (error) { next(error); }
 }
 
@@ -112,7 +122,10 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
  */
 export async function createGuest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const trial = await trialForDevice(guestDeviceKey(req, res));
+    const deviceKey = guestDeviceKey(req, res);
+    const trial = await trialForDevice(req.body?.newGuest === true
+      ? 'guest-session:' + new Types.ObjectId().toHexString()
+      : deviceKey);
     const result = await authService.createGuestAccount(getRequestMeta(req), trial._id);
     await guestTrialStatus(new Types.ObjectId(result.user.id), true);
     setRefreshCookie(res, result.tokens);
@@ -204,7 +217,11 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
     }
     
-    await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
+    if (req.user.isGuest) {
+      await deleteGuestOnLogout(new Types.ObjectId(req.user.id));
+    } else {
+      await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
+    }
     res.clearCookie(refreshCookie, cookieOptions);
     
     res.status(200).json({

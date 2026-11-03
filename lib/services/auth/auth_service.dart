@@ -137,6 +137,15 @@ class AuthService {
     return getCurrentUser();
   }
 
+  Future<void> setPassword({required String newPassword}) async {
+    final epoch = _apiClient.sessionEpoch;
+    await _apiClient.post(
+      '/auth/set-password',
+      body: {'newPassword': newPassword},
+    );
+    await _apiClient.clearSession(expectedEpoch: epoch);
+  }
+
   Future<UserModel> _saveAuthResponse(dynamic response, int epoch) async {
     _apiClient.checkSession(epoch);
     final data = response['data'];
@@ -241,7 +250,7 @@ class AuthService {
     final epoch = _apiClient.beginAuthentication();
     final response = await _apiClient.post(
       '${ApiConfig.authEndpoint}/guest',
-      body: {'deviceKey': await guestDeviceKey()},
+      body: {'deviceKey': await guestDeviceKey(), 'newGuest': true},
       requiresAuth: false,
     );
 

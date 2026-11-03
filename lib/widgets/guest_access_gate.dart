@@ -12,9 +12,11 @@ class GuestAccessGate extends StatefulWidget {
     super.key,
     required this.child,
     this.permanentOnly = false,
+    this.returnRoute,
   });
   final Widget child;
   final bool permanentOnly;
+  final String? returnRoute;
   @override
   State<GuestAccessGate> createState() => _GuestAccessGateState();
 }
@@ -147,14 +149,20 @@ class _GuestAccessGateState extends State<GuestAccessGate>
             AppButton(
               'Đăng nhập',
               fill: true,
-              onPressed: () => openScreen(context, 'S05'),
+              onPressed: () => openScreen(
+                context,
+                authLocation(returnRoute: widget.returnRoute),
+              ),
             ),
             const SizedBox(height: 12),
             AppButton(
               'Tạo tài khoản',
               fill: true,
               outlined: true,
-              onPressed: () => openScreen(context, 'S06'),
+              onPressed: () => openScreen(
+                context,
+                authLocation(register: true, returnRoute: widget.returnRoute),
+              ),
             ),
             TextButton(
               onPressed: () => openRoot(context, 'S22'),

@@ -30,6 +30,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   Future<void> save() async {
     if (saving || !form.currentState!.validate()) return;
     final auth = context.read<AuthProvider>();
+    final creating = auth.user?.accountType == AccountType.google;
     final messenger = ScaffoldMessenger.of(context);
     setState(() {
       saving = true;
@@ -41,9 +42,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
     if (success && messenger.mounted) {
       messenger.showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Đã đổi mật khẩu. Vui lòng đăng nhập lại bằng mật khẩu mới.',
+            creating
+                ? 'Đã tạo mật khẩu. Bạn có thể đăng nhập bằng Google hoặc email và mật khẩu mới.'
+                : 'Đã đổi mật khẩu. Vui lòng đăng nhập lại bằng mật khẩu mới.',
           ),
         ),
       );
@@ -61,9 +64,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
+    final creating = user?.accountType == AccountType.google;
     return AppPage(
-      title: 'Đổi mật khẩu',
-      child: user?.accountType != AccountType.local || user?.isGuest == true
+      title: creating ? 'Tạo mật khẩu đăng nhập' : 'Đổi mật khẩu',
+      child:
+          (user?.accountType != AccountType.local && !creating) ||
+              user?.isGuest == true
           ? const Notice(
               'Tài khoản Google/Facebook quản lý mật khẩu tại nhà cung cấp đăng nhập. Tài khoản dùng thử cần tạo tài khoản email trước.',
             )
@@ -73,20 +79,23 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const BodyText(
-                      'Nhập mật khẩu hiện tại và nhập mật khẩu mới hai lần. Sau khi đổi thành công, bạn cần đăng nhập lại trên các thiết bị.',
+                    BodyText(
+                      creating
+                          ? 'Tạo mật khẩu cho email Google hiện tại. Google và email/mật khẩu sẽ dùng chung tài khoản và tiến trình học. Bạn cần vừa đăng nhập Google trong vòng 10 phút. Sau khi tạo thành công, hãy đăng nhập lại.'
+                          : 'Nhập mật khẩu hiện tại và nhập mật khẩu mới hai lần. Sau khi đổi thành công, bạn cần đăng nhập lại trên các thiết bị.',
                     ),
                     const SizedBox(height: 24),
-                    PasswordInput(
-                      controller: current,
-                      label: 'Mật khẩu hiện tại',
-                      hint: 'Nhập mật khẩu đang dùng',
-                      enabled: !saving,
-                      validator: (value) => value == null || value.isEmpty
-                          ? 'Vui lòng nhập mật khẩu hiện tại.'
-                          : null,
-                    ),
-                    const SizedBox(height: 20),
+                    if (!creating)
+                      PasswordInput(
+                        controller: current,
+                        label: 'Mật khẩu hiện tại',
+                        hint: 'Nhập mật khẩu đang dùng',
+                        enabled: !saving,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Vui lòng nhập mật khẩu hiện tại.'
+                            : null,
+                      ),
+                    if (!creating) const SizedBox(height: 20),
                     PasswordInput(
                       controller: password,
                       label: 'Mật khẩu mới',
@@ -119,7 +128,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     ],
                     const SizedBox(height: 24),
                     AppButton(
-                      'Lưu mật khẩu mới',
+                      creating ? 'Tạo mật khẩu đăng nhập' : 'Lưu mật khẩu mới',
                       icon: Icons.lock_reset,
                       busy: saving,
                       onPressed: saving ? null : save,
