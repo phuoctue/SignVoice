@@ -8,7 +8,7 @@ depends-on: [non-ai-oauth]
 ## Objective
 
 Close the staff dashboard navigation/DTO blockers in the baseline audit. Follow
-docs/NON_AI_API.md. Preserve existing admin workspace and permission gates. Review
+docs/active/NON_AI_API.md. Preserve existing admin workspace and permission gates. Review
 exposed admin actions for fabricated success or incorrect service decoding, and fix
 concrete broken flows rather than adding unrelated product features.
 

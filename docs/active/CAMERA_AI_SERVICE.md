@@ -1,6 +1,6 @@
 # Camera và service AI SignVoice
 
-> Cách cài/chạy hiện hành trên máy khác: [SETUP_AI.md](SETUP_AI.md). Bản phát hành hiện dùng 181 từ và không dùng LM Studio trong nhận diện camera. Nội dung bên dưới là nhật ký triển khai cũ (gồm giai đoạn 144/234 từ và LM Vision), không dùng làm hướng dẫn chọn model hiện tại.
+> Cách cài/chạy hiện hành trên máy khác: [SETUP_AI.md](../active/SETUP_AI.md). Bản phát hành hiện dùng 181 từ và không dùng LM Studio trong nhận diện camera. Nội dung bên dưới là nhật ký triển khai cũ (gồm giai đoạn 144/234 từ và LM Vision), không dùng làm hướng dẫn chọn model hiện tại.
 
 Flutter gửi ảnh trực tiếp đến Python/FastAPI cổng **8001**. Node cổng **3000** quản lý tài khoản, từ điển và lịch sử. Model, OpenCV và kết nối LM Studio chạy trong service Python riêng.
 
@@ -89,7 +89,7 @@ ZIP `SignVoice_Dataset_ToanBo_MoRong_2026-10-16.zip` cần ở thư mục model 
 - Camera trước chỉ lật preview; pixel suy luận không lật. Android v8 xử lý YUV420/stride/góc sensor-device tại thiết bị, đo MediaPipe GPU/CPU và gửi JPEG + XYZ cùng khung; có đường YUV service CPU dự phòng. iOS gửi BGRA; web v8 đo tay trước bước nén JPEG.
 - Native máy thật: cùng mạng, chạy `powershell -File scripts/start-ai-service.ps1 -ListenHost 0.0.0.0`, nhập `http://IP-MAY-TINH:8001` trong cài đặt camera. Android emulator dùng `10.0.2.2`. Cho phép cổng trên mạng riêng nếu firewall chặn.
 - Web điện thoại cần HTTPS cho cả app và AI/WSS. HTTP LAN thông thường không được cấp camera. Dùng reverse proxy HTTPS hoặc `-SslCert`/`-SslKey` với chứng chỉ thiết bị tin cậy. Khai báo origin app trong `AI_ALLOWED_ORIGINS`; backend phục vụ web cần CSP cho phép origin AI.
-- Chưa kiểm thử camera trước/sau và tiếng đọc trên điện thoại vật lý. Đã chuẩn bị Android SDK và kiểm tra build Android v8; chưa build iOS. Chi tiết build và giới hạn đo thực tế tại [báo cáo v8](CAMERA_LANDMARK_V8_20261019.md).
+- Chưa kiểm thử camera trước/sau và tiếng đọc trên điện thoại vật lý. Đã chuẩn bị Android SDK và kiểm tra build Android v8; chưa build iOS. Chi tiết build và giới hạn đo thực tế tại [báo cáo v8](../archive/CAMERA_LANDMARK_V8_20261019.md).
 
 ## Kiểm chứng
 

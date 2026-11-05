@@ -33,7 +33,7 @@ info:
     ## Giới hạn
 
     - **AI Recognition**: Gateway /sign-ai chuyển tiếp tới service AI riêng; inference yêu cầu xác thực và phiên thử còn hạn với khách. WebSocket dùng ticket ngắn hạn từ /api/v1/guest-trial/ai-ticket.
-    - **OAuth**: Google/Facebook web authorization-code login; provider flags are disabled until server credentials/origins are configured. See docs/OAUTH_SETUP.md.
+    - **OAuth**: Google/Facebook web authorization-code login; provider flags are disabled until server credentials/origins are configured. See docs/active/OAUTH_SETUP.md.
     - **Email**: Xác thực email chưa được kích hoạt
 
   contact:

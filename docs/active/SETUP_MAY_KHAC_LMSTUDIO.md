@@ -259,7 +259,7 @@ Sau khi sửa `backend/.env` hoặc backend source: Ctrl+C terminal đang chạy
 8. Trong **Đang học**, bấm **Lịch sử học tập** để xem các lượt đã ghi nhận. Trên thẻ từ trong chủ đề đã bắt đầu, bấm **Lịch sử từ này** để lọc riêng từ đó. Có tìm kiếm và 10 bản ghi/trang; dữ liệu cũ hiện dưới nhãn **Trạng thái đã lưu** theo lần cập nhật gần nhất.
 9. Bấm **Thống kê & mục tiêu**: chọn **7/30 ngày** trong danh sách sổ xuống, bấm ngày để xem từng từ **Đã học / Đã ôn**. Mục tiêu hiển thị đầy đủ số đã làm/tổng và chuyển xanh lá khi hoàn thành. Dữ liệu cập nhật khi mở trang, quay lại từ trang học/ôn, lưu mục tiêu hoặc bấm **Làm mới**; không cập nhật định kỳ 5 giây. **Đổi mục tiêu** để lưu số từ mới/từ ôn riêng; mặc định 5/10. Muốn có dữ liệu **Cần củng cố**, vào chủ đề → Ôn tập → làm ký hiệu bằng camera → nộp quiz; các từ từng chưa khớp trong 30 ngày sẽ được tổng hợp. Quiz nháp hoặc trạng thái cũ không tự sinh thêm lượt học. Xem quy tắc đếm trong [DICTIONARY_LEARNING.md](DICTIONARY_LEARNING.md#biểu-đồ-từ-cần-củng-cố-và-mục-tiêu-ngày).
 
-LM Studio chỉ nhận xét tiến độ và gợi ý ôn; không sửa đánh giá ghi nhớ hoặc chấm động tác. Luồng quiz camera và lịch ôn 3 ngày giữ nguyên theo `dev`, xem [DICTIONARY_LEARNING.md](DICTIONARY_LEARNING.md). Chế độ tối thiểu phần 7 không khởi động camera; muốn dùng quiz camera cần phần 10.
+LM Studio chỉ nhận xét tiến độ và gợi ý ôn; không sửa đánh giá ghi nhớ hoặc chấm động tác. Luồng quiz camera và lịch ôn 3 ngày giữ nguyên theo `dev`, xem [DICTIONARY_LEARNING.md](../active/DICTIONARY_LEARNING.md). Chế độ tối thiểu phần 7 không khởi động camera; muốn dùng quiz camera cần phần 10.
 
 ## 9. Trình tự sử dụng hằng ngày và dừng
 
@@ -274,7 +274,7 @@ Dừng backend chạy thủ công bằng **Ctrl+C** trong đúng terminal. Scrip
 
 ## 10. Nếu cần chạy cả camera bằng Local/Public
 
-Cài thêm Python **3.11 x64**, tạo môi trường và tải đúng bộ model camera theo [SETUP_AI.md](SETUP_AI.md):
+Cài thêm Python **3.11 x64**, tạo môi trường và tải đúng bộ model camera theo [SETUP_AI.md](../active/SETUP_AI.md):
 
 ```powershell
 Set-Location "D:\Projects\SignVoice"
@@ -292,7 +292,7 @@ Sau khi database, model camera và `.env` sẵn sàng, vẫn phải bật LM Stu
 
 Mở **http://localhost:3002**. Script Local ghi đè cổng/origin của lần chạy về 3002, dù `.env` đặt PORT=3000. Không chạy lệnh thủ công và bộ script đồng thời trên cùng cổng.
 
-Public qua Conveyor cần cài Conveyor CLI ở `.tools/conveyor/conveyorcli.exe` và đăng nhập tài khoản tunnel của người nhận theo [CONVEYOR_PUBLISHING.md](CONVEYOR_PUBLISHING.md). Sau đó:
+Public qua Conveyor cần cài Conveyor CLI ở `.tools/conveyor/conveyorcli.exe` và đăng nhập tài khoản tunnel của người nhận theo [CONVEYOR_PUBLISHING.md](../active/CONVEYOR_PUBLISHING.md). Sau đó:
 
 ```powershell
 .\scripts\start-signvoice.ps1 Public
@@ -469,4 +469,4 @@ Lệnh build lại giao diện/backend và chạy ứng dụng tại **http://lo
 
 Nếu chạy thủ công theo phần 7, dừng bằng **Ctrl+C** trong terminal backend. Tắt API server trong LM Studio trên máy anh khi không còn máy nào sử dụng; script dừng SignVoice không tắt LM Studio.
 
-Tài liệu liên quan: [Chi tiết LMS](LMStudio-learning-progress.md), [dịch vụ camera](SETUP_AI.md), [media và import](../README.md#chuyển-bộ-từ-điển-sang-máy-khác).
+Tài liệu liên quan: [Chi tiết LMS](../active/LMStudio-learning-progress.md), [dịch vụ camera](../active/SETUP_AI.md), [media và import](../../README.md#chuyển-bộ-từ-điển-sang-máy-khác).

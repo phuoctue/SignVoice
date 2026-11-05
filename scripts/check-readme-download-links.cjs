@@ -58,7 +58,7 @@ function selfTest() {
   for (const text of [
     '[Source](https://github.com/google-ai-edge/mediapipe)',
     'Package: https://www.npmjs.com/package/@mediapipe/tasks-vision/v/0.10.32',
-    '[Guide](docs/SETUP_AI.md)',
+    '[Guide](docs/active/SETUP_AI.md)',
     'Run node.exe to build an APK locally.',
     'http://localhost:3003/api-docs',
   ]) assert.equal(findings(text).length, 0, text);

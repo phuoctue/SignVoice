@@ -7,7 +7,7 @@ depends-on: [non-ai-baseline]
 
 ## Objective
 
-Complete the active lib/features user flows using docs/NON_AI_API.md and baseline audit.
+Complete the active lib/features user flows using docs/active/NON_AI_API.md and baseline audit.
 Reuse the existing visual design and actual services/DTOs. Replace AppState-only data with
 real profile/settings/favorites/manual conversations, safe per-account lifecycle and real sync.
 Home/dictionary/detail must use actual data. Recognition/STT routes must state unavailable,

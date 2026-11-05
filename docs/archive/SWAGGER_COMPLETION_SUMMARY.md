@@ -126,7 +126,7 @@
 ✅ backend/src/config/swagger.ts           (85 lines)
 ✅ backend/scripts/validate-openapi.ts     (70 lines)
 ✅ backend/scripts/check-api-coverage.ts   (180 lines)
-✅ docs/SWAGGER_TESTING_GUIDE.md           (~800 lines)
+✅ docs/active/SWAGGER_TESTING_GUIDE.md           (~800 lines)
 ✅ docs/SWAGGER_INTEGRATION_REPORT.md      (~650 lines)
 ✅ docs/SWAGGER_COMPLETION_SUMMARY.md      (This file)
 ```

@@ -12,7 +12,7 @@ copy of all recent AI work. Do not reset unrelated files or remove installed mod
 
 ## Context
 
-Read docs/INDEX.md and docs/NON_AI_DELIVERY.md. Current branch task/non-ai-baseline.
+Read docs/INDEX.md and docs/active/NON_AI_DELIVERY.md. Current branch task/non-ai-baseline.
 All 22 currently modified tracked paths are the AI changes from this conversation.
 The untracked android/build directory existed before AI work and must be left untouched.
 

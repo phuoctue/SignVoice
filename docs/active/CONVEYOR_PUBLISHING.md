@@ -47,7 +47,7 @@ khác ở lần chạy sau, dừng server public và khởi động lại với 
 Nếu bật Google/Facebook, đặt `OAUTH_BACKEND_ORIGIN` và `OAUTH_FRONTEND_ORIGIN` trong
 `backend/.env` bằng origin HTTPS hiện tại, đồng thời đăng ký lại callback tương ứng
 tại Google/Meta khi link thay đổi. Script không thay các cấu hình OAuth này giúp bạn.
-Xem [đầy đủ biến môi trường và callback](OAUTH_SETUP.md). Không đưa credentials vào
+Xem [đầy đủ biến môi trường và callback](../active/OAUTH_SETUP.md). Không đưa credentials vào
 bản build Flutter. Backend dùng Atlas hoặc MongoDB replica set để hỗ trợ giao dịch.
 
 ## Kiểm tra và dừng

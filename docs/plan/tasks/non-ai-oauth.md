@@ -9,7 +9,7 @@ depends-on: []
 
 Implement the user's eight OAuth requirements while preserving email/password, guest,
 password recovery and existing JWT rotation. No credentials or fixed HTTPS domain are available.
-Read docs/INDEX.md, docs/NON_AI_DELIVERY.md and existing auth service/controller/storage/tests.
+Read docs/INDEX.md, docs/active/NON_AI_DELIVERY.md and existing auth service/controller/storage/tests.
 
 ## Contract
 
@@ -51,7 +51,7 @@ Own backend auth/OAuth routes, services/controllers, config/env.ts, .env.example
 User model provider identity fields/indexes, OAuth state model, auth-related tests,
 auth session helper refactors if necessary, package dependency manifests, OAuth OpenAPI sections.
 Own Flutter lib/features/auth, lib/services/auth, lib/providers/auth_provider.dart,
-lib/app.dart callback routing only, auth tests and docs/OAUTH_SETUP.md.
+lib/app.dart callback routing only, auth tests and docs/active/OAUTH_SETUP.md.
 Parent explicitly extended ownership to common/middlewares/requestLogger.ts OAuth redaction
 and /auth/change-password plus app.dart AppState.bindAccount lifecycle wiring.
 Do not modify AppState, profile/library/home screens, user/favorites/history API routes or

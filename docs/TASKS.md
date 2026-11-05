@@ -1,0 +1,45 @@
+# SignVoice — Task board
+
+## Quy ước
+
+Mỗi task phải có mục tiêu, phạm vi file, đầu vào cụ thể, tiêu chí kiểm tra và ngoài phạm vi. Trạng thái: `TODO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `BLOCKED`.
+
+## Baseline — 2026-11-05
+
+- `flutter analyze`: **FAIL**, 1 info tại `test/guest_preferences_test.dart:16:7` (`curly_braces_in_flow_control_structures`).
+- `flutter test`: **FAIL**, 538 test chạy; 11 test fail, chủ yếu ở các flow learning/web/layout.
+- `backend/npm run typecheck`: **PASS**.
+- `backend/npm run lint`: **FAIL**, backend chưa có ESLint configuration.
+- `backend/npm test`: chưa chạy baseline thành công trong lượt đầu vì đã thử nhầm cờ Jest `--runInBand`; Vitest không hỗ trợ cờ này. Lệnh đúng là `npm test`.
+
+## T-001 — Tạo lệnh check tổng hợp
+
+Trạng thái: `IN_PROGRESS`
+
+Mục tiêu: tạo một lệnh PowerShell ở root để chạy các kiểm tra hiện có theo thứ tự, giữ đủ exit code và báo cáo rõ bước nào fail.
+
+Phạm vi file:
+
+- Được sửa: `scripts/check.ps1`, mục task này trong `docs/TASKS.md`.
+- Không được sửa: `lib/`, `test/`, `backend/src/`, `backend/src/routes/sign-collection.routes.ts`, package/dependency files.
+
+Đầu vào cần đọc:
+
+- `AGENTS.md`, `CLAUDE.md`, `.agents/AGENT.md`.
+- `pubspec.yaml`.
+- `backend/package.json`.
+
+Tiêu chí hoàn thành:
+
+- `pwsh -File scripts/check.ps1` chạy được từ root.
+- Chạy Flutter analyze/test và backend typecheck/lint/test.
+- Không dừng ở bước đầu tiên; cuối cùng trả exit code khác 0 nếu có bước fail.
+- Không che giấu baseline failures.
+
+Lệnh kiểm tra: `pwsh -File scripts/check.ps1`.
+
+Ngoài phạm vi: sửa lỗi test/lint, thêm ESLint config, sửa code sản phẩm, cài package.
+
+## Báo cáo worker/reviewer
+
+Chưa có. Worker phải báo cáo: đã làm gì; file đổi; lệnh và kết quả; rủi ro. Reviewer phải báo cáo: PASS hoặc BLOCKER/SHOULD FIX/NIT và lý do ngắn.

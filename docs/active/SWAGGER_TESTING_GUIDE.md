@@ -726,7 +726,7 @@ Nếu gặp vấn đề:
 
 ## 📚 Tài liệu tham khảo
 
-- **API Endpoint Reference:** `docs/API_ENDPOINT_REFERENCE.md`
+- **API Endpoint Reference:** `docs/active/API_ENDPOINT_REFERENCE.md`
 - **OpenAPI Specification:** `backend/docs/openapi.yaml`
 - **Swagger UI Docs:** https://swagger.io/tools/swagger-ui/
 

@@ -1,7 +1,7 @@
 # Non-AI delivery plan
 
 The user authorized completing all non-AI flows and adding Google/Facebook OAuth.
-Implementation and review follow [the delivery contract](../NON_AI_DELIVERY.md).
+Implementation and review follow [the delivery contract](../active/NON_AI_DELIVERY.md).
 
 | Task | Scope | State |
 | --- | --- | --- |

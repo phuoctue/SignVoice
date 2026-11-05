@@ -48,7 +48,7 @@
 - `backend/scripts/check-api-coverage.ts` - Kiểm tra route coverage
 
 #### Documentation:
-- `docs/SWAGGER_TESTING_GUIDE.md` - Hướng dẫn test API (tiếng Việt)
+- `docs/active/SWAGGER_TESTING_GUIDE.md` - Hướng dẫn test API (tiếng Việt)
 - `docs/SWAGGER_INTEGRATION_REPORT.md` - Báo cáo này
 
 ### Integration code:
@@ -338,7 +338,7 @@ SWAGGER_ENABLED=false
 
 ### Đã tạo hướng dẫn đầy đủ (tiếng Việt):
 
-**File:** `docs/SWAGGER_TESTING_GUIDE.md`
+**File:** `docs/active/SWAGGER_TESTING_GUIDE.md`
 
 **Nội dung:**
 - Khởi động MongoDB và Backend
@@ -701,7 +701,7 @@ http://localhost:3000/api-docs
 ### Đọc hướng dẫn đầy đủ:
 
 ```
-docs/SWAGGER_TESTING_GUIDE.md
+docs/active/SWAGGER_TESTING_GUIDE.md
 ```
 
 ---

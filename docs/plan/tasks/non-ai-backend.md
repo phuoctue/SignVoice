@@ -8,7 +8,7 @@ depends-on: [non-ai-baseline]
 ## Objective
 
 Close the baseline backend blockers in docs/plan/reviews/non-ai-baseline-audit.md, following
-docs/NON_AI_DELIVERY.md and docs/NON_AI_API.md. Deliver real owned persistence and strict
+docs/active/NON_AI_DELIVERY.md and docs/active/NON_AI_API.md. Deliver real owned persistence and strict
 validation for user/settings/favorites/history/manual conversations/privacy/sessions, shared
 dictionary write invariants, staff/admin safety/audit correctness and test database isolation.
 

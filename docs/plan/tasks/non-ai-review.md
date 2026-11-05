@@ -8,7 +8,7 @@ depends-on: [non-ai-oauth, non-ai-backend, non-ai-frontend, non-ai-management-ui
 ## Independent review
 
 Review each committed implementation before merge and the integrated branch afterward.
-Do not review code you authored. Use docs/NON_AI_DELIVERY.md, docs/NON_AI_API.md and
+Do not review code you authored. Use docs/active/NON_AI_DELIVERY.md, docs/active/NON_AI_API.md and
 the baseline audit as the checklist; report concrete failures with file/line evidence.
 
 OAuth requires special verification of configuration (empty/partial/invalid), fixed

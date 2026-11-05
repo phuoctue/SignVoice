@@ -50,7 +50,7 @@ APK mới dùng tác vụ nền để tránh giữ một kết nối HTTP suốt
 
 ### Cách chạy thông thường
 
-Sau khi chuẩn bị database, media và các công cụ theo [setup](SETUP_MAY_KHAC_LMSTUDIO.md):
+Sau khi chuẩn bị database, media và các công cụ theo [setup](../active/SETUP_MAY_KHAC_LMSTUDIO.md):
 
 1. Bật LM Studio API và bảo đảm model SignVoice sẵn sàng.
 2. Nếu đã cài đủ dịch vụ camera, chạy từ gốc dự án:
@@ -78,7 +78,7 @@ LM Studio được tắt riêng khi không còn máy nào dùng. Chỉ cài Từ
 - Tiến độ lấy từ `learning_enrollments` và `learning_word_progress` của tài khoản trong token. Các trạng thái là `LEARNING`, `REMEMBERED`, `REVIEW`; từ đã nhớ đến lịch ôn được tính là cần ôn.
 - Gợi ý ôn nhận bốn tổng số tiến độ và tối đa 8 từ đã xuất bản. Phân tích nhận tổng trên **toàn bộ** chủ đề đang hoạt động đã bắt đầu, cùng tối đa 40 chủ đề cần chú ý; giao diện hiển thị tối đa 5 chủ đề trong khung kết quả. Tổng không bị giới hạn theo trang 10 chủ đề đang xem.
 - Tỷ lệ đã nhớ được backend tính bằng số từ đang ghi nhận nhớ/chưa đến lịch ôn chia tổng từ đã xuất bản trong các chủ đề đã bắt đầu. Các từ chưa đánh giá nằm ở đang học. Không gửi ID tài khoản, email, ảnh/video, token đăng nhập hoặc lịch sử hội thoại đến AI.
-- AI chỉ nhận xét tiến độ và gợi ý ôn. Nó không ghi thay đổi tiến độ, không thay kết quả quiz và không chấm động tác camera. Quiz camera giữ nguyên luồng của `dev`, xem [DICTIONARY_LEARNING.md](DICTIONARY_LEARNING.md).
+- AI chỉ nhận xét tiến độ và gợi ý ôn. Nó không ghi thay đổi tiến độ, không thay kết quả quiz và không chấm động tác camera. Quiz camera giữ nguyên luồng của `dev`, xem [DICTIONARY_LEARNING.md](../active/DICTIONARY_LEARNING.md).
 - Backend chờ model tối đa **90 giây**; hai yêu cầu phân tích/gợi ý ở Flutter chờ **100 giây**. Các API thường vẫn giữ timeout 30 giây.
 - Phản hồi trống, sai cấu trúc, bị cắt do hết token hoặc lỗi kết nối dùng phân tích từ số liệu/lộ trình cơ bản với nhãn rõ ràng. Tiến độ vẫn được lưu trong MongoDB. Phân tích AI hiện dùng ảnh chụp tiến độ hiện tại, chưa tổng hợp nhật ký để so sánh xu hướng theo ngày.
 - Bản giao diện LMS cũ đã được lưu trong stash trước khi pull; không tự chuyển dữ liệu collection cũ sang các collection học của `dev` và không xóa dữ liệu MongoDB trong quá trình ghép code.

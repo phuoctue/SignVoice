@@ -12,7 +12,7 @@
 - [x] Implement guided personal form/navigation and admin password reset API/form.
 - [x] Document endpoint and UI usage; run focused tests, build, review and verify.
 - [x] Build and start Local for user testing; verify HEAD unchanged and no push.
-- [x] Answer how to create an independent GitHub repository, distinguishing repository control from existing copyright/license rights (guide in docs/TAO_REPO_RIENG.md).
+- [x] Answer how to create an independent GitHub repository, distinguishing repository control from existing copyright/license rights (guide in docs/active/TAO_REPO_RIENG.md).
 
 ## Verification
 

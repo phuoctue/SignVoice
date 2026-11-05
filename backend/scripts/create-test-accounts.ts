@@ -121,7 +121,7 @@ async function createTestAccounts() {
     console.log('   6. Test endpoints based on role permissions\n');
 
     console.log('📚 Documentation:');
-    console.log('   docs/SWAGGER_TESTING_GUIDE.md\n');
+    console.log('   docs/active/SWAGGER_TESTING_GUIDE.md\n');
 
   } catch (error) {
     console.error('❌ Error creating test accounts:', error);
