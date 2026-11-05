@@ -40,8 +40,34 @@ Lệnh kiểm tra: `pwsh -File scripts/check.ps1`.
 
 Ngoài phạm vi: sửa lỗi test/lint, thêm ESLint config, sửa code sản phẩm, cài package.
 
+## T-002 — Sửa lint curly braces trong guest_preferences_test
+
+Trạng thái: `DONE`
+
+Mục tiêu: sửa lint `curly_braces_in_flow_control_structures` tại `test/guest_preferences_test.dart:16`.
+
+Phạm vi file:
+
+- Được sửa: `test/guest_preferences_test.dart`, mục task này trong `docs/TASKS.md` (Orchestrator).
+- Không được sửa: `lib/`, `backend/`, package files, các test khác.
+
+Đầu vào cần đọc: `test/guest_preferences_test.dart`; baseline trong `docs/BASELINE.md`.
+
+Tiêu chí hoàn thành:
+
+- `flutter analyze test/guest_preferences_test.dart` không còn issue nào.
+- `flutter test test/guest_preferences_test.dart` vẫn pass (baseline: 2/2 pass).
+- Chỉ `test/guest_preferences_test.dart` thay đổi (ngoài `docs/TASKS.md`).
+
+Lệnh kiểm tra: `flutter analyze test/guest_preferences_test.dart`; `flutter test test/guest_preferences_test.dart`.
+
+Ngoài phạm vi: sửa 11 test Flutter đang fail trong baseline, refactor, sửa cảnh báo/lỗi ở file khác, thêm package.
+
 ## Báo cáo worker/reviewer
 
 T-001 — Reviewer (session sạch, 2026-11-05): PASS. NIT: khi chạy bằng Windows PowerShell 5.1, `2>&1` làm output có dòng nhiễu `System.Management.Automation.RemoteException`; không ảnh hưởng kết quả/exit code. Lưu ý: máy không có `pwsh`, đã chạy bằng `powershell -File scripts/check.ps1`.
+
+T-002 — Worker (2026-11-05): Đã thêm `{ }` tại `test/guest_preferences_test.dart:16`; `flutter analyze test/guest_preferences_test.dart` (0 issues), `flutter test test/guest_preferences_test.dart` (2/2 pass); rủi ro: không.
+T-002 — Reviewer CLI `codex exec --ephemeral` (session sạch, 2026-11-05): PASS. Diff đúng phạm vi (`test/guest_preferences_test.dart`, `docs/TASKS.md`), không còn warning `curly_braces_in_flow_control_structures`, không phát sinh warning/error mới, test pass 2/2.
 
 Worker phải báo cáo: đã làm gì; file đổi; lệnh và kết quả; rủi ro. Reviewer phải báo cáo: PASS hoặc BLOCKER/SHOULD FIX/NIT và lý do ngắn.
