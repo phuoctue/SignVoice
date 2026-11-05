@@ -6,6 +6,7 @@ import 'package:sign_voice/models/user_model.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/services/api/api_exception.dart';
 import 'package:sign_voice/services/admin/admin_workspace_service.dart';
+import 'package:sign_voice/widgets/ui.dart';
 
 import 'auth_fixtures.dart';
 
@@ -20,6 +21,25 @@ class PasswordAuth extends FakeAuthService {
     calls++;
     if (currentPassword != 'CurrentPassword123') {
       throw ApiException(message: 'Mật khẩu hiện tại không đúng.');
+    }
+  }
+}
+
+class GooglePasswordAuth extends FakeAuthService {
+  GooglePasswordAuth()
+    : super(
+        restoredUser: testUser().copyWith(
+          accountType: AccountType.google,
+          googleLinked: true,
+        ),
+      );
+  int calls = 0;
+  bool fail = true;
+  @override
+  Future<void> setPassword({required String newPassword}) async {
+    calls++;
+    if (fail) {
+      throw ApiException(message: 'Chưa tạo được mật khẩu. Hãy thử lại.');
     }
   }
 }
@@ -64,6 +84,48 @@ class PasswordAdminService extends AdminWorkspaceService {
 }
 
 void main() {
+  testWidgets(
+    'Google profile creates a password without an old password and preserves failed form',
+    (tester) async {
+      final service = GooglePasswordAuth();
+      final auth = AuthProvider(authService: service);
+      await auth.initialize();
+      addTearDown(auth.dispose);
+      final state = AppState();
+      await tester.pumpWidget(
+        SignVoiceApp(auth: auth, state: state, initialScreen: 'S26'),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Tạo mật khẩu đăng nhập'));
+      await tester.tap(find.text('Tạo mật khẩu đăng nhập'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mật khẩu hiện tại'), findsNothing);
+      final fields = find.byType(TextFormField);
+      expect(fields, findsNWidgets(2));
+      final submit = find.widgetWithText(AppButton, 'Tạo mật khẩu đăng nhập');
+      await tester.enterText(fields.at(0), 'GooglePassword2026!');
+      await tester.enterText(fields.at(1), 'DifferentPassword2026!');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.calls, 0);
+      await tester.enterText(fields.at(1), 'GooglePassword2026!');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.calls, 1);
+      expect(auth.isAuthenticated, isTrue);
+      expect(find.text('Chưa tạo được mật khẩu. Hãy thử lại.'), findsOneWidget);
+      service.fail = false;
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.calls, 2);
+      expect(auth.isAuthenticated, isFalse);
+      await tester.pumpWidget(const SizedBox());
+      state.dispose();
+    },
+  );
   testWidgets(
     'admin reset validates confirmation, preserves failed input and keeps admin signed in',
     (tester) async {

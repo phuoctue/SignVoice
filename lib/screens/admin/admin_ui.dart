@@ -86,23 +86,37 @@ class _AdminSelectFieldState extends FormFieldState<String> {
     if (!control.enabled || choosing) return;
     setState(() => choosing = true);
     FocusScope.of(context).unfocus();
-    await Scrollable.ensureVisible(
-      context,
-      alignment: .25,
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 120),
-    );
+    final initialField = context.findRenderObject() as RenderBox?;
+    final initialOrigin = initialField?.localToGlobal(Offset.zero);
+    final screen = MediaQuery.sizeOf(context);
+    final visible =
+        initialField != null &&
+        initialOrigin != null &&
+        initialOrigin.dy >= 72 &&
+        initialOrigin.dy + initialField.size.height <= screen.height - 72;
+    if (!visible) {
+      await Scrollable.ensureVisible(
+        context,
+        alignment: .15,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 120),
+      );
+    }
     if (!mounted) return;
     final field = context.findRenderObject() as RenderBox;
     final origin = field.localToGlobal(Offset.zero);
-    final screen = MediaQuery.sizeOf(context);
-    final width = math.min(field.size.width, screen.width - 24.0);
+    final compact = screen.width < 600;
+    final width = compact
+        ? screen.width - 40.0
+        : math.min(field.size.width, screen.width - 24.0);
+    final gutter = compact ? 20.0 : 12.0;
     final left = origin.dx.clamp(
-      12.0,
-      math.max(12.0, screen.width - width - 12),
+      gutter,
+      math.max(gutter, screen.width - width - gutter),
     );
-    final below = screen.height - origin.dy - field.size.height - 18;
+    final below =
+        screen.height - origin.dy - field.size.height - (compact ? 100 : 18);
     final above = origin.dy - 18;
     final down = below >= 160 || below >= above;
     final available = math.max(100.0, down ? below : above);

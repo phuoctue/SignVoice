@@ -10,6 +10,7 @@ export interface SignMediaEntry {
 }
 
 const key = (value: string) => value.normalize('NFC').toLocaleLowerCase('vi').trim().replace(/\s+/gu, ' ');
+const plainKey = (value: string) => key(value).normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gu, 'd');
 const safeUrl = (value?: string) => {
   if (!value) return undefined;
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined; }
@@ -18,12 +19,16 @@ const safeUrl = (value?: string) => {
 
 export function composeSignSequence(text: string, entries: SignMediaEntry[]) {
   const dictionary = new Map<string, SignMediaEntry[]>();
+  const plainDictionary = new Map<string, SignMediaEntry[]>();
   const exact = new Set(entries.map(entry => key(entry.word)));
   let maxWords = 1;
   for (const entry of entries) {
     for (const normalized of new Set([key(entry.word), ...(entry.aliases || []).map(key).filter(alias => !exact.has(alias))])) {
       if (!normalized) continue;
       dictionary.set(normalized, [...(dictionary.get(normalized) || []), entry]);
+      const plain = plainKey(normalized);
+      const candidates = plainDictionary.get(plain) || [];
+      if (!candidates.includes(entry)) plainDictionary.set(plain, [...candidates, entry]);
       maxWords = Math.max(maxWords, normalized.split(' ').length);
     }
   }
@@ -64,7 +69,9 @@ export function composeSignSequence(text: string, entries: SignMediaEntry[]) {
     let matches: SignMediaEntry[] | undefined;
     for (let j = i; j < Math.min(tokens.length, i + maxWords); j++) {
       if (!/^[\p{L}\p{M}\p{N}]+$/u.test(tokens[j][0])) break;
-      const found = dictionary.get(key(tokens.slice(i, j + 1).map(t => t[0]).join(' ')));
+      const phrase = key(tokens.slice(i, j + 1).map(t => t[0]).join(' '));
+      const found = dictionary.get(phrase) ||
+        (phrase === plainKey(phrase) ? plainDictionary.get(phrase) : undefined);
       if (found) { matches = found; end = j; }
     }
     const startOffset = token.index!;

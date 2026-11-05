@@ -48,7 +48,22 @@ describe('dictionary sequence', () => {
     const text = 'CHÀO'.normalize('NFD');
     const result = composeSignSequence(text, [entry('chào')]);
     expect(result.segments[0]).toMatchObject({ type: 'sign', text, start: 0, end: text.length });
-    expect(composeSignSequence('chao', [entry('chào')]).segments[0].type).toBe('missing');
+    expect(composeSignSequence('chao', [entry('chào')]).segments[0]).toMatchObject({type: 'sign', word: 'chào'});
+  });
+  it('matches the longest unaccented phrase before fingerspelling and preserves input', () => {
+    expect(composeSignSequence('xin chao, rat vui duoc gap ban', [
+      entry('xin'), entry('chào'), entry('xin chào'), entry('rất vui'), entry('được'), entry('gặp'), entry('bạn'),
+    ]).segments).toMatchObject([
+      {type: 'sign', text: 'xin chao', word: 'xin chào'},
+      {type: 'punctuation', text: ','}, {type: 'sign', word: 'rất vui'},
+      {type: 'sign', word: 'được'}, {type: 'sign', word: 'gặp'}, {type: 'sign', word: 'bạn'},
+    ]);
+  });
+  it('keeps exact accents authoritative and reports ambiguous unaccented words', () => {
+    const rows = [entry('bàn'), entry('bạn')];
+    expect(composeSignSequence('ban', rows).segments[0].type).toBe('ambiguous');
+    expect(composeSignSequence('bạn', rows).segments[0]).toMatchObject({type: 'sign', word: 'bạn'});
+    expect(composeSignSequence('bán', rows).segments[0].type).toBe('missing');
   });
   it('does not match a phrase across punctuation', () => {
     expect(composeSignSequence('bàn, tay', [entry('bàn tay')]).segments.map(s => s.type))

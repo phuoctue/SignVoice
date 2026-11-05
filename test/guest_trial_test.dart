@@ -70,6 +70,35 @@ Widget harness(
   ),
 );
 void main() {
+  for (final createNew in [false, true]) {
+    testWidgets(
+      'restored guest chooses ${createNew ? 'new account' : 'previous account'}',
+      (tester) async {
+        final service = TrialService()..expired = true;
+        final auth = AuthProvider(authService: service);
+        await auth.initialize();
+        final previous = auth.user!.id;
+        final state = AppState();
+        await tester.pumpWidget(
+          SignVoiceApp(auth: auth, state: state, initialScreen: 'S10'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Tiếp tục với tài khoản khách'), findsOneWidget);
+        service.expired = !createNew;
+        await tester.tap(
+          find.text(createNew ? 'Tạo khách mới · 10 phút' : 'Dùng khách cũ'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Tiếp tục với tài khoản khách'), findsNothing);
+        expect(auth.guestResumePending, isFalse);
+        expect(auth.trialExpired, !createNew);
+        if (!createNew) expect(auth.user!.id, previous);
+        await tester.pumpWidget(const SizedBox());
+        auth.dispose();
+        state.dispose();
+      },
+    );
+  }
   testWidgets(
     'expiry blocks studying deep links and keeps the public catalog readable',
     (tester) async {

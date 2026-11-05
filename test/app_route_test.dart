@@ -1,7 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sign_voice/core/app_route.dart';
+import 'package:sign_voice/core/navigation.dart';
 
 void main() {
+  test('change password public URL resolves to the existing screen', () {
+    expect(webLocation('change-password'), '/change-password');
+    expect(legacyLocation('/change-password'), 'change-password');
+    final route = AppRoute.parse(legacyLocation('/change-password'));
+    expect(route.known, isTrue);
+    expect(route.screenId, 'change-password');
+  });
   test(
     'collection links validate ids and keep the legacy private cards route',
     () {

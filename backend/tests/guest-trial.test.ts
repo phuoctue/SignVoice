@@ -84,13 +84,28 @@ describe('Guest ten-minute allowance', () => {
     await request(app).get('/api/v1/learning/my-words').set(auth(a)).expect(403);
     await request(app).get('/api/v1/dictionary?limit=1').expect(200);
   });
-  it('keeps the spent allowance across guest logout/re-entry on the same native/browser identity', async () => {
+  it('grants a fresh allowance for an explicit new guest while preserving the old expiry', async () => {
+    const old = await guest(); await expire(old);
+    const fresh = await request(app).post('/api/v1/auth/guest')
+      .set('Cookie', old.cookie).send({deviceKey: old.deviceKey, newGuest: true}).expect(201);
+    const next = fresh.body.data;
+    expect(next.user.id).not.toBe(old.user.id);
+    expect((await status(next)).body.data.remainingSeconds).toBeGreaterThan(590);
+    expect((await status(old)).body.data.state).toBe('expired');
+  });
+  it('deletes the guest and owned data on logout and permits a fresh allowance', async () => {
     const a = await guest(); await start(a); await expire(a);
+    await Conversation.create({userId: a.user.id, content: 'Temporary guest data', direction: 'TEXT'});
     await request(app).post('/api/v1/auth/logout').set(auth(a)).expect(200);
+    expect(await User.findById(a.user.id)).toBeNull();
+    expect(await UserSettings.countDocuments({userId: a.user.id})).toBe(0);
+    expect(await AuthSession.countDocuments({userId: a.user.id})).toBe(0);
+    expect(await Conversation.countDocuments({userId: a.user.id})).toBe(0);
+    await request(app).get('/api/v1/auth/me').set(auth(a)).expect(401);
     const native = await guest(a.deviceKey);
-    expect((await status(native)).body.data.state).toBe('expired');
+    expect((await status(native)).body.data.state).toBe('active');
     const browser = await guest(randomBytes(32).toString('hex'), a.cookie);
-    expect((await status(browser)).body.data.state).toBe('expired');
+    expect((await status(browser)).body.data.state).toBe('active');
   });
   it('binds pre-existing guest accounts to the persistent device allowance', async () => {
     const spent = await guest(); await start(spent); await expire(spent);

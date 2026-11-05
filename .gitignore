@@ -50,6 +50,8 @@ app.*.map.json
 # Local publishing tools and runtime state
 .tools/
 .runtime/
+.playwright-cli/
+/output/
 
 # Backend Node.js
 backend/node_modules/

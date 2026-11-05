@@ -35,12 +35,106 @@ class PublicCatalogPage extends StatelessWidget {
                     final wide =
                         box.maxWidth >= 1100 &&
                         MediaQuery.textScalerOf(context).scale(1) < 1.5;
+                    final mobile = box.maxWidth < 600;
                     final auth = context.watch<AuthProvider>();
                     final state = context
                         .dependOnInheritedWidgetOfExactType<AppScope>()
                         ?.notifier;
                     final dark =
                         Theme.of(context).brightness == Brightness.dark;
+                    if (mobile) {
+                      return Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          PopupMenuButton<String>(
+                            position: PopupMenuPosition.under,
+                            offset: const Offset(0, 8),
+                            tooltip: 'Mở điều hướng',
+                            icon: const Icon(Icons.menu),
+                            onSelected: (path) {
+                              if (path == 'theme' && state != null) {
+                                state.update(
+                                  () => state.themeMode = dark
+                                      ? ThemeMode.light
+                                      : ThemeMode.dark,
+                                );
+                              } else if (path == 'contrast' && state != null) {
+                                state.update(
+                                  () =>
+                                      state.highContrast = !state.highContrast,
+                                );
+                              } else {
+                                openRoot(context, path);
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                value: 'S01',
+                                child: Text('Trang giới thiệu'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'S22',
+                                child: Text('Từ điển ký hiệu'),
+                              ),
+                              const PopupMenuItem(
+                                value: '/collections/discover',
+                                child: Text('Bộ sưu tập công khai'),
+                              ),
+                              if (state != null) ...[
+                                const PopupMenuDivider(),
+                                PopupMenuItem(
+                                  value: 'theme',
+                                  child: Text(
+                                    dark
+                                        ? 'Chuyển sang giao diện sáng'
+                                        : 'Chuyển sang giao diện tối',
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'contrast',
+                                  child: Text(
+                                    state.highContrast
+                                        ? 'Tắt tương phản cao'
+                                        : 'Bật tương phản cao',
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          PublicHeaderBrand(
+                            onPressed: () => openRoot(context, 'S01'),
+                          ),
+                          if (auth.isAuthenticated)
+                            const WebAccountMenu()
+                          else ...[
+                            TextButton(
+                              onPressed: () => openRoot(context, 'S05'),
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(48, 48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                              ),
+                              child: const Text('Đăng nhập'),
+                            ),
+                            FilledButton(
+                              onPressed: () => openRoot(context, 'S06'),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(48, 48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                shape: const StadiumBorder(),
+                              ),
+                              child: const Text('Đăng ký'),
+                            ),
+                          ],
+                        ],
+                      );
+                    }
                     return Wrap(
                       alignment: WrapAlignment.spaceBetween,
                       crossAxisAlignment: WrapCrossAlignment.center,

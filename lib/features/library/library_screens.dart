@@ -851,26 +851,38 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                     ],
                   );
                 }
+                final mobileFilters =
+                    box.maxWidth < 600 &&
+                    MediaQuery.textScalerOf(context).scale(1) < 1.5;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     field,
                     const SizedBox(height: 14),
-                    category,
-                    const SizedBox(height: 14),
-                    sorting,
+                    if (mobileFilters)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: category),
+                          const SizedBox(width: 10),
+                          Expanded(child: sorting),
+                        ],
+                      )
+                    else ...[
+                      category,
+                      const SizedBox(height: 14),
+                      sorting,
+                    ],
                   ],
                 );
               },
             ),
             const SizedBox(height: 16),
             if (!widget.favoritesOnly)
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final topic
-                      in ([...topics]..sort((a, b) {
+              LayoutBuilder(
+                builder: (context, box) {
+                  final topicsForChips =
+                      ([...topics]..sort((a, b) {
                             int rank(AdminRecord topic) =>
                                 RegExp(
                                   'giao tiếp|gia đình|cảm xúc|đời sống',
@@ -880,23 +892,44 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                                 : 1;
                             return rank(a).compareTo(rank(b));
                           }))
-                          .take(5))
-                    ChoiceChip(
-                      label: Text('${topic['name']}'),
-                      selected: categoryId == '${topic['_id']}',
-                      onSelected: loading
-                          ? null
-                          : (selected) {
-                              setState(() {
-                                categoryId = selected
-                                    ? '${topic['_id']}'
-                                    : null;
-                                page = 1;
-                              });
-                              _load();
-                            },
-                    ),
-                ],
+                          .take(5)
+                          .toList();
+                  Widget chip(AdminRecord topic) => ChoiceChip(
+                    label: Text('${topic['name']}'),
+                    selected: categoryId == '${topic['_id']}',
+                    onSelected: loading
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              categoryId = selected ? '${topic['_id']}' : null;
+                              page = 1;
+                            });
+                            _load();
+                          },
+                  );
+                  final horizontal =
+                      box.maxWidth < 600 &&
+                      MediaQuery.textScalerOf(context).scale(1) < 1.5;
+                  if (horizontal) {
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        children: [
+                          for (var i = 0; i < topicsForChips.length; i++) ...[
+                            if (i > 0) const SizedBox(width: 8),
+                            chip(topicsForChips[i]),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [for (final topic in topicsForChips) chip(topic)],
+                  );
+                },
               ),
             const SizedBox(height: 16),
             SizedBox(
