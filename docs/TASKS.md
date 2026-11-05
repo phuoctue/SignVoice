@@ -14,7 +14,7 @@ Mỗi task phải có mục tiêu, phạm vi file, đầu vào cụ thể, tiêu
 
 ## T-001 — Tạo lệnh check tổng hợp
 
-Trạng thái: `IN_PROGRESS`
+Trạng thái: `DONE`
 
 Mục tiêu: tạo một lệnh PowerShell ở root để chạy các kiểm tra hiện có theo thứ tự, giữ đủ exit code và báo cáo rõ bước nào fail.
 
@@ -42,4 +42,6 @@ Ngoài phạm vi: sửa lỗi test/lint, thêm ESLint config, sửa code sản p
 
 ## Báo cáo worker/reviewer
 
-Chưa có. Worker phải báo cáo: đã làm gì; file đổi; lệnh và kết quả; rủi ro. Reviewer phải báo cáo: PASS hoặc BLOCKER/SHOULD FIX/NIT và lý do ngắn.
+T-001 — Reviewer (session sạch, 2026-11-05): PASS. NIT: khi chạy bằng Windows PowerShell 5.1, `2>&1` làm output có dòng nhiễu `System.Management.Automation.RemoteException`; không ảnh hưởng kết quả/exit code. Lưu ý: máy không có `pwsh`, đã chạy bằng `powershell -File scripts/check.ps1`.
+
+Worker phải báo cáo: đã làm gì; file đổi; lệnh và kết quả; rủi ro. Reviewer phải báo cáo: PASS hoặc BLOCKER/SHOULD FIX/NIT và lý do ngắn.
