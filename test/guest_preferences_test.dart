@@ -12,9 +12,8 @@ class RetryPreferencesFixture extends UserDataFixture {
   Future<http.Response> handle(http.Request request) async {
     if (offline &&
         request.method == 'PATCH' &&
-        request.url.path.endsWith('/users/settings')) {
+        request.url.path.endsWith('/users/settings'))
       return http.Response('{}', 503);
-    }
     return super.handle(request);
   }
 }

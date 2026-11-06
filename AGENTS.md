@@ -23,3 +23,13 @@
 - Mỗi task dùng branch/worktree riêng khi có thể.
 - Trước review phải xem `git diff`, chạy kiểm tra phù hợp và báo cáo dưới 10 dòng.
 - Tối đa 2 vòng sửa review; task rủi ro cao cần chủ dự án duyệt tay.
+
+# Quy định Orchestrator
+
+Trước mỗi task, đọc [docs/ORCHESTRATOR_POLICY.md](docs/ORCHESTRATOR_POLICY.md).
+
+Worker phải làm đúng phạm vi task, chạy kiểm tra phù hợp và không tự push/merge.
+
+Audit Backend/UI chỉ ghi nhận findings, không sửa source. Việc sửa lỗi phải là feature task riêng.
+
+Luôn báo cáo trạng thái kiểm tra, blocker và token usage nếu telemetry có sẵn. Không đoán số liệu token khi hệ thống không cung cấp.
