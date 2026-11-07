@@ -129,6 +129,7 @@ export async function createApp(): Promise<Application> {
   app.use('/api/v1/learning', (await import('./routes/learning.routes')).default);
   app.use('/api/v1/sign-sequence', (await import('./routes/sign-sequence.routes')).default);
   app.use('/sign-media', (await import('./routes/sign-media.routes')).default);
+  app.use('/personal-videos', (await import('./routes/personal-video.routes')).default);
   app.use('/api/v1/categories', (await import('./routes/category.routes')).default);
   app.use('/api/v1/favorites', (await import('./routes/favorites.routes')).default);
   app.use('/api/v1/history', (await import('./routes/history.routes')).default);

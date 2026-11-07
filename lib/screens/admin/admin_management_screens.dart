@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
@@ -103,7 +104,9 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         builder: (_) => AdminEditorScreen(resource: resource, record: record),
       ),
     );
-    if (changed == true && mounted && context.read<AuthProvider>().accountEpoch == account) {
+    if (changed == true &&
+        mounted &&
+        context.read<AuthProvider>().accountEpoch == account) {
       _page = 1;
       await _load();
     }
@@ -136,7 +139,11 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted || context.read<AuthProvider>().accountEpoch != account) return;
+    if (confirmed != true ||
+        !mounted ||
+        context.read<AuthProvider>().accountEpoch != account) {
+      return;
+    }
     setState(() => _mutating = true);
     try {
       await service.delete(resource, recordId(record['_id']));
@@ -432,9 +439,14 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   late Set<String> _permissions;
   late String _status, _difficulty, _role, _category;
   bool _loading = false, _saving = false, _optionsReady = false;
+  bool _uploadingVideo = false;
+  String? _uploadedVideoName;
   late int _accountEpoch;
   late String? _accountId;
-  bool get _sameAccount => mounted && context.read<AuthProvider>().accountEpoch == _accountEpoch && context.read<AuthProvider>().user?.id == _accountId;
+  bool get _sameAccount =>
+      mounted &&
+      context.read<AuthProvider>().accountEpoch == _accountEpoch &&
+      context.read<AuthProvider>().user?.id == _accountId;
   String? _error;
   AdminRecord get record => widget.record ?? {};
   bool get editing => widget.record != null;
@@ -536,6 +548,34 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
   }
 
   String text(String key) => _fields[key]!.text.trim();
+
+  Future<void> _pickVideo() async {
+    final service = context.read<AdminWorkspaceService>();
+    setState(() {
+      _uploadingVideo = true;
+      _error = null;
+    });
+    try {
+      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      if (file == null || !_sameAccount) return;
+      final length = await file.length();
+      if (length > 1024 * 1024 * 1024) {
+        throw ApiException(message: 'Video cần nhỏ hơn hoặc bằng 1 GB.');
+      }
+      if (!_sameAccount) return;
+      final url = await service.uploadVideoStream(file.openRead, length);
+      if (!_sameAccount) return;
+      setState(() {
+        _fields['videoUrl']!.text = url;
+        _uploadedVideoName = file.name.split(RegExp(r'[/\\]')).last;
+      });
+    } catch (error) {
+      if (_sameAccount) setState(() => _error = adminError(error));
+    } finally {
+      if (mounted) setState(() => _uploadingVideo = false);
+    }
+  }
+
   Widget field(
     String key,
     String label, {
@@ -550,7 +590,7 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
     padding: const EdgeInsets.only(bottom: 14),
     child: TextFormField(
       controller: _fields[key],
-      enabled: !_saving,
+      enabled: !_saving && !_uploadingVideo,
       obscureText: password,
       maxLines: lines,
       maxLength: max,
@@ -650,7 +690,12 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
     ),
   );
   Future<void> _save() async {
-    if (!_sameAccount || !_optionsReady || !_form.currentState!.validate()) return;
+    if (_uploadingVideo ||
+        !_sameAccount ||
+        !_optionsReady ||
+        !_form.currentState!.validate()) {
+      return;
+    }
     final AdminRecord body;
     switch (resource) {
       case 'roles':
@@ -843,6 +888,33 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
                     max: 2000,
                     url: true,
                   ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _saving ||
+                            _uploadingVideo ||
+                            !_sameAccount ||
+                            !auth.can('dictionary:write')
+                        ? null
+                        : _pickVideo,
+                    icon: Icon(
+                      _uploadingVideo
+                          ? Icons.hourglass_top
+                          : Icons.video_file_outlined,
+                    ),
+                    label: Text(
+                      _uploadingVideo
+                          ? 'Đang tải và xử lý video...'
+                          : 'Chọn video từ máy',
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 14),
+                    child: Text(
+                      _uploadedVideoName == null
+                          ? 'Chọn video bất kỳ (MP4, MOV, AVI, MKV, WebM…). Tối đa 1 GB; video được xử lý để phát trong app.'
+                          : 'Đã tải lên: $_uploadedVideoName. Bấm Lưu để gắn video vào mục từ.',
+                    ),
+                  ),
                   field(
                     'thumbnailUrl',
                     'URL ảnh minh họa (tùy chọn)',
@@ -879,7 +951,12 @@ class _AdminEditorScreenState extends State<AdminEditorScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: _saving || !_optionsReady || !_sameAccount || !auth.can('$resource:write')
+                  onPressed:
+                      _saving ||
+                          _uploadingVideo ||
+                          !_optionsReady ||
+                          !_sameAccount ||
+                          !auth.can('$resource:write')
                       ? null
                       : _save,
                   icon: _saving

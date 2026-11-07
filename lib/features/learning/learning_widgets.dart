@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../services/api/api_config.dart';
@@ -201,10 +202,54 @@ class _LearningWordContentState extends State<LearningWordContent> {
   bool _loadingVideo = false;
   String? _videoError;
   int _frame = 0;
+
+  Uri get _videoUri =>
+      Uri.parse(ApiConfig.mediaUrl('${widget.word['videoUrl'] ?? ''}'.trim()));
+
+  String? get _videoPlatform {
+    final uri = Uri.tryParse('${widget.word['videoUrl'] ?? ''}'.trim());
+    if (uri == null || !['http', 'https'].contains(uri.scheme)) return null;
+    const platforms = {
+      'vimeo.com': 'Vimeo',
+      'youtube.com': 'YouTube',
+      'youtu.be': 'YouTube',
+      'tiktok.com': 'TikTok',
+      'facebook.com': 'Facebook',
+      'fb.watch': 'Facebook',
+      'dailymotion.com': 'Dailymotion',
+      'dai.ly': 'Dailymotion',
+    };
+    for (final entry in platforms.entries) {
+      if (uri.host == entry.key || uri.host.endsWith('.${entry.key}')) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _openVideoLink() async {
+    setState(() => _videoError = null);
+    try {
+      final uri = _videoUri;
+      if (!['http', 'https'].contains(uri.scheme) ||
+          uri.host.isEmpty ||
+          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw StateError('Cannot open video link');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _videoError = 'Không mở được link video. Vui lòng thử lại.';
+        });
+      }
+    }
+  }
+
   @override
   void didUpdateWidget(covariant LearningWordContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.word['_id'] != widget.word['_id']) {
+    if (oldWidget.word['_id'] != widget.word['_id'] ||
+        oldWidget.word['videoUrl'] != widget.word['videoUrl']) {
       _video?.dispose();
       _video = null;
       _loadingVideo = false;
@@ -220,6 +265,10 @@ class _LearningWordContentState extends State<LearningWordContent> {
   }
 
   Future<void> _play() async {
+    if (_videoPlatform != null) {
+      await _openVideoLink();
+      return;
+    }
     if (_video != null) {
       if (_video!.value.isPlaying) {
         await _video!.pause();
@@ -233,9 +282,7 @@ class _LearningWordContentState extends State<LearningWordContent> {
       _loadingVideo = true;
       _videoError = null;
     });
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(ApiConfig.mediaUrl('${widget.word['videoUrl']}')),
-    );
+    final controller = VideoPlayerController.networkUrl(_videoUri);
     _video = controller;
     try {
       await controller.initialize();
@@ -245,7 +292,7 @@ class _LearningWordContentState extends State<LearningWordContent> {
     } catch (_) {
       if (mounted && _video == controller) {
         _videoError =
-            'Chưa tải được video. Bạn vẫn có thể học bằng chuỗi ảnh bên dưới.';
+            'Chưa tải được video. Bạn có thể mở link trong trình duyệt.';
         await controller.dispose();
         _video = null;
       }
@@ -290,6 +337,8 @@ class _LearningWordContentState extends State<LearningWordContent> {
             icon: Icon(
               _video?.value.isPlaying == true
                   ? Icons.pause
+                  : _videoPlatform != null
+                  ? Icons.open_in_new
                   : Icons.play_circle_outline,
             ),
             label: Text(
@@ -297,11 +346,19 @@ class _LearningWordContentState extends State<LearningWordContent> {
                   ? 'Đang tải video...'
                   : _video?.value.isPlaying == true
                   ? 'Tạm dừng video'
+                  : _videoPlatform != null
+                  ? 'Xem trên $_videoPlatform'
                   : 'Xem video ký hiệu',
             ),
           ),
         ],
         if (_videoError != null) Notice(_videoError!),
+        if (_videoError != null && _videoPlatform == null)
+          TextButton.icon(
+            onPressed: _openVideoLink,
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Mở video trong trình duyệt'),
+          ),
         if (images.length > 1) ...[
           const SizedBox(height: 8),
           Text(

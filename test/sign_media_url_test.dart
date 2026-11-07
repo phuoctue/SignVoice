@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sign_voice/services/api/api_config.dart';
 
 void main() {
+  test('private playback follows API origin and keeps the signed query', () {
+    final path = '/personal-videos/${'a' * 24}/${'b' * 64}.mp4';
+    expect(
+      signMediaUrl(
+        '$path?expires=123&signature=abc',
+        Uri.parse('http://localhost:3000/api/v1'),
+      ),
+      'http://localhost:3000$path?expires=123&signature=abc',
+    );
+  });
   final hash = 'a' * 64;
   test(
     'local image and video use API host even when saved with an old tunnel URL',

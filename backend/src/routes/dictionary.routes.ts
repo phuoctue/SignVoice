@@ -5,12 +5,14 @@ import { validate } from '../common/middlewares/validate.middleware';
 import { staffCreateDictionarySchema, staffUpdateDictionarySchema } from '../validation/admin.validation';
 import { z } from 'zod';
 import { offsetQuery, objectId } from '../validation/user-data.validation';
+import videoUploadRouter from './video-upload.routes';
 const publicQuery = z.object({query: offsetQuery.extend({
   categoryId: objectId.optional(), search: z.string().trim().max(200).optional(), difficulty: z.enum(['BEGINNER','INTERMEDIATE','ADVANCED']).optional(),
   sort: z.enum(['word_asc', 'word_desc']).optional(),
 })});
 
 const router = Router();
+router.use('/video-upload', videoUploadRouter);
 
 /**
  * @route GET /api/v1/dictionary/popular

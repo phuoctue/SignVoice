@@ -10,6 +10,19 @@ import '../storage/secure_token_storage.dart';
 import '../storage/token_store.dart';
 import 'http_client_factory.dart';
 
+class _VideoUploadRequest extends http.BaseRequest {
+  _VideoUploadRequest(super.method, super.url, this.openStream, int length) {
+    contentLength = length;
+  }
+  final Stream<List<int>> Function() openStream;
+
+  @override
+  http.ByteStream finalize() {
+    super.finalize();
+    return http.ByteStream(openStream());
+  }
+}
+
 /// HTTP client with authentication and error handling
 class ApiClient {
   static ApiClient? _instance;
@@ -266,6 +279,9 @@ class ApiClient {
     String endpoint, {
     Map<String, String>? queryParameters,
     dynamic body,
+    List<int>? bytes,
+    Stream<List<int>> Function()? videoStream,
+    int? videoLength,
     bool requiresAuth = true,
   }) async {
     final epoch = _sessionEpoch;
@@ -276,12 +292,30 @@ class ApiClient {
       try {
         final uri = Uri.parse(_buildUrl(endpoint))
             .replace(queryParameters: queryParameters);
-        final request = http.Request(method, uri)..headers.addAll(headers);
-        if (body != null) request.body = jsonEncode(body);
+        final http.BaseRequest request;
+        if (videoStream != null) {
+          request = _VideoUploadRequest(method, uri, videoStream, videoLength!);
+        } else {
+          final buffered = http.Request(method, uri);
+          if (bytes != null) {
+            buffered.bodyBytes = bytes;
+          } else if (body != null) {
+            buffered.body = jsonEncode(body);
+          }
+          request = buffered;
+        }
+        request.headers.addAll(headers);
+        if (bytes != null || videoStream != null) {
+          request.headers['Content-Type'] = 'application/octet-stream';
+        }
         final response = await _client
             .send(request)
             .then(http.Response.fromStream)
-            .timeout(ApiConfig.receiveTimeout);
+            .timeout(
+              bytes == null && videoStream == null
+                  ? ApiConfig.receiveTimeout
+                  : const Duration(minutes: 32),
+            );
         if (requiresAuth) checkSession(epoch);
         return _handleResponse(response);
       } on TokenExpiredException {
@@ -326,6 +360,14 @@ class ApiClient {
     dynamic body,
     bool requiresAuth = true,
   }) => _request('POST', endpoint, body: body, requiresAuth: requiresAuth);
+  Future<dynamic> uploadVideo(List<int> bytes) =>
+      _request('POST', '/dictionary/video-upload', bytes: bytes);
+  Future<dynamic> uploadVideoStream(
+    Stream<List<int>> Function() openStream,
+    int length, {
+    String endpoint = '/dictionary/video-upload',
+  }) =>
+      _request('POST', endpoint, videoStream: openStream, videoLength: length);
   Future<dynamic> put(
     String endpoint, {
     dynamic body,

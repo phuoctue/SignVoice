@@ -33,6 +33,12 @@ class ApiConfig {
 
 String signMediaUrl(String value, Uri apiBase) {
   final media = Uri.tryParse(value);
+  if (media != null &&
+      !media.hasFragment &&
+      RegExp(r'^/personal-videos/[a-f0-9]{24}/[a-f0-9]{64}\.mp4$')
+          .hasMatch(media.path)) {
+    return apiBase.resolve(media.path).replace(query: media.query).toString();
+  }
   if (media == null ||
       media.hasQuery ||
       media.hasFragment ||

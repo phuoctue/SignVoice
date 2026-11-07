@@ -35,6 +35,18 @@ class LearningPage {
 class LearningService {
   LearningService({ApiClient? client}) : _client = client ?? ApiClient.instance;
   final ApiClient _client;
+  Future<String> uploadVideo(
+    Stream<List<int>> Function() openStream,
+    int length,
+  ) async {
+    final response = await _client.uploadVideoStream(
+      openStream,
+      length,
+      endpoint: '/learning/video-upload',
+    );
+    return response['data']['videoUrl'] as String;
+  }
+
   Future<LearningPage> _page(String path, Map<String, String> query) async {
     final response = await _client.get(
       '/learning/$path',

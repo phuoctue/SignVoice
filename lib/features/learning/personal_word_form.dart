@@ -7,6 +7,7 @@ import '../../services/api/api_exception.dart';
 import '../../services/learning/learning_service.dart';
 import '../../widgets/ui.dart';
 import 'learning_widgets.dart';
+import 'record_video_dialog.dart';
 
 Future<bool> editPersonalWord(
   BuildContext context,
@@ -22,9 +23,15 @@ Future<bool> editPersonalWord(
     false;
 
 class PersonalWordForm extends StatefulWidget {
-  const PersonalWordForm({super.key, required this.service, this.word});
+  const PersonalWordForm({
+    super.key,
+    required this.service,
+    this.word,
+    this.videoRecorder,
+  });
   final LearningService service;
   final LearningRecord? word;
+  final Future<XFile?> Function(BuildContext)? videoRecorder;
   @override
   State<PersonalWordForm> createState() => _PersonalWordFormState();
 }
@@ -40,21 +47,57 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   late final example = TextEditingController(
     text: widget.word?['usageExample'] as String? ?? '',
   );
-  late final notes = TextEditingController(
-    text: widget.word?['notes'] as String? ?? '',
-  );
-  late final video = TextEditingController(
-    text: widget.word?['videoUrl'] as String? ?? '',
-  );
+  late String video = widget.word?['videoUrl'] as String? ?? '';
+  String? videoName;
   late String image = widget.word?['imageUrl'] as String? ?? '';
   String? error;
-  bool saving = false, picking = false;
+  bool saving = false, picking = false, uploadingVideo = false;
+  bool get busy => saving || picking || uploadingVideo;
   @override
   void dispose() {
-    for (final c in [name, meaning, example, notes, video]) {
+    for (final c in [name, meaning, example]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> pickVideo({bool record = false}) async {
+    setState(() {
+      uploadingVideo = true;
+      error = null;
+    });
+    try {
+      final file = record
+          ? await (widget.videoRecorder ?? recordLearningVideo)(context)
+          : await ImagePicker().pickVideo(source: ImageSource.gallery);
+      if (file == null || !mounted) return;
+      final length = await file.length();
+      if (length > 1024 * 1024 * 1024) {
+        throw StateError('Video cần nhỏ hơn hoặc bằng 1 GB.');
+      }
+      if (!mounted) return;
+      final url = await widget.service.uploadVideo(file.openRead, length);
+      if (mounted) {
+        setState(() {
+          video = url;
+          videoName = record
+              ? 'Video vừa quay'
+              : file.name.split(RegExp(r'[/\\]')).last;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => error = e is ApiException
+              ? e.message
+              : e is StateError
+              ? e.message
+              : 'Chưa thêm được video. Vui lòng thử lại.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => uploadingVideo = false);
+    }
   }
 
   Future<void> pick() async {
@@ -102,6 +145,7 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
   }
 
   Future<void> save() async {
+    if (busy) return;
     if (!form.currentState!.validate()) return;
     setState(() {
       saving = true;
@@ -112,9 +156,8 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
         'word': name.text.trim(),
         'definition': meaning.text.trim(),
         'usageExample': example.text.trim(),
-        'notes': notes.text.trim(),
         'imageUrl': image,
-        'videoUrl': video.text.trim(),
+        'videoUrl': video,
       }, id: widget.word?['_id'] as String?);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
@@ -139,7 +182,7 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
         title: Text(widget.word == null ? 'Tạo từ của tôi' : 'Chỉnh sửa từ'),
         leading: IconButton(
           tooltip: 'Đóng',
-          onPressed: saving ? null : () => Navigator.pop(context),
+          onPressed: busy ? null : () => Navigator.pop(context),
           icon: const Icon(Icons.close),
         ),
       ),
@@ -185,13 +228,13 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
               if (image.isNotEmpty) ...[
                 SignPhoto(image, word: name.text, height: 160),
                 TextButton.icon(
-                  onPressed: saving ? null : () => setState(() => image = ''),
+                  onPressed: busy ? null : () => setState(() => image = ''),
                   icon: const Icon(Icons.close),
                   label: const Text('Bỏ ảnh'),
                 ),
               ],
               OutlinedButton.icon(
-                onPressed: saving || picking ? null : pick,
+                onPressed: busy ? null : pick,
                 icon: const Icon(Icons.add_photo_alternate_outlined),
                 label: Text(
                   picking
@@ -212,29 +255,53 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
                 ),
               ),
               const SizedBox(height: 8),
-              TextFormField(
-                controller: video,
-                maxLength: 2000,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Link video HTTPS (không bắt buộc)',
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return null;
-                  final url = Uri.tryParse(v.trim());
-                  return url?.scheme == 'https' && url!.host.isNotEmpty
+              const Heading('Video ký hiệu (không bắt buộc)', size: 16),
+              const SizedBox(height: 8),
+              if (video.isNotEmpty) ...[
+                LearningWordContent({
+                  '_id': widget.word?['_id'] ?? 'preview',
+                  'word': name.text,
+                  'videoUrl': video,
+                  'imageUrl': image,
+                }, showMeaning: false),
+                if (videoName != null) Text(videoName!),
+                TextButton.icon(
+                  onPressed: busy
                       ? null
-                      : 'Nhập link bắt đầu bằng https://';
-                },
+                      : () => setState(() {
+                          video = '';
+                          videoName = null;
+                        }),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Bỏ video'),
+                ),
+              ],
+              OutlinedButton.icon(
+                onPressed: busy ? null : () => pickVideo(),
+                icon: const Icon(Icons.video_library_outlined),
+                label: Text(video.isEmpty ? 'Chọn video từ máy' : 'Đổi video'),
               ),
               const SizedBox(height: 8),
-              TextFormField(
-                controller: notes,
-                maxLength: 2000,
-                minLines: 2,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Mẹo ghi nhớ / nguồn tham khảo',
+              OutlinedButton.icon(
+                onPressed: busy ? null : () => pickVideo(record: true),
+                icon: const Icon(Icons.videocam_outlined),
+                label: const Text('Quay video mới'),
+              ),
+              if (uploadingVideo)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    children: [
+                      LinearProgressIndicator(),
+                      SizedBox(height: 8),
+                      Text('Đang tải và xử lý video…'),
+                    ],
+                  ),
+                ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: BodyText(
+                  'Chọn video đã tải về hoặc tự quay ký hiệu. Tối đa 1 GB; chỉ tài khoản của bạn xem được.',
                 ),
               ),
               if (error != null)
@@ -246,7 +313,7 @@ class _PersonalWordFormState extends State<PersonalWordForm> {
                 'Lưu từ',
                 icon: Icons.check,
                 busy: saving,
-                onPressed: saving || picking ? null : save,
+                onPressed: busy ? null : save,
               ),
             ],
           ),

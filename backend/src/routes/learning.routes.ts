@@ -9,9 +9,14 @@ import { exploreTopics, enrolledTopics, objectId, pagination, regexLiteral, topi
 import { learningAdvice } from '../services/learning-coach.service';
 import { userTransaction } from '../services/user-data.service';
 import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz } from '../services/review-quiz.service';
+import { createVideoUploadRouter, MAX_VIDEO_BYTES } from './video-upload.routes';
+import { personalVideoRoot } from './personal-video.routes';
+import { convertVideo } from '../services/video-conversion';
+import { ownedPersonalVideo, personalVideoPattern, signPersonalVideo } from '../services/personal-video';
 
 const router = Router();
 router.use(requireAuth);
+router.use('/video-upload', createVideoUploadRouter(personalVideoRoot, convertVideo, MAX_VIDEO_BYTES, 'personal'));
 router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => { void fn(req, res).catch(next); };
 const pageSchema = z.coerce.number().int().min(1).max(10000).default(1);
@@ -100,7 +105,7 @@ const personalSchema = z.object({
   usageExample: z.string().trim().max(1000).default(''),
   notes: z.string().trim().max(2000).default(''),
   imageUrl: z.string().max(1500000).default('').refine(value => safeMedia(value) || /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(value)),
-  videoUrl: z.string().max(2000).default('').refine(safeMedia),
+  videoUrl: z.string().max(2000).default('').refine(value => safeMedia(value) || personalVideoPattern.test(value.split('?')[0])),
 }).strict();
 
 router.get('/my-words', wrap(async (req, res) => {
@@ -110,10 +115,11 @@ router.get('/my-words', wrap(async (req, res) => {
     PersonalWord.find(filter).sort({ updatedAt: -1, _id: 1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).lean(),
     PersonalWord.countDocuments(filter),
   ]);
-  return res.json({ success: true, data: { items, pagination: pagination(page, total) } });
+  return res.json({ success: true, data: { items: items.map(word => ({ ...word, videoUrl: signPersonalVideo(word.videoUrl || '') })), pagination: pagination(page, total) } });
 }));
 router.post('/my-words', wrap(async (req, res) => {
   const body = parse(personalSchema, req.body);
+  body.videoUrl = ownedPersonalVideo(body.videoUrl, req.user!.id.toString());
   const word = await userTransaction(req.user!.id, async session => {
     const [created] = await PersonalWord.create([{ ...body, userId: req.user!.id }], {session});
     return created;
@@ -122,6 +128,7 @@ router.post('/my-words', wrap(async (req, res) => {
 }));
 router.patch('/my-words/:id', wrap(async (req, res) => {
   const body = parse(personalSchema.partial(), req.body);
+  if (body.videoUrl !== undefined) body.videoUrl = ownedPersonalVideo(body.videoUrl, req.user!.id.toString());
   const id = objectId(req.params.id);
   const word = await userTransaction(req.user!.id, async session => PersonalWord.findOneAndUpdate({ _id: id, userId: req.user!.id }, { $set: body }, { new: true, runValidators: true, session }));
   if (!word) throw new AppError('Không tìm thấy từ của bạn.', 404, 'PERSONAL_WORD_NOT_FOUND');

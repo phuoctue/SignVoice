@@ -1488,6 +1488,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/dictionary/video-upload:
+    post:
+      tags: [Dictionary]
+      summary: Tải video từ máy và chuyển sang MP4 để phát trong mục từ
+      description: Yêu cầu quyền dictionary:write. Nhận nhiều định dạng video, tối đa 1 GB và 10 lượt mỗi 15 phút. Máy chủ chuyển sang MP4 H.264/AAC. Lưu videoUrl trả về vào mục từ; video chỉ được phục vụ công khai khi mục từ đã xuất bản.
+      operationId: uploadDictionaryVideo
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Đã lưu video
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      videoUrl:
+                        type: string
+                        format: uri
+        '400':
+          description: File video trống hoặc tải lên bị ngắt
+        '401':
+          description: Cần đăng nhập
+        '403':
+          description: Cần quyền dictionary:write
+        '413':
+          description: Video vượt quá 1 GB
+        '415':
+          description: Cần Content-Type video/* hoặc application/octet-stream
+        '422':
+          description: Không giải mã được video hoặc thời gian chuyển đổi quá dài
+        '503':
+          description: Máy chủ đang bận hoặc chưa có FFmpeg
+        '429':
+          description: Quá số lượt tải video
+
   /api/v1/dictionary/popular:
     get:
       tags:
@@ -2182,6 +2229,48 @@ paths:
                   data:
                     $ref: '#/components/schemas/UserSettings'
 
+  /api/v1/learning/video-upload:
+    post:
+      tags: [Learning]
+      summary: Tải video riêng cho từ cá nhân
+      description: Yêu cầu đăng nhập. Nhận video có sẵn hoặc vừa quay, tối đa 1 GB; chuyển sang MP4. Trả link phát có chữ ký ngắn hạn, lưu đường dẫn video vào từ cá nhân của chính tài khoản.
+      operationId: uploadPersonalLearningVideo
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '201':
+          description: Đã tải lên video riêng tư
+        '401':
+          description: Cần đăng nhập
+        '413':
+          description: Video vượt quá 1 GB
+        '422':
+          description: Video không đọc được hoặc xử lý quá lâu
+        '503':
+          description: Bộ chuyển video chưa sẵn sàng hoặc đang bận
+  /personal-videos/{userId}/{file}:
+    get:
+      tags: [Learning]
+      summary: Phát video cá nhân bằng link ký ngắn hạn
+      operationId: playPersonalLearningVideo
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: string } }
+        - { name: expires, in: query, required: true, schema: { type: string } }
+        - { name: signature, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Video MP4 riêng tư
+        '206':
+          description: Một phần video theo yêu cầu Range
+        '403':
+          description: Link phát thiếu chữ ký, bị sửa hoặc hết hạn
+        '404':
+          description: Video không còn tồn tại
   /api/v1/learning/topics:
     get:
       tags: [Dictionary]

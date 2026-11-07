@@ -14,6 +14,19 @@ class AdminWorkspaceService {
     : _api = apiClient ?? ApiClient.instance;
   final ApiClient _api;
 
+  Future<String> uploadVideo(List<int> bytes) async {
+    final response = await _api.uploadVideo(bytes);
+    return response['data']['videoUrl'] as String;
+  }
+
+  Future<String> uploadVideoStream(
+    Stream<List<int>> Function() openStream,
+    int length,
+  ) async {
+    final response = await _api.uploadVideoStream(openStream, length);
+    return response['data']['videoUrl'] as String;
+  }
+
   Future<AdminRecord> stats() async =>
       Map<String, dynamic>.from((await _api.get('/admin/stats'))['data']);
 
