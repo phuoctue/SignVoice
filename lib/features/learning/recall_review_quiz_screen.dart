@@ -15,9 +15,11 @@ class ReviewQuizScreen extends StatefulWidget {
   const ReviewQuizScreen({
     super.key,
     required this.quizId,
+    this.initialQuiz,
     this.mirrorFactory = createQuizMirror,
   });
   final String quizId;
+  final LearningRecord? initialQuiz;
   final QuizMirror Function() mirrorFactory;
   @override
   State<ReviewQuizScreen> createState() => _ReviewQuizScreenState();
@@ -140,7 +142,9 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
       error = null;
     });
     try {
-      final value = await service.quiz(widget.quizId);
+      final value = quiz == null && widget.initialQuiz != null
+          ? widget.initialQuiz!
+          : await service.quiz(widget.quizId);
       if (!mounted) return;
       apply(value, warmMedia: false);
       final first = questions.indexWhere((q) => !done(q));

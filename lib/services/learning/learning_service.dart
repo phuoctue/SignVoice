@@ -199,12 +199,17 @@ class LearningService {
     invalidatePages();
   }
 
-  Future<LearningRecord> startQuiz(String topicId) async {
+  Future<LearningRecord> startQuiz(String topicId) =>
+      _startTopicQuiz(topicId, 'VIDEO_RECALL');
+  Future<LearningRecord> startMatchQuiz(String topicId) =>
+      _startTopicQuiz(topicId, 'VIDEO_MATCH');
+
+  Future<LearningRecord> _startTopicQuiz(String topicId, String format) async {
     _checkCacheOwner();
     final epoch = _client.sessionEpoch;
     final response = await _client.post(
       '/learning/topics/$topicId/quiz',
-      body: {'format': 'VIDEO_RECALL'},
+      body: {'format': format},
     );
     _client.checkSession(epoch);
     final quiz = LearningRecord.from(response['data'] as Map);
@@ -398,10 +403,17 @@ class LearningService {
   Future<LearningRecord> signNote(String id) async => LearningRecord.from(
     (await _client.get('/sign-notes/$id'))['data'] as Map,
   );
-  Future<LearningRecord> startCollectionQuiz(String id) async {
+  Future<LearningRecord> startCollectionQuiz(String id) =>
+      _startCollectionQuiz(id, false);
+  Future<LearningRecord> startCollectionMatchQuiz(String id) =>
+      _startCollectionQuiz(id, true);
+  Future<LearningRecord> _startCollectionQuiz(String id, bool matching) async {
     _checkCacheOwner();
     final epoch = _client.sessionEpoch;
-    final response = await _client.post('/sign-collections/$id/quiz', body: {});
+    final response = await _client.post(
+      '/sign-collections/$id/quiz',
+      body: {if (matching) 'format': 'VIDEO_MATCH'},
+    );
     _client.checkSession(epoch);
     final quiz = LearningRecord.from(response['data'] as Map);
     _quizHandoff.clear();
@@ -451,6 +463,40 @@ class LearningService {
       '/learning/quizzes/$id/hint',
       body: {'entryId': entryId},
     );
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  String newMatchRequestId() {
+    final random = Random.secure();
+    final bytes = List.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  Future<LearningRecord> matchQuizPair(
+    String id,
+    String entryId,
+    String optionId,
+    String requestId,
+  ) async {
+    final epoch = _client.sessionEpoch;
+    final response = await _client.post(
+      '/learning/quizzes/$id/match',
+      body: {'entryId': entryId, 'optionId': optionId, 'requestId': requestId},
+    );
+    _client.checkSession(epoch);
+    return LearningRecord.from(response['data'] as Map);
+  }
+
+  Future<LearningRecord> matchQuizHint(String id, String entryId) async {
+    final epoch = _client.sessionEpoch;
+    final response = await _client.post(
+      '/learning/quizzes/$id/match-hint',
+      body: {'entryId': entryId},
+    );
+    _client.checkSession(epoch);
     return LearningRecord.from(response['data'] as Map);
   }
 

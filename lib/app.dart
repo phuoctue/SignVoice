@@ -39,7 +39,7 @@ import 'widgets/web_workspace.dart';
 import 'features/learning/learning_hub.dart';
 import 'features/learning/learning_history_screen.dart';
 import 'features/learning/learning_insights_screen.dart';
-import 'features/learning/recall_review_quiz_screen.dart';
+import 'features/learning/match_review_quiz_screen.dart';
 import 'features/learning/collection_screens.dart';
 import 'features/learning/topic_learning_screen.dart';
 import 'services/learning/learning_service.dart';
@@ -813,7 +813,7 @@ class AccessGate extends StatelessWidget {
         return LearningHistoryScreen(entryId: uri.queryParameters['entryId']);
       }
       if (uri.pathSegments.length == 3 && uri.pathSegments[1] == 'quiz') {
-        return ReviewQuizScreen(quizId: uri.pathSegments[2]);
+        return ReviewQuizEntryScreen(quizId: uri.pathSegments[2]);
       }
       if (uri.pathSegments.length == 3 && uri.pathSegments[1] == 'topic') {
         return TopicLearningScreen(

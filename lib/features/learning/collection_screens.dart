@@ -19,6 +19,7 @@ import '../auth/auth_screens.dart';
 import 'collection_widgets.dart';
 import 'learning_widgets.dart';
 import 'personal_word_form.dart';
+import 'quiz_mode_sheet.dart';
 
 abstract class _CollectionPageState<T extends StatefulWidget> extends State<T> {
   LearningRecord? data;
@@ -696,12 +697,18 @@ class _SignCollectionScreenState
     }
   }
 
-  Future<void> quiz() => perform('quiz', () async {
-    final quiz = await service.startCollectionQuiz(widget.id);
-    if (!mounted) return;
-    await pushAppRoute(context, '/learn/quiz/${quiz['_id']}');
-    if (mounted) await load(force: true);
-  });
+  Future<void> quiz() async {
+    final mode = await chooseQuizMode(context);
+    if (!mounted || mode == null) return;
+    await perform('quiz', () async {
+      final quiz = mode == 'VIDEO_MATCH'
+          ? await service.startCollectionMatchQuiz(widget.id)
+          : await service.startCollectionQuiz(widget.id);
+      if (!mounted) return;
+      await pushAppRoute(context, '/learn/quiz/${quiz['_id']}');
+      if (mounted) await load(force: true);
+    });
+  }
   Future<bool> confirm(String title, String message) => common.confirm(
     context,
     title: title,

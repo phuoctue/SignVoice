@@ -1366,7 +1366,16 @@ paths:
     post:
       tags: [Dictionary]
       summary: Bắt đầu hoặc tiếp tục quiz của bộ
-      description: VIDEO_RECALL tối đa 10 từ, đa chủ đề. collectionId thay topicId ở phạm vi bài; mỗi câu giữ topicId gốc. libraryChanged báo bài dở hết hiệu lực sau cập nhật media.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                format: {type: string, enum: [VIDEO_RECALL, VIDEO_MATCH], default: VIDEO_RECALL}
+      description: VIDEO_RECALL hoặc VIDEO_MATCH tối đa 10 từ, đa chủ đề. Lượt dở luôn được tiếp tục theo kiểu đã lưu. Ghép cặp cần ít nhất 2 mẫu khác nghĩa; không tự chuyển tiến độ sang đã nhớ. collectionId thay topicId ở phạm vi bài.
       security: [{bearerAuth: []}]
       parameters:
         - in: path
@@ -3331,9 +3340,9 @@ paths:
               type: object
               additionalProperties: false
               properties:
-                format: { type: string, enum: [CAMERA, VIDEO_CHOICE, VIDEO_RECALL], default: CAMERA }
+                format: { type: string, enum: [CAMERA, VIDEO_CHOICE, VIDEO_RECALL, VIDEO_MATCH], default: CAMERA }
       responses:
-        '200': { description: 'VIDEO_RECALL returns up to ten media questions and text drafts; no options or answer labels before each check. Hints and checked responses survive resuming. VIDEO_CHOICE retains opaque option values; empty legacy bodies retain camera behavior.' }
+        '200': { description: 'VIDEO_RECALL returns up to ten media questions and text drafts. VIDEO_MATCH returns media questions grouped by round and a shuffled matchOptions pool of opaque values without an answer mapping; first attempts and hints survive reloads. Pending recall or matching drafts are resumed without replacement. Empty legacy bodies retain camera behavior.' }
         '409': { description: Not enrolled, no due words, or insufficient available media and distinct distractors }
         '429': { description: Quiz request rate exceeded }
   /api/v1/learning/quizzes/{id}:
@@ -3415,7 +3424,7 @@ paths:
   /api/v1/learning/quizzes/{id}/advice:
     post:
       tags: [Dictionary]
-      summary: Start private read-only LM Studio feedback for completed recall or video-choice practice
+      summary: Start private read-only LM Studio feedback for completed recall, matching or video-choice practice
       operationId: reviewQuizAdvice
       security: [{ bearerAuth: [] }]
       parameters:
@@ -3436,8 +3445,60 @@ paths:
         '400': { description: Invalid async request }
         '401': { description: Authentication required }
         '404': { description: Quiz not found or owned by another account }
-        '409': { description: Quiz is not a completed recall or video-choice attempt }
+        '409': { description: Quiz is not a completed recall, matching or video-choice attempt }
         '429': { description: Per-account request or concurrent AI job limit reached }
+  /api/v1/learning/quizzes/{id}/match:
+    post:
+      tags: [Dictionary]
+      summary: Check a matching-game pair and persist attempts without grading with AI
+      operationId: saveReviewMatch
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [entryId, optionId, requestId]
+              properties:
+                entryId: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+                optionId: {type: string, format: uuid}
+                requestId: {type: string, format: uuid}
+      responses:
+        '200': {description: 'Owned game state. Repeating the same requestId and pair does not add an attempt. All pairs must match before submission; only first-try unassisted matches count toward quiz score. Game points are separate; matching does not promote words to remembered.'}
+        '400': {description: Invalid payload, question or option from another round}
+        '401': {description: Authentication required}
+        '404': {description: Quiz not found or owned by another account}
+        '409': {description: Request token conflict, locked pair, completed or incompatible quiz}
+        '429': {description: Match rate or attempt limit exceeded; a correct pair remains accepted after the attempt limit}
+  /api/v1/learning/quizzes/{id}/match-hint:
+    post:
+      tags: [Dictionary]
+      summary: Reveal the matching card while persisting assisted status
+      operationId: hintReviewMatch
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [entryId]
+              properties:
+                entryId: {type: string, pattern: '^[a-fA-F0-9]{24}$'}
+      responses:
+        '200': {description: Owned game with hintOptionId and persisted usedHint; repeating a hint is idempotent}
+        '400': {description: Invalid payload or question}
+        '401': {description: Authentication required}
+        '404': {description: Quiz not found or owned by another account}
+        '409': {description: Completed or incompatible quiz}
+        '429': {description: Hint rate exceeded}
   /api/v1/learning/quizzes/{id}/hint:
     post:
       tags: [Dictionary]

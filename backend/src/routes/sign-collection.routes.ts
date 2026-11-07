@@ -46,7 +46,10 @@ router.post('/:id/entries',wrap(async(req,res)=>{
   return res.json({success:true,data:await collections.addCollectionEntries(req.user!.id,objectId(req.params.id),input.entryIds.map(objectId))});
 }));
 router.delete('/:id/entries/:entryId',wrap(async(req,res)=>{parse(empty,req.body || {});return res.json({success:true,data:await collections.removeCollectionEntry(req.user!.id,objectId(req.params.id),objectId(req.params.entryId))});}));
-router.post('/:id/quiz',rateLimit({windowMs:60000,limit:15}),wrap(async(req,res)=>{parse(empty,req.body || {});return res.json({success:true,data:await startCollectionQuiz(req.user!.id,objectId(req.params.id))});}));
+router.post('/:id/quiz',rateLimit({windowMs:60000,limit:15}),wrap(async(req,res)=>{
+  const {format}=parse(z.object({format:z.enum(['VIDEO_RECALL','VIDEO_MATCH']).default('VIDEO_RECALL')}).strict(),req.body || {});
+  return res.json({success:true,data:await startCollectionQuiz(req.user!.id,objectId(req.params.id),format)});
+}));
 router.post('/:id/share',wrap(async(req,res)=>{
   const input=parse(z.object({enabled:z.boolean()}).strict(),req.body);
   return res.json({success:true,data:await collections.shareCollection(req.user!.id,objectId(req.params.id),input.enabled)});

@@ -12,6 +12,7 @@ import '../../widgets/sign_video_surface.dart';
 import '../../services/media/sign_video_source.dart';
 import '../../services/media/video_source.dart';
 import '../../services/media/managed_media.dart';
+import 'quiz_game_style.dart';
 
 const learningLabels = {
   'LEARNING': 'Đang học',
@@ -275,11 +276,13 @@ class LearningWordContent extends StatefulWidget {
     this.previewHeight = 230,
     this.showFrames = true,
     this.pauseVideo = false,
+    this.gameStyle = false,
   });
   final LearningRecord word;
   final bool showMeaning;
   final bool hideQuizLabels;
   final bool quizControls, showFrames, pauseVideo;
+  final bool gameStyle;
   final double previewHeight;
   @override
   State<LearningWordContent> createState() => _LearningWordContentState();
@@ -482,6 +485,9 @@ class _LearningWordContentState extends State<LearningWordContent>
         : word['thumbnailUrl'] ?? word['imageUrl'];
     final name = '${word['word'] ?? ''}';
     final ready = _video?.value.isInitialized == true;
+    if (widget.gameStyle) {
+      return gamePresentation(word, images, image as String?, name, ready);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -631,6 +637,207 @@ class _LearningWordContentState extends State<LearningWordContent>
                 ),
               ],
             ),
+        ],
+      ],
+    );
+  }
+
+  Widget gamePresentation(
+    LearningRecord word,
+    List<String> images,
+    String? image,
+    String name,
+    bool ready,
+  ) {
+    final p = QuizGamePalette(context),
+        hasVideo = '${word['videoUrl'] ?? ''}'.isNotEmpty;
+    final isPlaying = _video?.value.isPlaying == true;
+    Widget pill(
+      String label,
+      VoidCallback? action, {
+      IconData? icon,
+      bool active = false,
+    }) => OutlinedButton(
+      onPressed: action,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: active ? p.primary : p.surface,
+        foregroundColor: active
+            ? Theme.of(context).colorScheme.onPrimary
+            : p.ink,
+        side: BorderSide(color: active ? p.primary : p.line),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 16), const SizedBox(width: 6)],
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (word['mediaUnavailable'] == true)
+          const Notice('Chưa có ảnh/video mẫu để xem cho từ này.'),
+        Container(
+          decoration: BoxDecoration(
+            color: p.dark ? const Color(0xFF151C30) : const Color(0xFFF1F2FA),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              if (ready && _showQuizVideo)
+                _quizMedia(
+                  SizedBox(
+                    height: widget.previewHeight,
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: _video!.value.aspectRatio,
+                        child: SignVideoSurface(_video!),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                _quizMedia(
+                  SignPhoto(image, word: name, height: widget.previewHeight),
+                ),
+              if (hasVideo)
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _loadingVideo ? null : _play,
+                      icon: Icon(
+                        isPlaying
+                            ? Icons.pause_circle_outline
+                            : Icons.play_circle_outline,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _loadingVideo
+                            ? 'Đang tải video...'
+                            : isPlaying
+                            ? 'Tạm dừng video'
+                            : 'Xem video ký hiệu',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: p.surface,
+                        foregroundColor: p.primary,
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (_videoError != null) ...[
+          const SizedBox(height: 8),
+          Notice(_videoError!),
+        ],
+        if (hasVideo) ...[
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, size) {
+              final replay = pill(
+                'Xem lại',
+                _loadingVideo ? null : _replay,
+                icon: Icons.replay_rounded,
+              );
+              final speeds = [
+                for (final speed in [.5, 1.0])
+                  pill(
+                    speed == .5 ? '0,5×' : '1×',
+                    _loadingVideo ? null : () => _speedTo(speed),
+                    active: _speed == speed,
+                  ),
+              ];
+              if (size.maxWidth >= 290 &&
+                  MediaQuery.textScalerOf(context).scale(1) < 1.5) {
+                return Row(
+                  children: [
+                    Expanded(child: replay),
+                    const SizedBox(width: 8),
+                    speeds[0],
+                    const SizedBox(width: 8),
+                    speeds[1],
+                  ],
+                );
+              }
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [replay, ...speeds],
+              );
+            },
+          ),
+        ],
+        if (widget.showFrames && images.length > 1) ...[
+          const SizedBox(height: 16),
+          Text(
+            'Thứ tự động tác · Ảnh ${_frame + 1}/${images.length}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: p.muted,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 60,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: images.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => Semantics(
+                button: true,
+                label: 'Xem ảnh ${i + 1}',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    _video?.pause();
+                    setState(() {
+                      _frame = i;
+                      _showQuizVideo = false;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _frame == i ? p.primary : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: _quizMedia(
+                      SignPhoto(
+                        images[i],
+                        width: 52,
+                        height: 52,
+                        word: '$name, bước ${i + 1}',
+                      ),
+                      thumbnail: true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ],
     );

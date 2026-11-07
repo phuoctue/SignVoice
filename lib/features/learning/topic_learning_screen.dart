@@ -11,6 +11,7 @@ import '../../services/media/sign_video_source.dart';
 import '../../widgets/ui.dart';
 import 'learning_page_controller.dart';
 import 'learning_widgets.dart';
+import 'quiz_mode_sheet.dart';
 
 class TopicLearningScreen extends StatefulWidget {
   const TopicLearningScreen({
@@ -112,9 +113,13 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
 
   Future<void> openQuiz() async {
     if (saving) return;
+    final mode = await chooseQuizMode(context);
+    if (!mounted || mode == null) return;
     setState(() => saving = true);
     try {
-      final quiz = await service.startQuiz(widget.topicId);
+      final quiz = mode == 'VIDEO_MATCH'
+          ? await service.startMatchQuiz(widget.topicId)
+          : await service.startQuiz(widget.topicId);
       if (!mounted) return;
       await pushAppRoute(context, '/learn/quiz/${quiz['_id']}');
       if (mounted) await load();
@@ -359,7 +364,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
               ),
             if (enrolled && stage == 'REVIEW' && words.isNotEmpty) ...[
               const Notice(
-                'Xem ký hiệu, tự nhập nghĩa bạn nhớ rồi đối chiếu. Mỗi lượt tối đa 10 từ; có gợi ý khi cần.',
+                'Chơi ghép cặp hoặc tự nhớ nghĩa ký hiệu. Mỗi lượt tối đa 10 từ; có gợi ý khi cần.',
               ),
               const SizedBox(height: 12),
               AppButton(

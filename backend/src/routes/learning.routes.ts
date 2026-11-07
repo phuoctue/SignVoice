@@ -15,7 +15,7 @@ import { LearningEvent } from '../models/LearningEvent.model';
 import { learningInsights, learningToday, learningDayWords } from '../services/learning-insights.service';
 import { UserSettings } from '../models/UserSettings.model';
 import { userTransaction } from '../services/user-data.service';
-import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz, hintReviewRecall, checkReviewRecall, assessReviewRecall } from '../services/review-quiz.service';
+import { startReviewQuiz, getReviewQuiz, saveReviewAnswers, saveReviewCapture, submitReviewQuiz, hintReviewRecall, checkReviewRecall, assessReviewRecall, saveReviewMatch } from '../services/review-quiz.service';
 
 const router = Router();
 router.use(requireAuth);
@@ -111,7 +111,7 @@ router.patch('/words/:id/progress', wrap(async (req, res) => {
 
 const quizLimit = rateLimit({ windowMs: 60000, limit: 15 });
 router.post('/topics/:id/quiz', quizLimit, wrap(async (req, res) => {
-  const { format } = parse(z.object({ format: z.enum(['CAMERA', 'VIDEO_CHOICE', 'VIDEO_RECALL']).default('CAMERA') }).strict(), req.body);
+  const { format } = parse(z.object({ format: z.enum(['CAMERA', 'VIDEO_CHOICE', 'VIDEO_RECALL', 'VIDEO_MATCH']).default('CAMERA') }).strict(), req.body);
   return res.json({ success: true, data: await startReviewQuiz(req.user!.id, objectId(req.params.id), format) });
 }));
 router.get('/quizzes/:id', wrap(async (req, res) => {
@@ -122,6 +122,14 @@ router.patch('/quizzes/:id/answers', wrap(async (req, res) => {
   return res.json({ success: true, data: await saveReviewAnswers(req.user!.id, objectId(req.params.id), answers) });
 }));
 const recallWordId=z.string().regex(/^[a-f0-9]{24}$/i);
+router.post('/quizzes/:id/match', rateLimit({windowMs:60000,limit:120}), wrap(async(req,res)=>{
+  const body=parse(z.object({entryId:recallWordId,optionId:z.string().uuid(),requestId:z.string().uuid()}).strict(),req.body);
+  return res.json({success:true,data:await saveReviewMatch(req.user!.id,objectId(req.params.id),body.entryId,body.optionId,body.requestId)});
+}));
+router.post('/quizzes/:id/match-hint', rateLimit({windowMs:60000,limit:30}), wrap(async(req,res)=>{
+  const body=parse(z.object({entryId:recallWordId}).strict(),req.body);
+  return res.json({success:true,data:await saveReviewMatch(req.user!.id,objectId(req.params.id),body.entryId,'','',true)});
+}));
 router.post('/quizzes/:id/hint', wrap(async(req,res)=>{
   const {entryId}=parse(z.object({entryId:recallWordId}).strict(),req.body);
   return res.json({success:true,data:await hintReviewRecall(req.user!.id,objectId(req.params.id),entryId)});
@@ -150,7 +158,7 @@ router.post('/quizzes/:id/advice', rateLimit({ windowMs: 60000, limit: 3, keyGen
   if (!body.async) throw new AppError('Nhận xét quiz cần tác vụ nền.', 400, 'INVALID_AI_REQUEST');
   const id = objectId(req.params.id);
   const quiz = await getReviewQuiz(req.user!.id, id);
-  if (!['VIDEO_CHOICE','VIDEO_RECALL'].includes(quiz.kind || '') || quiz.status !== 'COMPLETED') throw new AppError('Hãy hoàn tất quiz trước khi xem nhận xét AI.', 409, 'QUIZ_INCOMPLETE');
+  if (!['VIDEO_CHOICE','VIDEO_RECALL','VIDEO_MATCH'].includes(quiz.kind || '') || quiz.status !== 'COMPLETED') throw new AppError('Hãy hoàn tất quiz trước khi xem nhận xét AI.', 409, 'QUIZ_INCOMPLETE');
   return res.status(202).json({ success: true, data: startLearningAiJob(req.user!.id, 'quiz', body.requestKey!, id) });
 }));
 router.get('/ai-jobs/:id', wrap(async (req,res)=>{

@@ -12,9 +12,10 @@ import { userTransaction } from './user-data.service';
 import { addInlineThumbnails } from './sign-media-preview.service';
 import {SignCollection} from '../models/SignCollection.model';
 import {ownedCollection} from './sign-collection.service';
+import { matchingBoard, recordMatch, MatchOption, MatchResponse } from './review-match';
 
 type Question = { entryId: string; word: string; aliases: string[]; videoUrl: string; thumbnailUrl: string; imageUrls: string[];
-  topicId?:string;topicName?:string;
+  topicId?:string;topicName?:string;matchOptionId?:string;
   options?: { value: string; label: string }[]; correctOptionId?: string; definition?: string; usageExample?: string };
 type Capture = { entryId: string; recognizedLabel: string };
 type RecallResponse = {entryId:string;answer:string;usedHint:boolean;match:'EXACT'|'CLOSE'|'DIFFERENT'|'SKIPPED';assessment:'SAME_MEANING'|'REVIEW'|null};
@@ -22,6 +23,7 @@ type Attempt = { _id: Types.ObjectId; userId: Types.ObjectId; topicId?: Types.Ob
   status: string; kind?: string; questions: Question[]; answers?: string[]; captures?: Capture[]; result: any;
   libraryChanged?:boolean;
   hintedEntries?:string[];recallResponses?:RecallResponse[];
+  matchOptions?:MatchOption[];matchResponses?:MatchResponse[];
   gradingToken?: string; gradingUntil?: Date | null; createdAt: Date };
 const missingQuiz = () => new AppError('Không tìm thấy bài ôn tập của bạn.', 404, 'QUIZ_NOT_FOUND');
 function normalize(value: string) { return value.normalize('NFC').trim().toLocaleLowerCase('vi').replace(/_/g, ' ').replace(/\s+/g, ' '); }
@@ -35,10 +37,20 @@ function dto(quiz: Attempt) {
   const captures = quiz.captures || [];
   const choice = quiz.kind === 'VIDEO_CHOICE';
   const recall = quiz.kind === 'VIDEO_RECALL';
+  const matching = quiz.kind === 'VIDEO_MATCH';
   return { _id: String(quiz._id), ...(quiz.topicId?{topicId:String(quiz.topicId)}:{}),
     ...(quiz.collectionId?{collectionId:String(quiz.collectionId),collectionName:quiz.collectionName}:{}), status: quiz.status, kind: quiz.kind,
     ...(choice || recall ? { answers: quiz.questions.map((_, i) => quiz.answers?.[i] || '') } : {}),
+    ...(matching ? {matchOptions:quiz.matchOptions || []} : {}),
     questions: quiz.questions.map((q) => {
+      if (matching) {
+        const response=quiz.matchResponses?.find(row=>row.entryId===q.entryId);
+        return {entryId:q.entryId,round:quiz.matchOptions?.find(o=>o.value===q.matchOptionId)?.round || 0,
+          videoUrl:q.videoUrl,thumbnailUrl:q.thumbnailUrl,imageUrls:q.imageUrls,
+          response:response?{matched:response.matched,usedHint:response.usedHint,attempts:response.checks.length,
+            firstCorrect:response.firstCorrect,selectedOptionId:response.selectedOptionId}:null,
+          hintOptionId:response?.usedHint?q.matchOptionId:null};
+      }
       if(recall) {
         const response=quiz.recallResponses?.find(row=>row.entryId===q.entryId);
         return {entryId:q.entryId,prompt:'Ký hiệu này có nghĩa là gì?',videoUrl:q.videoUrl,thumbnailUrl:q.thumbnailUrl,imageUrls:q.imageUrls,
@@ -67,12 +79,12 @@ async function previewDto(quiz: Attempt) {
     const media=new Map(entries.filter(row=>active.has(String(row.categoryId))).map(row=>[String(row._id),withAvailableMedia(row as unknown as Record<string,unknown>)]));
     value.questions=value.questions.map(q=>({...q,...(media.get(q.entryId)?{videoUrl:media.get(q.entryId)!.videoUrl,thumbnailUrl:media.get(q.entryId)!.thumbnailUrl,imageUrls:media.get(q.entryId)!.imageUrls}:{videoUrl:'',thumbnailUrl:'',imageUrls:[],mediaUnavailable:true})}));
   }
-  if (quiz.kind === 'VIDEO_RECALL') value.questions = await addInlineThumbnails(value.questions);
+  if (quiz.kind === 'VIDEO_RECALL' || quiz.kind === 'VIDEO_MATCH') value.questions = await addInlineThumbnails(value.questions);
   return value;
 }
 export async function getReviewQuiz(userId: Types.ObjectId, id: Types.ObjectId) { return previewDto(await owned(userId, id)); }
 
-export async function startCollectionQuiz(userId:Types.ObjectId,collectionId:Types.ObjectId) {
+export async function startCollectionQuiz(userId:Types.ObjectId,collectionId:Types.ObjectId,format:'VIDEO_RECALL'|'VIDEO_MATCH'='VIDEO_RECALL') {
   const collection=await ownedCollection(userId,collectionId);
   const draft=await ReviewQuiz.findOne({userId,collectionId,status:'DRAFT'}).lean() as unknown as Attempt|null;
   if(draft)return previewDto(draft);
@@ -95,12 +107,14 @@ export async function startCollectionQuiz(userId:Types.ObjectId,collectionId:Typ
         thumbnailUrl:String(media.thumbnailUrl || ''),imageUrls:media.imageUrls,definition:entry.definition,usageExample:entry.usageExample || ''}];
     }).slice(0,10);
   if(!questions.length)throw new AppError('Bộ chưa có từ với ảnh hoặc video khả dụng. Hãy thêm từ từ thư viện.',409,'QUIZ_MEDIA_UNAVAILABLE');
+  const board=format==='VIDEO_MATCH'?matchingBoard(questions):null;
   try {
     const created=await userTransaction(userId,async session=>{
       const current=await ownedCollection(userId,collectionId,session);
-      const ids=new Set(current.entryIds.map(String)),selected=questions.filter(q=>ids.has(q.entryId));
+      const ids=new Set(current.entryIds.map(String)),selected=(board?.questions || questions).filter(q=>ids.has(q.entryId));
       if(!selected.length)throw new AppError('Nội dung bộ đã thay đổi. Hãy tải lại.',409,'COLLECTION_CHANGED');
-      const [row]=await ReviewQuiz.create([{userId,collectionId,collectionName:current.name,kind:'VIDEO_RECALL',questions:selected,answers:selected.map(()=> '')}],{session});
+      if(board && selected.length!==board.questions.length)throw new AppError('Nội dung bộ đã thay đổi. Hãy tải lại.',409,'COLLECTION_CHANGED');
+      const [row]=await ReviewQuiz.create([{userId,collectionId,collectionName:current.name,kind:format,questions:selected,answers:selected.map(()=> ''),...(board?{matchOptions:board.matchOptions}:{})}],{session});
       return row.toObject() as unknown as Attempt;
     });
     return previewDto(created);
@@ -111,7 +125,7 @@ export async function startCollectionQuiz(userId:Types.ObjectId,collectionId:Typ
   }
 }
 
-export async function startReviewQuiz(userId: Types.ObjectId, topicId: Types.ObjectId, format: 'CAMERA' | 'VIDEO_CHOICE' | 'VIDEO_RECALL' = 'CAMERA') {
+export async function startReviewQuiz(userId: Types.ObjectId, topicId: Types.ObjectId, format: 'CAMERA' | 'VIDEO_CHOICE' | 'VIDEO_RECALL' | 'VIDEO_MATCH' = 'CAMERA') {
   if (format !== 'CAMERA') return startVideoReviewQuiz(userId, topicId, format);
   await topicOrFail(topicId);
   if (!await TopicEnrollment.exists({ userId, topicId })) throw new AppError('Hãy bắt đầu học chủ đề trước.', 409, 'NOT_ENROLLED');
@@ -163,11 +177,12 @@ function shuffled<T>(items: T[]) {
 }
 
 /** Answers and definitions remain server-side until the attempt is submitted. */
-async function startVideoReviewQuiz(userId: Types.ObjectId, topicId: Types.ObjectId, format:'VIDEO_CHOICE'|'VIDEO_RECALL') {
+async function startVideoReviewQuiz(userId: Types.ObjectId, topicId: Types.ObjectId, format:'VIDEO_CHOICE'|'VIDEO_RECALL'|'VIDEO_MATCH') {
   await topicOrFail(topicId);
   if (!await TopicEnrollment.exists({ userId, topicId })) throw new AppError('Hãy bắt đầu học chủ đề trước.', 409, 'NOT_ENROLLED');
   const previous = await ReviewQuiz.findOne({ userId, topicId, status: 'DRAFT' }).lean() as unknown as Attempt | null;
   if (previous?.kind === format) return previewDto(previous);
+  if (previous?.kind === 'VIDEO_MATCH' || format==='VIDEO_MATCH' && previous?.kind==='VIDEO_RECALL') return previewDto(previous);
   if (previous?.kind === 'VIDEO_RECALL') throw new AppError('Hãy cập nhật ứng dụng để tiếp tục bài tự nhớ nghĩa ký hiệu.',409,'QUIZ_UPDATED');
   const due = await WordProgress.find({ userId, topicId, $or: [
     { stage: 'REVIEW' }, { stage: 'REMEMBERED', nextReviewAt: { $ne: null, $lte: new Date() } },
@@ -191,7 +206,7 @@ async function startVideoReviewQuiz(userId: Types.ObjectId, topicId: Types.Objec
     const entry = candidate;
     const media = withAvailableMedia(entry as unknown as Record<string, unknown>);
     if (media.mediaUnavailable) continue;
-    if(format==='VIDEO_RECALL') {
+    if(format==='VIDEO_RECALL' || format==='VIDEO_MATCH') {
       if(!normalizeRecall(entry.word))continue;
       questions.push({entryId:String(entry._id),word:entry.word.normalize('NFC'),aliases:entry.aliases || [],
         videoUrl:String(media.videoUrl || ''),thumbnailUrl:String(media.thumbnailUrl || ''),imageUrls:media.imageUrls,
@@ -214,12 +229,13 @@ async function startVideoReviewQuiz(userId: Types.ObjectId, topicId: Types.Objec
       videoUrl: String(media.videoUrl || ''), thumbnailUrl: String(media.thumbnailUrl || ''), imageUrls: media.imageUrls,
       options: shuffled(options), correctOptionId, definition: entry.definition, usageExample: entry.usageExample || '' });
   }
-  if (!questions.length) throw new AppError(format==='VIDEO_RECALL'?'Chưa có mẫu ký hiệu khả dụng để ôn tập. Bạn có thể học các từ khác trong chủ đề.':'Chưa đủ mẫu ký hiệu và 4 đáp án khác nhau để tạo quiz. Bạn vẫn có thể xem mẫu và học trong chủ đề.', 409, 'QUIZ_MEDIA_UNAVAILABLE');
+  if (!questions.length) throw new AppError(format!=='VIDEO_CHOICE'?'Chưa có mẫu ký hiệu khả dụng để ôn tập. Bạn có thể học các từ khác trong chủ đề.':'Chưa đủ mẫu ký hiệu và 4 đáp án khác nhau để tạo quiz. Bạn vẫn có thể xem mẫu và học trong chủ đề.', 409, 'QUIZ_MEDIA_UNAVAILABLE');
+  const board=format==='VIDEO_MATCH'?matchingBoard(questions):null;
   try {
     const created = await userTransaction(userId, async session => {
       // Convert only the owner's old draft, and only once a valid new quiz is ready.
       await ReviewQuiz.updateMany({ userId, topicId, status: 'DRAFT', kind: { $ne: format } }, { $set: { status: 'ABANDONED' } }, { session });
-      const rows = await ReviewQuiz.create([{ userId, topicId, kind: format, questions, answers: questions.map(() => '') }], { session });
+      const rows = await ReviewQuiz.create([{ userId, topicId, kind: format, questions:board?.questions || questions, answers: questions.map(() => ''),...(board?{matchOptions:board.matchOptions}:{}) }], { session });
       return rows[0].toObject() as unknown as Attempt;
     });
     return previewDto(created);
@@ -252,6 +268,7 @@ export async function saveReviewAnswers(userId: Types.ObjectId, id: Types.Object
   const updated = await userTransaction(userId, async session => {
     const quiz = await ReviewQuiz.findOne({ _id: id, userId }).session(session).lean() as unknown as Attempt | null;
     if (!quiz) throw missingQuiz();
+    if (quiz.kind==='VIDEO_MATCH') throw new AppError('Hãy ghép thẻ trong trò chơi để lưu kết quả.',409,'QUIZ_UPDATED');
     if (quiz.status !== 'DRAFT') throw new AppError('Bài đã hoàn tất, không thể sửa.', 409, 'QUIZ_COMPLETED');
     if (quiz.gradingUntil && quiz.gradingUntil > new Date()) throw new AppError('Bài đang được lưu kết quả.', 409, 'QUIZ_GRADING');
     if (answers.length !== quiz.questions.length) throw new AppError('Số câu trả lời không khớp bài ôn tập.', 400, 'INVALID_ANSWERS');
@@ -344,7 +361,22 @@ export async function assessReviewRecall(userId:Types.ObjectId,id:Types.ObjectId
   return dto(updated);
 }
 
+export async function saveReviewMatch(userId:Types.ObjectId,id:Types.ObjectId,entryId:string,optionId:string,requestId:string,hint=false) {
+  const updated=await userTransaction(userId,async session=>{
+    const quiz=await ReviewQuiz.findOne({_id:id,userId}).session(session).lean() as unknown as Attempt|null;
+    if(!quiz)throw missingQuiz();
+    if(quiz.kind!=='VIDEO_MATCH')throw new AppError('Bài này không dùng thẻ ghép cặp.',409,'QUIZ_UPDATED');
+    if(quiz.status!=='DRAFT')throw new AppError('Bài đã hoàn tất, không thể sửa.',409,'QUIZ_COMPLETED');
+    if(quiz.gradingUntil && quiz.gradingUntil>new Date())throw new AppError('Bài đang được lưu kết quả.',409,'QUIZ_GRADING');
+    const responses=recordMatch(quiz.questions,quiz.matchOptions || [],quiz.matchResponses || [],entryId,optionId,requestId,hint);
+    await ReviewQuiz.updateOne({_id:id,userId},{$set:{matchResponses:responses}},{session});
+    return {...quiz,matchResponses:responses};
+  });
+  return dto(updated);
+}
+
 function complete(quiz: Attempt) {
+  if(quiz.kind==='VIDEO_MATCH')return quiz.questions.every(q=>quiz.matchResponses?.some(r=>r.entryId===q.entryId && r.matched));
   if(quiz.kind==='VIDEO_RECALL')return quiz.questions.every(q=>quiz.recallResponses?.some(row=>row.entryId===q.entryId &&
     (row.match==='EXACT' || row.match==='SKIPPED' || !!row.assessment)));
   return quiz.kind === 'VIDEO_CHOICE'
@@ -392,12 +424,14 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
       const events:Record<string,unknown>[]=[];
       const choice = quiz.kind === 'VIDEO_CHOICE';
       const recall = quiz.kind === 'VIDEO_RECALL';
+      const matching = quiz.kind === 'VIDEO_MATCH';
       for (const [index, question] of quiz.questions.entries()) {
         const capture = (quiz.captures || []).find(c => c.entryId === question.entryId);
         const selected = question.options?.find(option => option.value === quiz.answers?.[index]);
         const accepted = [question.word, ...(question.aliases || [])].map(normalize);
         const recalled = quiz.recallResponses?.find(row=>row.entryId===question.entryId);
-        const matched = recall ? recalled?.match==='EXACT' && !recalled.usedHint : choice ? quiz.answers?.[index] === question.correctOptionId : accepted.includes(normalize(capture!.recognizedLabel));
+        const pairing = quiz.matchResponses?.find(row=>row.entryId===question.entryId);
+        const matched = matching ? !!pairing?.firstCorrect && !pairing.usedHint : recall ? recalled?.match==='EXACT' && !recalled.usedHint : choice ? quiz.answers?.[index] === question.correctOptionId : accepted.includes(normalize(capture!.recognizedLabel));
         const score = matched ? 10 : 0;
         const topicId=question.topicId?new Types.ObjectId(question.topicId):quiz.topicId!;
         const topic=topicsMap.get(String(topicId));
@@ -406,12 +440,13 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
         const stillReview = progress && (progress.stage === 'REVIEW' ||
           progress.stage === 'REMEMBERED' && progress.nextReviewAt && progress.nextReviewAt <= new Date());
         const published=entriesMap.get(question.entryId)?.categoryId.equals(topicId);
-        const eligible=quiz.collectionId?members.has(question.entryId) && topic?.status==='ACTIVE' && (!previous || !!progress):stillReview;
+        const eligible=quiz.collectionId?members.has(question.entryId) && topic?.status==='ACTIVE' && (!previous || !!progress) &&
+          (!matching || !progress || progress.stage==='LEARNING' || stillReview):stillReview;
         const applied = !!(eligible && published && (!progress?.reviewedAt || progress.reviewedAt <= quiz.createdAt));
-        const stage = matched ? 'REMEMBERED' : 'REVIEW';
+        const stage = matched && !matching ? 'REMEMBERED' : 'REVIEW';
         if (applied) {
           progressWrites.push({updateOne:{filter:{userId,entryId:new Types.ObjectId(question.entryId)},
-            update:{$set:{topicId,stage,reviewedAt:new Date(),nextReviewAt:matched?new Date(Date.now()+3*86400000):null}},upsert:!!quiz.collectionId}});
+            update:{$set:{topicId,stage,reviewedAt:new Date(),nextReviewAt:matched && !matching?new Date(Date.now()+3*86400000):null}},upsert:!!quiz.collectionId}});
           if(quiz.collectionId)enrollments.set(String(topicId),topicId);
           if(quiz.collectionId && !previous)events.push({userId,topicId,entryId:question.entryId,word:question.word,topicName:topic?.name || question.topicName || 'Chủ đề',kind:'SELF_RATED',stage,firstLearning:true});
         }
@@ -419,11 +454,12 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
           word: question.word, topicName: topic?.name || 'Chủ đề đã được gỡ', kind: 'QUIZ_REVIEWED',
           stage, score, applied });
         output.push({ entryId: question.entryId, word: question.word,
-          ...(recall ? {selectedAnswer:recalled!.answer,correctAnswer:question.word,matchStatus:recalled!.match,
+          ...(matching ? {selectedAnswer:question.word,correctAnswer:question.word,attempts:pairing!.checks.length,usedHint:pairing!.usedHint,
+            firstCorrect:pairing!.firstCorrect,definition:question.definition || '',usageExample:question.usageExample || ''} : recall ? {selectedAnswer:recalled!.answer,correctAnswer:question.word,matchStatus:recalled!.match,
             usedHint:recalled!.usedHint,selfAssessment:recalled!.assessment,
             definition:question.definition || '',usageExample:question.usageExample || ''} : choice ? { selectedAnswer: selected?.label || '', correctAnswer: question.word,
             definition: question.definition || '', usageExample: question.usageExample || '' } : { recognizedLabel: capture!.recognizedLabel }),
-          score, feedback: recall ? (matched?'Bạn tự nhớ đúng nghĩa ký hiệu.':'Từ đã dùng gợi ý hoặc đối chiếu được giữ ở Ôn tập để củng cố.') : choice ? (matched ? 'Bạn đã chọn đúng nghĩa của ký hiệu.' : 'Chưa đúng. Hãy xem lại mẫu ký hiệu và đáp án.')
+          score, feedback: matching ? (matched?'Ghép đúng ngay lần đầu. Hãy thử tự nhớ nghĩa ở lượt ôn sau.':'Đã ghép đúng sau khi luyện lại hoặc dùng gợi ý. Hãy ôn thêm từ này.') : recall ? (matched?'Bạn tự nhớ đúng nghĩa ký hiệu.':'Từ đã dùng gợi ý hoặc đối chiếu được giữ ở Ôn tập để củng cố.') : choice ? (matched ? 'Bạn đã chọn đúng nghĩa của ký hiệu.' : 'Chưa đúng. Hãy xem lại mẫu ký hiệu và đáp án.')
             : matched ? 'Camera nhận diện đúng ký hiệu.' : 'Ký hiệu nhận diện chưa khớp. Hãy xem lại mẫu và ôn tập thêm.', stage, applied });
       }
       if(progressWrites.length)await WordProgress.bulkWrite(progressWrites,{session});
@@ -432,9 +468,10 @@ export async function submitReviewQuiz(userId: Types.ObjectId, id: Types.ObjectI
       const score = Math.round(output.reduce((sum, item) => sum + item.score, 0) / output.length * 10) / 10;
       const independent=output.filter(item=>item.score===10).length;
       const assisted=recall?output.filter(item=>item.score===0 && ('matchStatus' in item) && (item.matchStatus==='EXACT' || item.selfAssessment==='SAME_MEANING')).length:0;
-      const result = { source: recall?'video-recall':choice ? 'video-choice' : 'sign-ai-camera', score, total: output.length,
+      const result = { source: matching?'video-match':recall?'video-recall':choice ? 'video-choice' : 'sign-ai-camera', score, total: output.length,
+        ...(matching?{summary:{firstTry:independent,practiced:output.length-independent},gamePoints:independent*100+(output.length-independent)*50}:{}),
         ...(recall?{summary:{independent,assisted,review:output.length-independent-assisted}}:{}),
-        feedback: recall?'Ghi nhận lần nhớ đầu tiên. Tự đánh giá và gợi ý được tách khỏi kết quả đối chiếu.':choice ? 'Điểm được tính bằng đáp án đã lưu, độc lập với nhận xét AI.' : 'Kết quả được đối chiếu với ký hiệu camera nhận diện cho từng từ.', items: output };
+        feedback: matching?'Điểm thưởng ghi nhận việc ghép cặp. Các từ vẫn ở Ôn tập để tiếp tục tự nhớ nghĩa; bài này không chấm động tác.':recall?'Ghi nhận lần nhớ đầu tiên. Tự đánh giá và gợi ý được tách khỏi kết quả đối chiếu.':choice ? 'Điểm được tính bằng đáp án đã lưu, độc lập với nhận xét AI.' : 'Kết quả được đối chiếu với ký hiệu camera nhận diện cho từng từ.', items: output };
       current.status = 'COMPLETED';
       current.result = result;
       current.completedAt = new Date();
