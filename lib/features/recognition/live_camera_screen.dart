@@ -18,7 +18,7 @@ import '../../services/sign_ai/sign_ai_access.dart';
 import '../../services/sign_ai/speech_output.dart';
 import '../../services/sign_ai/stream_timing.dart';
 import '../../widgets/device_permission_page.dart';
-import '../../widgets/ui.dart' show showAdaptivePanel;
+import '../../widgets/ui.dart' show showAdaptivePanel, toast;
 
 const _ink = Color(0xFF111827);
 const _card = Color(0xFF202938);
@@ -621,15 +621,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       _diagnostic.clear();
       if (!mounted) return;
       setState(() {});
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      toast(context, message);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Chưa xuất được chẩn đoán. Bấm xuất để thử lại.'),
-        ),
-      );
+      toast(context, 'Chưa xuất được chẩn đoán. Bấm xuất để thử lại.');
     } finally {
       if (mounted) setState(() => _diagnosticBusy = false);
     }
@@ -645,12 +640,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       );
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Chưa phát được giọng nói tiếng Việt trên thiết bị này.',
-            ),
-          ),
+        toast(
+          context,
+          'Chưa phát được giọng nói tiếng Việt trên thiết bị này.',
         );
       }
     }
@@ -823,8 +815,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     try {
       SignAiConfig.socketUri(value);
     } on FormatException catch (error) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.message)));
+      toast(context, error.message);
       return;
     }
     final reconnect = _camera != null && (mode != _mode || value != _url);

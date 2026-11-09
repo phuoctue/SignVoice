@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:toastification/toastification.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sign_voice/app.dart';
 import 'package:sign_voice/widgets/ui.dart';
 import 'package:sign_voice/core/app_state.dart';
 import 'package:sign_voice/features/learning/learning_hub.dart';
+import 'package:sign_voice/features/learning/learning_history_screen.dart';
 import 'package:sign_voice/features/learning/topic_learning_screen.dart';
 import 'package:sign_voice/services/learning/learning_service.dart';
 
@@ -34,6 +36,16 @@ class PagedLearningService extends DemoLearningService {
   }
 }
 
+class HistoryLearningService extends DemoLearningService {
+  @override
+  Future<LearningPage> history({
+    int page = 1,
+    int pageSize = 10,
+    String search = '',
+    String? entryId,
+  }) async => LearningPage(items: []);
+}
+
 class ControlledRateService extends DemoLearningService {
   final acknowledgment = Completer<void>();
   final reconciliation = Completer<LearningPage>();
@@ -56,8 +68,11 @@ void main() {
     WidgetTester tester,
     DemoLearningService service, {
     String screen = 'S22',
+    bool web = false,
   }) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = web
+        ? const Size(1440, 1000)
+        : const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -68,11 +83,88 @@ void main() {
         auth: auth,
         state: AppState(),
         initialScreen: screen,
+        webRouting: web,
         learningService: service,
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('desktop word history returns to the previous topic and filter', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      HistoryLearningService()..enrolled = true,
+      web: true,
+      screen: '/learn/topic/${DemoLearningService.topicId}?study=1',
+    );
+    final all = find.widgetWithText(ChoiceChip, 'Tất cả');
+    await tester.ensureVisible(all);
+    await tester.tap(all);
+    await tester.pumpAndSettle();
+    final history = find.text('Lịch sử từ này').first;
+    await tester.ensureVisible(history);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(find.byType(LearningHistoryScreen), findsOneWidget);
+    expect(find.byTooltip('Quay lại'), findsOneWidget);
+    await tester.tap(find.byTooltip('Quay lại'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TopicLearningScreen), findsOneWidget);
+    await tester.scrollUntilVisible(
+      all,
+      -250,
+      scrollable: find
+          .descendant(
+            of: find.byType(TopicLearningScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(tester.widget<ChoiceChip>(all).selected, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('desktop empty history root has Back with a home fallback', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      HistoryLearningService(),
+      web: true,
+      screen: '/learn/history',
+    );
+    expect(find.byType(LearningHistoryScreen), findsOneWidget);
+    expect(find.text('Chưa có lịch sử học tập'), findsOneWidget);
+    expect(find.byTooltip('Quay lại'), findsOneWidget);
+    await tester.tap(find.byTooltip('Quay lại'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LearningHistoryScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'history opened from learning root keeps Back to its previous tab',
+    (tester) async {
+      await mount(
+        tester,
+        HistoryLearningService()..enrolled = true,
+        web: true,
+        screen: '/learn?tab=1',
+      );
+      final link = find.text('Lịch sử học tập').first;
+      await tester.ensureVisible(link);
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(find.byType(LearningHistoryScreen), findsOneWidget);
+      expect(find.byTooltip('Quay lại'), findsOneWidget);
+      await tester.tap(find.byTooltip('Quay lại'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LearningHub), findsOneWidget);
+      expect(find.byType(LearningHistoryScreen), findsNothing);
+    },
+  );
 
   testWidgets(
     'saved feedback waits for the write but never waits for a second page read',
@@ -93,9 +185,11 @@ void main() {
       expect(find.text('Đã lưu: Đã nhớ'), findsNothing);
       expect(service.ratings, isEmpty);
       service.acknowledgment.complete();
-      await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('Đã lưu: Đã nhớ'), findsOneWidget);
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expect(find.byType(TopicLearningScreen), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsNothing);
       expect(
@@ -144,6 +238,9 @@ void main() {
       await tester.tap(rating);
       await tester.pumpAndSettle();
       expect(service.ratings.values, contains('REMEMBERED'));
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox.shrink());
       final auth = await authenticatedProvider();
       addTearDown(auth.dispose);
@@ -182,6 +279,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('$nextWord'), findsNothing);
     expect(service.ratings.values.where((v) => v == 'REMEMBERED').length, 2);
+    toastification.dismissAll(delayForAnimation: false);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('remembered list is read only and review opens a quiz', (

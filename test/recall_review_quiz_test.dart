@@ -260,6 +260,31 @@ void main() {
   }
 
   testWidgets(
+    'desktop keeps media and assessment side by side, large text stacks',
+    (tester) async {
+      await mount(tester, RecallQuizService(), size: const Size(1440, 1000));
+      expect(
+        find.byKey(const ValueKey('recall-desktop-columns')),
+        findsOneWidget,
+      );
+      await check(tester, 'khác');
+      expect(find.text('Bạn tự đối chiếu thế nào?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await mount(
+        tester,
+        RecallQuizService(),
+        size: const Size(1440, 1000),
+        scale: 2,
+      );
+      expect(
+        find.byKey(const ValueKey('recall-desktop-columns')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'recall starts with a labelled field and checks meaning without multiple-choice options',
     (tester) async {
       final service = RecallQuizService();

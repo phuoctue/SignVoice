@@ -333,7 +333,7 @@ class _SignReferenceImagesState extends State<SignReferenceImages> {
   void initState() {
     super.initState();
     index = widget.initialIndex;
-    pages = PageController(initialPage: index);
+    pages = PageController(initialPage: index, keepPage: false);
   }
 
   @override
@@ -355,6 +355,7 @@ class _SignReferenceImagesState extends State<SignReferenceImages> {
             onPageChanged: (value) => setState(() => index = value),
             itemBuilder: (_, i) => SignPhoto(
               widget.urls[i],
+              key: ValueKey(widget.urls[i]),
               word: '${widget.word}, ảnh ${i + 1}',
               height: 280,
               fit: BoxFit.contain,
@@ -368,27 +369,19 @@ class _SignReferenceImagesState extends State<SignReferenceImages> {
           children: [
             IconButton(
               tooltip: 'Ảnh trước',
-              onPressed: index == 0
-                  ? null
-                  : () => pages.previousPage(
-                      duration: MediaQuery.disableAnimationsOf(context)
-                          ? Duration.zero
-                          : const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                    ),
+              onPressed: index == 0 ? null : () => pages.jumpToPage(index - 1),
               icon: const Icon(Icons.chevron_left),
             ),
-            Flexible(child: Text('Ảnh ${index + 1}/${widget.urls.length}')),
+            Flexible(
+              child: Text(
+                'Ảnh ${index + 1}/${widget.urls.length} · Vuốt để xem thứ tự động tác',
+              ),
+            ),
             IconButton(
               tooltip: 'Ảnh tiếp',
               onPressed: index == widget.urls.length - 1
                   ? null
-                  : () => pages.nextPage(
-                      duration: MediaQuery.disableAnimationsOf(context)
-                          ? Duration.zero
-                          : const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                    ),
+                  : () => pages.jumpToPage(index + 1),
               icon: const Icon(Icons.chevron_right),
             ),
           ],

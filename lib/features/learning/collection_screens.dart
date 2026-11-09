@@ -593,17 +593,25 @@ class _SignCollectionScreenState
       LearningRecord.from(data?['collection'] as Map? ?? {});
   Future<void> add() async {
     if (action != null) return;
-    final choice = await showModalBottomSheet<String>(
+    final choice = await showAdaptivePanel<String>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
+      maxWidth: 560,
       builder: (sheet) => SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Heading('Thêm từ vào bộ', size: 22),
+            Row(
+              children: [
+                const Expanded(child: Heading('Thêm từ vào bộ', size: 22)),
+                IconButton(
+                  tooltip: 'Đóng',
+                  onPressed: () => Navigator.pop(sheet),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             CollectionAction(
               'Chọn từ thư viện',

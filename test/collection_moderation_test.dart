@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:toastification/toastification.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sign_voice/app.dart';
 import 'package:sign_voice/core/app_state.dart';
@@ -191,6 +192,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('moderation desktop groups avatar, information and actions', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      route: '/admin/collections/${ModerationFixture.id}',
+      size: const Size(1440, 1000),
+    );
+    expect(
+      find.byKey(const ValueKey('moderation-desktop-header')),
+      findsOneWidget,
+    );
+    expect(find.text('Thao tác kiểm duyệt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   Future<void> tap(WidgetTester tester, Finder target) async {
     if (target.evaluate().isEmpty) {
       await tester.scrollUntilVisible(
@@ -305,7 +322,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(service.row['moderationState'], 'BLOCKED');
       await tap(tester, find.text('Lịch sử'));
+      await tester.scrollUntilVisible(
+        find.text('Nhân viên A · STAFF'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Nhân viên A · STAFF'), findsOneWidget);
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
     },
   );
   testWidgets(
@@ -327,6 +352,9 @@ void main() {
       expect(service.report['status'], 'RESOLVED');
       expect(service.row['moderationState'], 'CLEAR');
       expect(find.text('Chưa có báo cáo phù hợp'), findsOneWidget);
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
     },
   );
   testWidgets(
@@ -355,6 +383,9 @@ void main() {
         find.text('Đã ghi nhận báo cáo. Nhân viên sẽ kiểm tra nội dung.'),
         findsOneWidget,
       );
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
     },
   );
   testWidgets(
@@ -376,6 +407,9 @@ void main() {
       await tap(tester, find.text('Gửi kiểm tra'));
       expect(learning.reviews, 1);
       expect(learning.collections.first['moderationState'], 'BLOCKED');
+      toastification.dismissAll(delayForAnimation: false);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expect(find.text('Đã gửi · Chờ kiểm tra'), findsOneWidget);
     },
   );

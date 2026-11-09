@@ -96,7 +96,7 @@ class CollectionAction extends StatelessWidget {
         heightFactor: 1,
         alignment: Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 320),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: SizedBox(width: double.infinity, child: button),
         ),
       );
@@ -163,7 +163,11 @@ class LearningTabs extends StatelessWidget {
               onTap: () {
                 if (!active) {
                   if (kIsWeb || WebWorkspaceScope.contains(context)) {
-                    openRoot(context, paths[i]);
+                    if (i == 4) {
+                      pushAppRoute(context, paths[i]);
+                    } else {
+                      openRoot(context, paths[i]);
+                    }
                   } else {
                     replaceAppRoute(context, '/learn?tab=$i');
                   }

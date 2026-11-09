@@ -299,10 +299,15 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
           if (result != null) ...[
             if (!isStudy) ...[
               if (words.isNotEmpty)
-                SignPhoto(
-                  words.first['thumbnailUrl'] as String?,
-                  word: '${result.topic['name']}',
-                  height: 170,
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: SignPhoto(
+                      words.first['thumbnailUrl'] as String?,
+                      word: '${result.topic['name']}',
+                      height: 220,
+                    ),
+                  ),
                 ),
               const SizedBox(height: 18),
               Heading('${result.topic['name']}', size: 24),
@@ -379,7 +384,7 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                     : 1;
                 return Wrap(
                   spacing: 16,
-                  runSpacing: 4,
+                  runSpacing: 16,
                   children: [
                     for (final word in words)
                       SizedBox(

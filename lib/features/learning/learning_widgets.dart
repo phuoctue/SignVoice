@@ -289,6 +289,7 @@ class _LearningWordContentState extends State<LearningWordContent>
     with WidgetsBindingObserver {
   VideoPlayerController? _video;
   VideoSource? _source;
+  final _framesScroll = ScrollController(keepScrollOffset: false);
   int _generation = 0;
   @override
   void initState() {
@@ -311,7 +312,7 @@ class _LearningWordContentState extends State<LearningWordContent>
   }
 
   bool _loadingVideo = false;
-  bool _showQuizVideo = false;
+  bool _showVideo = false;
   String? _videoError;
   int _frame = 0;
   double _speed = 1;
@@ -333,7 +334,7 @@ class _LearningWordContentState extends State<LearningWordContent>
       _source = null;
       _video = null;
       _loadingVideo = false;
-      _showQuizVideo = false;
+      _showVideo = false;
       _videoError = null;
       _frame = _previewFrame(widget.word);
       primeImagePreviews([widget.word]);
@@ -344,6 +345,7 @@ class _LearningWordContentState extends State<LearningWordContent>
   @override
   void dispose() {
     _generation++;
+    _framesScroll.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _video?.dispose();
     _source?.dispose();
@@ -353,16 +355,19 @@ class _LearningWordContentState extends State<LearningWordContent>
   Future<void> _play() async {
     if (_loadingVideo) return;
     if (_video != null) {
-      if (_video!.value.isPlaying && (!widget.quizControls || _showQuizVideo)) {
-        await _video!.pause();
+      final controller = _video!;
+      final pause = controller.value.isPlaying && _showVideo;
+      setState(() => _showVideo = true);
+      if (pause) {
+        await controller.pause();
       } else {
-        await _video!.play();
+        await controller.play();
       }
-      if (mounted) setState(() => _showQuizVideo = true);
       return;
     }
     setState(() {
       _loadingVideo = true;
+      _showVideo = true;
       _videoError = null;
     });
     final generation = ++_generation;
@@ -384,9 +389,8 @@ class _LearningWordContentState extends State<LearningWordContent>
         await controller.setPlaybackSpeed(_speed);
       }
       if (!mounted || generation != _generation) return;
-      if (!widget.quizControls || !widget.pauseVideo) {
+      if (_showVideo && (!widget.quizControls || !widget.pauseVideo)) {
         await controller.play();
-        _showQuizVideo = true;
       }
     } catch (_) {
       if (mounted && generation == _generation) {
@@ -430,12 +434,10 @@ class _LearningWordContentState extends State<LearningWordContent>
       return;
     }
     try {
+      setState(() => _showVideo = true);
       await controller.seekTo(Duration.zero);
-      if (!mounted || generation != _generation) return;
+      if (!mounted || generation != _generation || !_showVideo) return;
       await controller.play();
-      if (mounted && generation == _generation) {
-        setState(() => _showQuizVideo = true);
-      }
     } catch (_) {
       if (mounted && generation == _generation) {
         setState(() => _videoError = 'Chưa phát lại được video. Hãy thử lại.');
@@ -490,24 +492,19 @@ class _LearningWordContentState extends State<LearningWordContent>
             padding: EdgeInsets.only(bottom: 12),
             child: Notice('Chưa có ảnh/video mẫu để xem cho từ này.'),
           ),
-        if (ready && (!widget.quizControls || _showQuizVideo))
+        if (ready && _showVideo)
           _quizMedia(
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: widget.quizControls
-                  ? SizedBox(
-                      height: widget.previewHeight,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: _video!.value.aspectRatio,
-                          child: SignVideoSurface(_video!),
-                        ),
-                      ),
-                    )
-                  : AspectRatio(
-                      aspectRatio: _video!.value.aspectRatio,
-                      child: SignVideoSurface(_video!),
-                    ),
+              child: SizedBox(
+                height: widget.previewHeight,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: _video!.value.aspectRatio,
+                    child: SignVideoSurface(_video!),
+                  ),
+                ),
+              ),
             ),
           )
         else
@@ -569,42 +566,50 @@ class _LearningWordContentState extends State<LearningWordContent>
           const SizedBox(height: 6),
           SizedBox(
             height: 72,
-            child: ListView.separated(
+            child: SingleChildScrollView(
+              controller: _framesScroll,
               scrollDirection: Axis.horizontal,
-              itemCount: images.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (_, i) => Semantics(
-                button: true,
-                label: 'Xem ảnh ${i + 1}',
-                child: InkWell(
-                  onTap: () {
-                    if (widget.quizControls) _video?.pause();
-                    setState(() {
-                      _frame = i;
-                      if (widget.quizControls) _showQuizVideo = false;
-                    });
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: _frame == i
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.transparent,
-                        width: 2,
+              child: Row(
+                children: [
+                  for (var i = 0; i < images.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Semantics(
+                        button: true,
+                        selected: _frame == i && !_showVideo,
+                        label: 'Xem ảnh ${i + 1}',
+                        child: InkWell(
+                          onTap: () {
+                            _video?.pause();
+                            setState(() {
+                              _frame = i;
+                              _showVideo = false;
+                            });
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: _frame == i
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.transparent,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: _quizMedia(
+                              SignPhoto(
+                                images[i],
+                                width: 66,
+                                height: 68,
+                                word: '$name, bước ${i + 1}',
+                              ),
+                              thumbnail: true,
+                            ),
+                          ),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: _quizMedia(
-                      SignPhoto(
-                        images[i],
-                        width: 66,
-                        height: 68,
-                        word: '$name, bước ${i + 1}',
-                      ),
-                      thumbnail: true,
-                    ),
-                  ),
-                ),
+                ],
               ),
             ),
           ),
@@ -638,10 +643,8 @@ class _LearningWordContentState extends State<LearningWordContent>
 }
 
 Future<void> showLearningWord(BuildContext context, LearningRecord word) async {
-  await showModalBottomSheet<void>(
+  await showAdaptivePanel<void>(
     context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
     builder: (context) => SizedBox(
       height: MediaQuery.sizeOf(context).height * .9,
       child: Scaffold(
@@ -653,9 +656,14 @@ Future<void> showLearningWord(BuildContext context, LearningRecord word) async {
             icon: const Icon(Icons.close),
           ),
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: LearningWordContent(word),
+        body: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: LearningWordContent(
+              word,
+              previewHeight: (constraints.maxHeight * .5).clamp(180, 400),
+            ),
+          ),
         ),
       ),
     ),

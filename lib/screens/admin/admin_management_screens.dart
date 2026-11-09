@@ -145,11 +145,7 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
     if (changed == true &&
         mounted &&
         context.read<AuthProvider>().accountEpoch == epoch) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đã đặt lại mật khẩu. Người dùng cần đăng nhập lại.'),
-        ),
-      );
+      toast(context, 'Đã đặt lại mật khẩu. Người dùng cần đăng nhập lại.');
     }
   }
 
@@ -194,8 +190,7 @@ class _AdminResourceScreenState extends State<AdminResourceScreen> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(adminError(error))));
+        toast(context, adminError(error));
       }
     } finally {
       if (mounted) setState(() => _mutating = false);

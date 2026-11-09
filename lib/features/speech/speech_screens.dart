@@ -339,7 +339,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
                         key: const ValueKey('transcript-editor'),
                         controller: editor,
                         focusNode: editorFocus,
-                        minLines: 4,
+                        minLines: 2,
                         maxLines: null,
                         keyboardType: TextInputType.multiline,
                         textCapitalization: TextCapitalization.sentences,
@@ -397,8 +397,8 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
                   ),
                 ),
               ],
-            )
-          else
+            ),
+          if (!editing)
             ActionGroup(
               children: [
                 AppButton(
@@ -449,7 +449,7 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
                 ),
               ],
             ),
-          if (!editing) ...[
+          ...[
             const SizedBox(height: 12),
             ActionGroup(
               children: [
@@ -457,23 +457,21 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
                   'Toàn màn hình',
                   outlined: true,
                   icon: Icons.fullscreen,
-                  onPressed: () => openScreen(context, 'S19'),
+                  onPressed: editing ? null : () => openScreen(context, 'S19'),
                 ),
                 AppButton(
                   'Ghi nhận lại',
                   outlined: true,
                   icon: Icons.refresh,
-                  onPressed: () => openScreen(context, 'S16', replace: true),
+                  onPressed: editing
+                      ? null
+                      : () => openScreen(context, 'S16', replace: true),
                 ),
               ],
             ),
           ],
           const SizedBox(height: 12),
-          Visibility(
-            visible: !editing,
-            maintainState: true,
-            child: SignSequencePanel(text: text),
-          ),
+          SignSequencePanel(text: text),
           const SizedBox(height: 10),
           const SizedBox(height: 10),
         ],

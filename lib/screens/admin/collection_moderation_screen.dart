@@ -260,20 +260,9 @@ class _CollectionModerationScreenState
     if (collection == null) return const SizedBox.shrink();
     final row = collection!, state = '${row['moderationState'] ?? 'CLEAR'}';
     final canWrite = context.watch<AuthProvider>().can('collections:moderate');
-    return Column(
+    final information = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if ('${row['avatarImage'] ?? ''}'.isNotEmpty) ...[
-          Center(
-            child: SignPhoto(
-              row['avatarImage'] as String?,
-              word: 'Ảnh đại diện bộ ${row['name']}',
-              width: 80,
-              height: 80,
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
         Heading('${row['name']}', size: 23),
         const SizedBox(height: 8),
         stateLabel(row),
@@ -297,8 +286,15 @@ class _CollectionModerationScreenState
           const SizedBox(height: 12),
           const Notice('Chủ bộ đã gửi nội dung mới để kiểm tra.'),
         ],
+      ],
+    );
+    final actions = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
         if (canWrite) ...[
-          const SizedBox(height: 16),
+          const Heading('Thao tác kiểm duyệt', size: 16),
+          const SizedBox(height: 12),
           if (state != 'HIDDEN')
             CollectionAction(
               'Ẩn khỏi khám phá',
@@ -326,7 +322,49 @@ class _CollectionModerationScreenState
               onPressed: acting || loading ? null : () => changeState('CLEAR'),
             ),
         ],
-        const SizedBox(height: 16),
+      ],
+    );
+    final avatar = SignPhoto(
+      row['avatarImage'] as String?,
+      word: 'Ảnh đại diện bộ ${row['name']}',
+      width: 88,
+      height: 88,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppCard(
+          child: LayoutBuilder(
+            builder: (context, box) {
+              if (box.maxWidth >= 820 &&
+                  MediaQuery.textScalerOf(context).scale(1) < 1.5) {
+                return Row(
+                  key: const ValueKey('moderation-desktop-header'),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    avatar,
+                    const SizedBox(width: 20),
+                    Expanded(child: information),
+                    if (canWrite) ...[
+                      const SizedBox(width: 24),
+                      SizedBox(width: 260, child: actions),
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(alignment: Alignment.centerLeft, child: avatar),
+                  const SizedBox(height: 16),
+                  information,
+                  if (canWrite) ...[const SizedBox(height: 20), actions],
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 20),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -536,6 +574,7 @@ class _CollectionModerationScreenState
   @override
   Widget build(BuildContext context) => AppPage(
     title: detail ? 'Kiểm duyệt bộ' : 'Bộ sưu tập công khai',
+    contentMaxWidth: 1120,
     scroll: false,
     padding: EdgeInsets.zero,
     actions: [

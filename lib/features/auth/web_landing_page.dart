@@ -400,6 +400,7 @@ class _WebLandingPageState extends State<WebLandingPage> {
         Wrap(
           spacing: 12,
           runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             LandingCta(
               label: 'Tạo tài khoản miễn phí',
@@ -409,6 +410,18 @@ class _WebLandingPageState extends State<WebLandingPage> {
               onPressed: () => _startTrial(),
               icon: const Icon(Icons.play_circle_outline),
               label: const Text('Dùng thử 10 phút'),
+              style: OutlinedButton.styleFrom(
+                // Match the primary CTA including its 1px outer border.
+                minimumSize: const Size(210, 56),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 17,
+                ),
+                iconSize: 20,
+                textStyle: Theme.of(context).textTheme.labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+                shape: const StadiumBorder(),
+              ),
             ),
           ],
         ),
