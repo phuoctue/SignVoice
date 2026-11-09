@@ -147,7 +147,9 @@ class _QuizPracticeSheetState extends State<QuizPracticeSheet>
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: MediaQuery.sizeOf(context).height * .9,
+    height:
+        MediaQuery.sizeOf(context).height *
+        (isDesktopLayout(context) ? .78 : .9),
     child: Column(
       children: [
         Padding(

@@ -384,6 +384,58 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  for (final width in [375.0, 620.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'hero mode switch keeps media and card stable at $width text $scale',
+        (tester) async {
+          tester.view.physicalSize = Size(width, 1000);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await tester.pumpWidget(
+            MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: const Scaffold(
+                body: SingleChildScrollView(
+                  child: LandingHeroDemo(
+                    words: [
+                      {'word': 'xin chào'},
+                    ],
+                    loading: false,
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final card = tester.getRect(find.byType(LandingHeroDemo));
+          final media = tester.getRect(find.byType(PublicSignPreview));
+          final mediaState = tester.state(find.byType(PublicSignPreview));
+          for (var i = 0; i < 4; i++) {
+            final chip = find.byKey(
+              ValueKey(i.isEven ? 'demo-mode-speech' : 'demo-mode-sign'),
+            );
+            await tester.tap(chip);
+            await tester.pump(const Duration(milliseconds: 100));
+            expect(tester.getRect(find.byType(LandingHeroDemo)), card);
+            expect(tester.getRect(find.byType(PublicSignPreview)), media);
+            expect(
+              tester.state(find.byType(PublicSignPreview)),
+              same(mediaState),
+            );
+            await tester.pumpAndSettle();
+            expect(tester.getRect(find.byType(LandingHeroDemo)), card);
+            expect(tester.takeException(), isNull);
+          }
+        },
+      );
+    }
+  }
   testWidgets(
     'public lookup, media preview, FAQ and motion control work without a guest session',
     (tester) async {

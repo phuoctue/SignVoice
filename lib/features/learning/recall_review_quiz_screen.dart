@@ -446,11 +446,8 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
     focus.unfocus();
     setState(() => practiceOpen = true);
     try {
-      await showModalBottomSheet<void>(
+      await showAdaptivePanel<void>(
         context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        showDragHandle: true,
         builder: (_) => QuizPracticeSheet(
           word: {...q, 'word': word},
           mirrorFactory: widget.mirrorFactory,
@@ -548,8 +545,17 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
             ),
             if (!exact && !skipped) ...[
               const SizedBox(height: 16),
+              Text(
+                'Bạn tự đối chiếu thế nào?',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: colors.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 8),
               AppButton(
                 'Tôi diễn đạt cùng nghĩa',
+                fill: true,
                 busy: pending == 'assessment:SAME_MEANING',
                 color: colors.onPrimaryContainer,
                 outlined: r['assessment'] != 'SAME_MEANING',
@@ -561,6 +567,7 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
               const SizedBox(height: 8),
               AppButton(
                 'Tôi cần ôn thêm',
+                fill: true,
                 busy: pending == 'assessment:REVIEW',
                 color: colors.onPrimaryContainer,
                 outlined: r['assessment'] != 'REVIEW',
@@ -779,115 +786,151 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
         if (!keyboard)
           const BodyText('Xem mẫu, thử tự nhớ rồi nhập nghĩa bên dưới.'),
         const SizedBox(height: 12),
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: LearningWordContent(
-              {...q, 'word': r?['correctAnswer'] ?? 'Ký hiệu đang ôn'},
-              key: ValueKey('recall-media-${q['entryId']}'),
-              showMeaning: false,
-              hideQuizLabels: r == null,
-              quizControls: true,
-              previewHeight: keyboard ? 128 : 208,
-              showFrames: !keyboard && showFrames,
-              pauseVideo: keyboard || practiceOpen,
-            ),
-          ),
-        ),
-        if (!keyboard && (q['imageUrls'] as List? ?? []).length > 1)
-          Semantics(
-            expanded: showFrames,
-            child: TextButton.icon(
-              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-              onPressed: () => setState(() => showFrames = !showFrames),
-              icon: Icon(
-                showFrames ? Icons.expand_less : Icons.photo_library_outlined,
-              ),
-              label: Text(
-                showFrames ? 'Thu gọn chuỗi ảnh' : 'Xem các bước bằng ảnh',
-              ),
-            ),
-          ),
-        const SizedBox(height: 16),
-        if (r != null)
-          feedbackCard(r)
-        else
-          Form(
-            key: form,
-            child: Column(
-              key: field,
+        LayoutBuilder(
+          builder: (context, box) {
+            final wide =
+                box.maxWidth >= 880 &&
+                MediaQuery.textScalerOf(context).scale(1) < 1.5;
+            final media = Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (q['hint'] != null) ...[
-                  AppCard(
-                    color: colors.secondaryContainer,
-                    child: Text(
-                      '${q['hint']}',
-                      style: TextStyle(color: colors.onSecondaryContainer),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: LearningWordContent(
+                      {...q, 'word': r?['correctAnswer'] ?? 'Ký hiệu đang ôn'},
+                      key: ValueKey('recall-media-${q['entryId']}'),
+                      showMeaning: false,
+                      hideQuizLabels: r == null,
+                      quizControls: true,
+                      previewHeight: keyboard ? 128 : 208,
+                      showFrames: !keyboard && showFrames,
+                      pauseVideo: keyboard || practiceOpen,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                ],
-                TextFormField(
-                  key: const ValueKey('quiz-recall-answer'),
-                  controller: input,
-                  focusNode: focus,
-                  textInputAction: TextInputAction.done,
-                  maxLength: 200,
-                  minLines: 1,
-                  maxLines: 3,
-                  readOnly:
-                      pending == 'check' ||
-                      pending == 'submit' ||
-                      pending == 'save',
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: const InputDecoration(
-                    labelText: 'Nghĩa bạn nhớ',
-                    hintText: 'Nhập từ hoặc cụm từ tiếng Việt',
-                    counterText: '',
-                  ),
-                  onChanged: (value) => setState(() {
-                    answers[index] = value;
-                    error = null;
-                  }),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Nhập nghĩa bạn nhớ, hoặc chọn Chưa nhớ.'
-                      : null,
-                  onFieldSubmitted: (_) => check(),
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    TextButton.icon(
-                      onPressed: busy || q['hint'] != null ? null : hint,
+                if (!keyboard && (q['imageUrls'] as List? ?? []).length > 1)
+                  Semantics(
+                    expanded: showFrames,
+                    child: TextButton.icon(
                       style: TextButton.styleFrom(
                         minimumSize: const Size(48, 48),
                       ),
-                      icon: const Icon(Icons.lightbulb_outline),
+                      onPressed: () => setState(() => showFrames = !showFrames),
+                      icon: Icon(
+                        showFrames
+                            ? Icons.expand_less
+                            : Icons.photo_library_outlined,
+                      ),
                       label: Text(
-                        pending == 'hint'
-                            ? 'Đang lấy gợi ý…'
-                            : q['hint'] != null
-                            ? 'Đã dùng gợi ý'
-                            : 'Gợi ý',
+                        showFrames
+                            ? 'Thu gọn chuỗi ảnh'
+                            : 'Xem các bước bằng ảnh',
                       ),
                     ),
-                    TextButton(
-                      onPressed: busy ? null : () => check(skip: true),
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(48, 48),
-                      ),
-                      child: const Text('Chưa nhớ'),
-                    ),
-                  ],
-                ),
+                  ),
               ],
-            ),
-          ),
+            );
+            final answer = r != null
+                ? feedbackCard(r)
+                : Form(
+                    key: form,
+                    child: Column(
+                      key: field,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (q['hint'] != null) ...[
+                          AppCard(
+                            color: colors.secondaryContainer,
+                            child: Text(
+                              '${q['hint']}',
+                              style: TextStyle(
+                                color: colors.onSecondaryContainer,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        TextFormField(
+                          key: const ValueKey('quiz-recall-answer'),
+                          controller: input,
+                          focusNode: focus,
+                          textInputAction: TextInputAction.done,
+                          maxLength: 200,
+                          minLines: 1,
+                          maxLines: 3,
+                          readOnly:
+                              pending == 'check' ||
+                              pending == 'submit' ||
+                              pending == 'save',
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Nghĩa bạn nhớ',
+                            hintText: 'Nhập từ hoặc cụm từ tiếng Việt',
+                            counterText: '',
+                          ),
+                          onChanged: (value) => setState(() {
+                            answers[index] = value;
+                            error = null;
+                          }),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'Nhập nghĩa bạn nhớ, hoặc chọn Chưa nhớ.'
+                              : null,
+                          onFieldSubmitted: (_) => check(),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            TextButton.icon(
+                              onPressed: busy || q['hint'] != null
+                                  ? null
+                                  : hint,
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(48, 48),
+                              ),
+                              icon: const Icon(Icons.lightbulb_outline),
+                              label: Text(
+                                pending == 'hint'
+                                    ? 'Đang lấy gợi ý…'
+                                    : q['hint'] != null
+                                    ? 'Đã dùng gợi ý'
+                                    : 'Gợi ý',
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: busy ? null : () => check(skip: true),
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(48, 48),
+                              ),
+                              child: const Text('Chưa nhớ'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+            if (wide) {
+              return Row(
+                key: const ValueKey('recall-desktop-columns'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: media),
+                  const SizedBox(width: 24),
+                  Expanded(child: answer),
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [media, const SizedBox(height: 16), answer],
+            );
+          },
+        ),
         if (error != null) ...[
           const SizedBox(height: 12),
           Semantics(liveRegion: true, child: Notice(error!)),
@@ -930,7 +973,9 @@ class _ReviewQuizScreenState extends State<ReviewQuizScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (checked && !ready) ...[
-          const Text('Chọn cách tự đối chiếu ở trên để tiếp tục.'),
+          const Text(
+            'Chọn một cách tự đối chiếu trong thẻ kết quả để mở “Từ tiếp”.',
+          ),
           const SizedBox(height: 8),
         ],
         Row(

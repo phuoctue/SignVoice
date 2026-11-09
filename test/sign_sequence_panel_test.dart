@@ -118,6 +118,13 @@ void main() {
         tester.widget<PageView>(find.byType(PageView)).controller!.initialPage,
         1,
       );
+      await tester.ensureVisible(find.byTooltip('Ảnh tiếp'));
+      await tester.tap(find.byTooltip('Ảnh tiếp'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Ảnh 3/3'), findsOneWidget);
+      await tester.tap(find.byTooltip('Ảnh trước'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Ảnh 2/3'), findsOneWidget);
     },
   );
   testWidgets('loads on explicit request and shows missing words in order', (

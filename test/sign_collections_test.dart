@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:toastification/toastification.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -301,6 +302,7 @@ class CollectionsFixture extends LearningService {
 }
 
 void main() {
+  tearDown(() => toastification.dismissAll(delayForAnimation: false));
   Future<void> mount(
     WidgetTester tester,
     CollectionsFixture service, {
@@ -308,6 +310,7 @@ void main() {
     Size size = const Size(390, 844),
     double scale = 1,
     bool dark = false,
+    bool web = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -326,6 +329,7 @@ void main() {
         state: state,
         learningService: service,
         initialScreen: route,
+        webRouting: web,
       ),
     );
     await tester.pumpAndSettle();
@@ -355,6 +359,36 @@ void main() {
     await tester.tap(target);
     await tester.pumpAndSettle();
   }
+
+  testWidgets('desktop add-word dialog has aligned choices and close control', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      CollectionsFixture(),
+      route: '/collections/${CollectionsFixture.id}',
+      size: const Size(1440, 1000),
+      web: true,
+    );
+    await tap(tester, find.text('Thêm từ'));
+    final dialog = find.byType(Dialog);
+    expect(dialog, findsOneWidget);
+    final choices = ['Chọn từ thư viện', 'Tạo từ riêng', 'Thêm từ riêng đã có'];
+    final rectangles = choices
+        .map(
+          (label) =>
+              tester.getRect(find.widgetWithText(CollectionAction, label)),
+        )
+        .toList();
+    expect(rectangles[0].left, rectangles[1].left);
+    expect(rectangles[1].width, rectangles[2].width);
+    expect(rectangles[0].width, greaterThan(450));
+    expect(rectangles[0].width, lessThanOrEqualTo(520));
+    await tap(tester, find.byTooltip('Đóng'));
+    expect(dialog, findsNothing);
+    expect(find.byType(SignCollectionScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'creates a collection with inline validation and opens its detail',
@@ -757,6 +791,9 @@ void main() {
       copied,
       endsWith('/#/collections/shared/${CollectionsFixture.code}'),
     );
+    expect(find.text('Đã sao chép liên kết.'), findsOneWidget);
+    toastification.dismissAll(delayForAnimation: false);
+    await tester.pumpAndSettle();
     await tap(tester, find.text('Tắt mã chia sẻ'));
     expect(service.shares, 2);
     expect(find.text(CollectionsFixture.code), findsNothing);

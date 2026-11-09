@@ -148,36 +148,39 @@ class _LandingHeroDemoState extends State<LandingHeroDemo> {
             ],
           ),
           const SizedBox(height: 16),
-          AnimatedSwitcher(
-            duration: reduce
-                ? Duration.zero
-                : const Duration(milliseconds: 260),
-            child: mode == 0
-                ? Align(
-                    key: const ValueKey('sign-input'),
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        'Mẫu ký hiệu: ${name.isEmpty ? 'Lời chào' : name}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  )
-                : TextField(
-                    key: const ValueKey('hero-text-input'),
-                    controller: input,
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      labelText: 'Văn bản đầu vào',
-                      suffixIcon: IconButton(
-                        tooltip: 'Tìm mẫu ký hiệu',
-                        onPressed: searching ? null : lookup,
-                        icon: const Icon(Icons.arrow_forward),
-                      ),
-                    ),
-                    onSubmitted: (_) => lookup(),
+          IndexedStack(
+            index: mode,
+            alignment: Alignment.centerLeft,
+            children: [
+              Align(
+                key: const ValueKey('sign-input'),
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'Mẫu ký hiệu: ${name.isEmpty ? 'Lời chào' : name}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
+                ),
+              ),
+              ExcludeFocus(
+                excluding: mode != 1,
+                child: TextField(
+                  key: const ValueKey('hero-text-input'),
+                  controller: input,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    labelText: 'Văn bản đầu vào',
+                    suffixIcon: IconButton(
+                      tooltip: 'Tìm mẫu ký hiệu',
+                      onPressed: searching ? null : lookup,
+                      icon: const Icon(Icons.arrow_forward),
+                    ),
+                  ),
+                  onSubmitted: (_) => lookup(),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           ClipRRect(
@@ -200,7 +203,7 @@ class _LandingHeroDemoState extends State<LandingHeroDemo> {
                         ? Duration.zero
                         : const Duration(milliseconds: 260),
                     child: PublicSignPreview(
-                      key: ValueKey('$mode-$name'),
+                      key: ValueKey(name),
                       word: word ?? {},
                       height: 270,
                       autoplay: true,
@@ -215,31 +218,44 @@ class _LandingHeroDemoState extends State<LandingHeroDemo> {
               color: scheme.primaryContainer,
               borderRadius: BorderRadius.circular(18),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: IndexedStack(
+              index: mode,
               children: [
-                Text(
-                  mode == 0 ? 'Lời nói đầu ra' : 'Ký hiệu tương ứng',
-                  style: TextStyle(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  name.isEmpty ? 'Chọn một mẫu để bắt đầu' : name,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (mode == 0)
-                  TextButton.icon(
-                    onPressed: word == null || speaking ? null : speak,
-                    icon: Icon(
-                      speaking ? Icons.volume_up : Icons.volume_up_outlined,
-                    ),
-                    label: Text(speaking ? 'Đang phát…' : 'Nghe lời chào'),
+                for (final outputMode in [0, 1])
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        outputMode == 0
+                            ? 'Lời nói đầu ra'
+                            : 'Ký hiệu tương ứng',
+                        style: TextStyle(
+                          color: scheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        name.isEmpty ? 'Chọn một mẫu để bắt đầu' : name,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: scheme.onPrimaryContainer,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      if (outputMode == 0)
+                        TextButton.icon(
+                          onPressed: word == null || speaking ? null : speak,
+                          icon: Icon(
+                            speaking
+                                ? Icons.volume_up
+                                : Icons.volume_up_outlined,
+                          ),
+                          label: Text(
+                            speaking ? 'Đang phát…' : 'Nghe lời chào',
+                          ),
+                        ),
+                    ],
                   ),
               ],
             ),

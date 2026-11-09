@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:toastification/toastification.dart';
 
 import '../providers/auth_provider.dart';
 
@@ -26,6 +27,7 @@ Future<T?> showAdaptivePanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   Color? backgroundColor,
+  double maxWidth = 880,
 }) {
   if (isDesktopLayout(context)) {
     return showDialog<T>(
@@ -34,7 +36,7 @@ Future<T?> showAdaptivePanel<T>({
         backgroundColor: backgroundColor,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: 640,
+            maxWidth: maxWidth,
             maxHeight: MediaQuery.sizeOf(panelContext).height * .88,
           ),
           child: builder(panelContext),
@@ -50,24 +52,27 @@ Future<T?> showAdaptivePanel<T>({
   );
 }
 
-bool isRootPage(BuildContext context) =>
-    const {
-      'S08',
-      'S10',
-      'S15',
-      'S20',
-      'S22',
-      'S25',
-      '/learn',
-      '/learn/insights',
-      '/learn/history',
-      '/communicate',
-      'admin',
-      'staff',
-    }.contains(
-      Uri.parse(legacyLocation(ModalRoute.of(context)?.settings.name ?? ''))
-          .path,
-    );
+bool isRootPage(BuildContext context) {
+  final uri = Uri.parse(
+    ModalRoute.of(context)?.settings.name ??
+        GoRouter.maybeOf(context)?.routerDelegate.currentConfiguration.uri
+            .toString() ??
+        '',
+  );
+  return const {
+    'S08',
+    'S10',
+    'S15',
+    'S20',
+    'S22',
+    'S25',
+    '/learn',
+    '/learn/insights',
+    '/communicate',
+    'admin',
+    'staff',
+  }.contains(legacyLocation(uri.path));
+}
 
 class AppPage extends StatelessWidget {
   const AppPage({
@@ -465,6 +470,7 @@ class AppButton extends StatelessWidget {
       child: content,
     );
     if (!compact &&
+        context.findAncestorWidgetOfExactType<ActionGroup>() == null &&
         (fill == false || fill == null && isDesktopLayout(context))) {
       return Align(
         heightFactor: 1,
@@ -488,12 +494,14 @@ class ActionGroup extends StatelessWidget {
       final wide =
           size.maxWidth >= 620 &&
           MediaQuery.textScalerOf(context).scale(1) < 1.5;
+      final columns = wide ? math.max(1, math.min(children.length, 3)) : 1;
+      final itemWidth = (size.maxWidth - 12 * (columns - 1)) / columns;
       return Wrap(
         spacing: 12,
         runSpacing: 12,
         children: [
           for (final child in children)
-            SizedBox(width: wide ? 220 : size.maxWidth, child: child),
+            SizedBox(width: itemWidth, child: child),
         ],
       );
     },
@@ -925,9 +933,25 @@ class _WaveformState extends State<Waveform>
   );
 }
 
-void toast(BuildContext context, String message) =>
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+void toast(BuildContext context, String message) {
+  final scheme = Theme.of(context).colorScheme;
+  toastification.dismissAll();
+  toastification.show(
+    context: context,
+    title: Text(message),
+    type: ToastificationType.info,
+    style: ToastificationStyle.flat,
+    alignment: Alignment.topRight,
+    autoCloseDuration: const Duration(seconds: 5),
+    backgroundColor: scheme.surface,
+    foregroundColor: scheme.onSurface,
+    primaryColor: scheme.primary,
+    borderRadius: BorderRadius.circular(16),
+    showProgressBar: false,
+    closeOnClick: true,
+  );
+}
+
 Future<String?> editText(
   BuildContext context, {
   required String title,
@@ -937,6 +961,7 @@ Future<String?> editText(
   final result = await showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
+      constraints: const BoxConstraints(maxWidth: 640),
       title: Text(title),
       content: TextField(controller: controller, maxLines: 4, autofocus: true),
       actions: [

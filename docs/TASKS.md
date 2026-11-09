@@ -1,5 +1,125 @@
 # SignVoice — Task board
 
+## UI-CTA-20261107 — Align bottom call-to-action buttons
+
+Status: `REVIEW` (owner visual acceptance pending). Owner asks for equal button heights in the bottom greeting
+banner. Scope/input: auth/web_landing_page.dart bottom CTA and existing LandingCta
+metrics in landing_motion.dart (read only), this entry. Match outlined trial button
+padding/minimum height/icon size/type weight to the adjacent primary CTA and center
+the row; retain responsive wrapping and actions. Checks: existing landing widget
+tests, scoped analyze, release build, Playwright button geometry and screenshot.
+No package/backend/API/auth changes, new tests for this styling edit, commit/push.
+Results: scoped analyze PASS; 30/30 existing landing tests PASS; final release
+build PASS and local served JS hash matches. Reviewer round 2/2 PASS after adding
+2px compensation for the primary CTA outer border. Playwright desktop: both
+visible outer buttons 48px, top/bottom aligned; 375px layout also measures 48px
+and fits width. Desktop screenshot output/playwright/bottom-cta-aligned.png
+visually checked; console zero errors. No CTA/trial action activated. The existing
+primary focus/hover animation is unchanged. git diff --check PASS; no blocker.
+Token telemetry unavailable; no real-device acceptance or new dependencies.
+
+## UI-HISTORY-HERO-20261107 — Persistent Back and stable demo modes
+
+Status: `REVIEW` (owner visual acceptance pending). Owner screenshots request Back on all learning-history
+states and no vertical shifts when switching landing demo modes.
+Scope/inputs: widgets/ui.dart, learning/collection_widgets.dart (history tab
+preserves the previous route), auth/landing_hero_demo.dart, existing learning and
+landing widget tests, this entry; preserve previous pending changes.
+Acceptance: Back visible for history root/filtered/empty states, previous route
+restored; demo input/output reserve content-driven space across modes, media and
+surrounding hero positions remain stable at normal/large text and narrow widths.
+Checks: scoped analyze/tests, release web build, Playwright navigation/geometry
+and screenshots, git diff --check. Branch: fix/history-back-stable-hero.
+Out of scope: backend/auth/API/package changes, real learning writes, commit/push.
+Results: final scoped analyze PASS; 44/44 widget tests PASS, including history
+opened from the desktop learning tab and empty-history home fallback, stable
+absolute card/media geometry at normal/2x text and unchanged preview state.
+Reviewer round 2/2 PASS preceded the final navigation reproduction: learning tabs
+discarded the previous route and GoRouter root URI hid the active history Back.
+Those final tab/active-ModalRoute fixes were self-verified with regression tests
+and browser checks; no third review or complete-review claim for that delta.
+Final release build PASS (relative APIs/local web resources), server reloaded and
+served JS hash matches. Playwright: real anonymous landing, four mode switches at
+375/1024/1440 widths preserve heading/media/footer vertical bounds within 1px;
+reduced motion and normal desktop motion checked. History uses QA-only API/user
+fixtures: empty history has Back and returns to /learn?tab=1. Console zero errors.
+Screenshots: ignored output/playwright/stable-hero-{width}.png,
+stable-hero-motion-1440.png, history-root-back-final.png; visually inspected.
+git diff --check PASS; no remaining implementation blocker, real persistence/full
+device acceptance not exercised; no backend/package edits or push. Token telemetry unavailable.
+
+## UI-LEARNING-20261107 — Media, word history and add dialog
+
+Status: `REVIEW` (owner visual acceptance pending). Owner requests source fixes from five new screenshots.
+Objective: selecting a reference frame must replace playing video; filtered word
+history must offer Back to the previous screen; add-word choices must fit a compact,
+aligned dialog with an explicit close control on desktop and remain usable on mobile.
+Scope/inputs: learning_widgets.dart, collection_screens.dart, shared ui.dart and
+their existing widget tests; this entry. Preserve previous uncommitted UI changes.
+Checks: targeted analyze/widget tests, release web build, Playwright real-browser
+frame selection, back navigation and responsive dialog checks; git diff --check.
+Out of scope: backend, auth, APIs, schema, package changes, real progress writes,
+commit/push/merge. Separate branch: fix/learning-media-history-dialog.
+Results: 78/78 targeted widget tests PASS; six-file analyze PASS; web release build
+PASS with relative API URLs and --no-web-resources-cdn (matching project startup).
+Read-only reviewer round 2/2 PASS after fixing delayed play/resume overwriting a
+later image selection. Browser: real dictionary images/video with QA-only API/user
+fixtures, play -> frame -> replay -> frame and history Back to the original topic
+verified; dialog choices aligned at 375/768/1024/1440, close/Escape work, no document
+horizontal overflow in those dialog checks; fresh browser console zero errors.
+Screenshots in ignored output/playwright/: learning-frames-followup.png,
+learning-history-back-followup.png and add-word-followup-{width}.png, visually checked.
+Local server reloaded; served JS hash matches final build; API/database/AI ready.
+Mobile hot restart succeeded. git diff --check PASS. No package/backend edits,
+commit/push or real learning-data writes. Limits: fixtures do not establish real
+history persistence; no full-suite/device acceptance. Token telemetry unavailable.
+
+## UI-WEB-20261107 — Moderation and recall layout follow-up
+
+Status: `REVIEW` (owner visual acceptance pending). Owner requested source changes for the two screenshots.
+Scope: collection_moderation_screen.dart, recall_review_quiz_screen.dart, their
+widget tests and this entry. Group moderation metadata/actions in a bounded header;
+use desktop media/assessment columns with stacked large-text/mobile fallback.
+Keep moderation permissions, quiz validation, API and backend source unchanged.
+Checks: targeted Flutter analyze/tests, release build, Playwright screenshot/read-only
+interaction verification. No moderation changes or real quiz writes for browser QA.
+Results: targeted analyze PASS; 43/43 moderation/recall widget tests PASS, including
+new desktop/large-text layout checks; release build PASS; git diff --check PASS.
+Read-only reviewer round 1 found no blocker; minor footer copy still names Từ tiếp
+on the final question. Browser: real moderation detail read-only and mocked draft quiz
+(QA fixture, no quiz writes), screenshots at 375/768/1024/1440, no document horizontal
+overflow, console zero errors. Output: ignored output/playwright/moderation-balanced.png
+and recall-balanced.png plus responsive variants. No backend source edits or push.
+Token telemetry unavailable; screenshots/fixtures do not establish real quiz persistence.
+
+## UI-WEB-20261106 — Web learning and communication polish
+
+Status: `REVIEW` (owner visual acceptance pending). Owner request: repair reference-image navigation/thumbnails,
+keep transcript editing inline, add shared toast feedback and public Back navigation,
+and balance desktop learning/collection dialogs. Scope: Flutter presentation files,
+their tests and notification dependency; no API/auth/database or collection route edits.
+Inputs: owner screenshots, speech/learning widgets, shared UI/public catalog.
+Checks: Flutter analyze, focused widget tests, Playwright desktop/narrow screenshots
+and interaction checks. No commit/push until requested; report unverified flows.
+
+Results 2026-11-07: 118/118 focused widget tests PASS; changed-file analyze PASS;
+release web build PASS. Full analyze retains existing info at
+`test/guest_preferences_test.dart:16` (outside scope). No backend source changed.
+Playwright Chrome: inline edit on same /S18 URL, unaccented phrase lookup,
+next/previous images, shared collection frame selection and public Back presence
+checked; screenshots 375/768/1024/1440 in ignored `output/playwright/`.
+Final browser console has zero errors; no document horizontal overflow in checked
+viewports. Resolved ExpansionTile bool/PageStorage scroll-offset collision using
+nonpersistent page/frame controllers; regression test added.
+Read-only reviewer cycle 2/2 PASS before the final frame-storage regression fix;
+that final fix was self-verified with widget/browser evidence, no third review.
+Limits: no real camera/micro permission acceptance, moderation/share mutations,
+full app test suite or performance benchmark; no FPS claim. Token telemetry unavailable.
+Presentation scope changed: shared ui/public catalog; speech screens/sequence panel;
+learning widgets/topic/collection screens+widgets/practice/recall; only notification
+calls in live camera/admin management; pubspec and lock; four relevant test files
+including new `test/learning_frames_storage_test.dart`. Backend collection route untouched.
+
 ## Quy ước
 
 Mỗi task phải có mục tiêu, phạm vi file, đầu vào cụ thể, tiêu chí kiểm tra và ngoài phạm vi. Trạng thái: `TODO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `BLOCKED`.

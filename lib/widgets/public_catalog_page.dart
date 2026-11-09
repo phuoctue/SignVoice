@@ -259,6 +259,26 @@ class PublicCatalogPage extends StatelessWidget {
               ),
             ),
             const Divider(height: 1),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 4,
+                ),
+                child: TextButton.icon(
+                  onPressed: () {
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    } else {
+                      openRoot(context, 'S01');
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Quay lại'),
+                ),
+              ),
+            ),
             Expanded(
               child: !scroll
                   ? Center(
