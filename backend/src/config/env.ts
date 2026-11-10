@@ -35,6 +35,7 @@ export const env = {
 
   // Server
   PORT: parseInt(process.env.PORT || '3000', 10),
+  LISTEN_HOST: process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0',
   SERVE_WEB: process.env.SERVE_WEB === 'true',
   WEB_BUILD_DIR: process.env.WEB_BUILD_DIR || '',
   PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN || '',

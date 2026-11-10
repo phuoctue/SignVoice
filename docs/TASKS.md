@@ -1,5 +1,29 @@
 # SignVoice — Task board
 
+## SEC-PUBLIC-BIND-20261110 — Loopback production listener
+
+Status: DONE (owner confirmed 4G login/use/logout; commit and local dev integration authorized). Owner authorizes production loopback binding and public
+acceptance with verified Conveyor loopback trust. Scope: env.ts LISTEN_HOST,
+server.ts listen host, env-production tests and this entry. Development/test
+remain 0.0.0.0 for mobile compatibility. Checks: backend build, isolated config
+and auth tests, fresh review, live listening address and public health/UI probes.
+No database/schema/dependency changes. Existing worktrees retained.
+Results: backend build PASS; focused tests 41/41 PASS; fresh read-only review
+PASS; diff check PASS. Real production service launched with TrustProxy=loopback.
+Public HTTPS UI, API readiness, AI health and OAuth provider discovery return 200;
+anonymous /me returns401; invalid login/refresh with forged leftmost XFF return
+400 validation/missing-token errors (not proxy503). Served JS hash matches local web build.
+Actual loopback connectivity succeeds; direct non-loopback IPv4 connectivity is
+refused. No OS firewall change required for this backend listener.
+Follow-up completed: cleared unused legacy ADMIN_PASSWORD in ignored local .env;
+documented empty value in .env.example. Production weak-value validation intact.
+Ordinary Public -SkipBuild -TrustProxy loopback restart succeeds without a process
+password override. Fresh build and focused tests 41/41 PASS; README guard and
+diff check PASS; fresh independent read-only review PASS. Owner confirms real
+4G login/use/logout; request log matches that flow without new auth errors.
+OAuth, refresh and token replay acceptance remain outside the confirmed manual flow.
+No push requested. Token telemetry unavailable.
+
 ## SEC-T1-T2-20261110 — Continue Claude security configuration and auth limiter
 
 Status: `REVIEW` (owner acceptance and real Conveyor forwarding evidence pending).

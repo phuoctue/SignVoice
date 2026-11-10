@@ -33,8 +33,14 @@ describe('production environment validation (fail closed)', () => {
   });
 
   it('accepts an explicit, safe production configuration', async () => {
-    const { validateEnv } = await loadEnv({});
+    const { env, validateEnv } = await loadEnv({});
+    expect(env.LISTEN_HOST).toBe('127.0.0.1');
     expect(() => validateEnv()).not.toThrow();
+  });
+
+  it.each(['development', 'test'])('keeps %s reachable by local mobile clients', async nodeEnv => {
+    const {env} = await loadEnv({NODE_ENV: nodeEnv});
+    expect(env.LISTEN_HOST).toBe('0.0.0.0');
   });
 
   it('rejects a missing MONGODB_URI instead of using the dev credential', async () => {

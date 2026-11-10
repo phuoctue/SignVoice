@@ -32,7 +32,7 @@ async function startServer(): Promise<void> {
     const app = await createApp();
 
     // Start HTTP server
-    const server = app.listen(env.PORT, () => {
+    const server = app.listen(env.PORT, env.LISTEN_HOST, () => {
       console.log('');
       console.log('🚀 SignVoice Backend API');
       console.log(`   Environment: ${env.NODE_ENV}`);
