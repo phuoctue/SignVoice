@@ -3,6 +3,14 @@ import * as authController from '../controllers/auth.controller';
 import * as oauthController from '../controllers/oauth.controller';
 import { validate } from '../common/middlewares/validate.middleware';
 import { requireAuth } from '../common/middlewares/auth.middleware';
+import {
+  guestLimiter,
+  loginIpLimiter,
+  loginLimiter,
+  refreshLimiter,
+  registerLimiter,
+  requireProxyClientIp,
+} from '../common/middlewares/auth-rate-limit';
 import { rateLimit } from 'express-rate-limit';
 import {z} from 'zod';
 import * as nativeGoogle from '../controllers/native-google.controller';
@@ -50,21 +58,21 @@ router.post('/set-password', passwordResetLimiter, requireAuth, validate(setPass
  * @desc Register new user
  * @access Public
  */
-router.post('/register', validate(registerSchema), authController.register);
+router.post('/register', requireProxyClientIp, registerLimiter, validate(registerSchema), authController.register);
 
 /**
  * @route POST /api/v1/auth/login
  * @desc Login user
  * @access Public
  */
-router.post('/login', validate(loginSchema), authController.login);
+router.post('/login', requireProxyClientIp, loginIpLimiter, loginLimiter, validate(loginSchema), authController.login);
 
 /**
  * @route POST /api/v1/auth/guest
  * @desc Create guest account
  * @access Public
  */
-router.post('/guest', validate(guestSchema), authController.createGuest);
+router.post('/guest', requireProxyClientIp, guestLimiter, validate(guestSchema), authController.createGuest);
 
 /**
  * @route POST /api/v1/auth/convert-guest
@@ -83,7 +91,7 @@ router.post(
  * @desc Refresh access token
  * @access Public
  */
-router.post('/refresh', validate(refreshTokenSchema), authController.refresh);
+router.post('/refresh', requireProxyClientIp, refreshLimiter, validate(refreshTokenSchema), authController.refresh);
 
 /**
  * @route POST /api/v1/auth/logout

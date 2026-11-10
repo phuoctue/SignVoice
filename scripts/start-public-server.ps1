@@ -2,11 +2,41 @@ param(
     [ValidateRange(1,65535)][int]$Port = 3001,
     [ValidateRange(1,65535)][int]$AiPort = 8001,
     [string]$PublicOrigin = '',
+    [string]$TrustProxy = '',
     [switch]$SkipBuild,
     [switch]$NoTunnel,
     [switch]$SkipAi
 )
 $ErrorActionPreference = 'Stop'
+if (-not $NoTunnel -and [string]::IsNullOrWhiteSpace($TrustProxy)) {
+    throw 'Public mode requires -TrustProxy for a verified proxy chain. Verify Conveyor X-Forwarded-For behavior first; never use true.'
+}
+if (-not $NoTunnel) {
+    $TrustProxy = $TrustProxy.Trim()
+    $validProxy = $TrustProxy -cmatch '^[1-9]\d*$' -and $TrustProxy.Length -le 2 -and [int]$TrustProxy -le 16
+    if (-not $validProxy) {
+        $validProxy = $true
+        foreach ($entry in $TrustProxy.Split(',')) {
+            $part = $entry.Trim()
+            if (@('loopback','linklocal','uniquelocal') -ccontains $part) { continue }
+            $segments = $part.Split('/')
+            $proxyAddress = $null
+            # .NET accepts shorthand numeric addresses (e.g. 99 = 0.0.0.99);
+            # reject those so numeric hop counts cannot become proxy IPs.
+            $explicitIp = $segments[0].Contains(':') -or $segments[0] -cmatch '^\d{1,3}(\.\d{1,3}){3}$'
+            if (-not $explicitIp -or $segments.Length -gt 2 -or -not [Net.IPAddress]::TryParse($segments[0], [ref]$proxyAddress)) {
+                $validProxy = $false; break
+            }
+            if ($segments.Length -eq 2) {
+                $maxBits = if ($proxyAddress.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork) { 32 } else { 128 }
+                if ($segments[1] -notmatch '^\d{1,3}$' -or [int]$segments[1] -lt 1 -or [int]$segments[1] -gt $maxBits) {
+                    $validProxy = $false; break
+                }
+            }
+        }
+    }
+    if (-not $validProxy) { throw 'Public mode requires a valid trusted proxy chain (1..16 or proxy IP/subnets); false/true are unsafe for this tunnel.' }
+}
 if ($Port -eq $AiPort) { throw 'Public and AI service ports must be different.' }
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $workspaceRoot 'backend'
@@ -59,7 +89,7 @@ $managedAi = $null; $managedAiWrapper = $null; $managedTunnel = $null; $managedT
 $savedEnvironment = @{}
 foreach ($key in @('PORT','NODE_ENV','SERVE_WEB','PUBLIC_ORIGIN','AI_PUBLIC_PROXY','AI_PROXY_TARGET','LOG_LEVEL',
     'WEB_ORIGIN','CORS_ALLOWED_ORIGINS','OAUTH_BACKEND_ORIGIN','OAUTH_FRONTEND_ORIGIN',
-    'GOOGLE_CALLBACK_URL','FACEBOOK_CALLBACK_URL','PASSWORD_RESET_ORIGIN')) {
+    'GOOGLE_CALLBACK_URL','FACEBOOK_CALLBACK_URL','PASSWORD_RESET_ORIGIN','TRUST_PROXY')) {
     $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
 }
 Push-Location $workspaceRoot
@@ -181,6 +211,7 @@ try {
     if (-not $PublicOrigin) { $PublicOrigin = "http://localhost:$Port" }
     $env:PORT = "$Port"
     $env:NODE_ENV = if ($NoTunnel) { 'development' } else { 'production' }
+    $env:TRUST_PROXY = if ($NoTunnel) { 'false' } else { $TrustProxy }
     $env:SERVE_WEB = 'true'
     $env:PUBLIC_ORIGIN = $PublicOrigin; $env:LOG_LEVEL = 'info'
     # OAuth and refresh cookies must use this launch's origin, not a stale localhost/tunnel in .env.

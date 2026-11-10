@@ -1,5 +1,36 @@
 # SignVoice — Task board
 
+## SEC-T1-T2-20261110 — Continue Claude security configuration and auth limiter
+
+Status: `REVIEW` (owner acceptance and real Conveyor forwarding evidence pending).
+Owner follow-up 2026-11-10: approved local commit/merge into dev after guard-scope
+review. Final focused tests 39/39 PASS and typecheck PASS; guard limited to four
+IP-limited routes. Actual isolated Conveyor probe confirmed distinct desktop/4G
+IPs and appended real IP after forged leftmost XFF: use TrustProxy=loopback for
+this chain. Public application rollout remains blocked on direct backend-port
+restriction. Historical results below describe earlier snapshots. Audit documents
+are committed separately as preliminary reports; no production approval implied.
+Inputs: owner handoff, sec-t1/sec-t2 diffs, env/swagger,
+auth routes, rate limiter, public startup scripts and isolated backend tests.
+Scope: integrate T1/T2 in security/t1-t2-followup; add strict proxy parsing,
+verified-proxy deployment gate, forwarded-IP isolation tests, bounded login keys,
+production config tests and follow-up documentation. Keep original worktrees intact.
+Checks: typecheck, targeted isolated tests, full isolated suite comparison, script
+parse/guard checks, diff check and fresh read-only reviewer (max two rounds).
+Out of scope: database/package/schema/CSP changes, collection routes, deployment,
+commit/push/merge. Public Conveyor XFF acceptance requires staging evidence.
+Results: typecheck PASS; targeted isolated tests 31/31 PASS; full isolated tests
+with maxWorkers=2/minWorkers=1: 296 PASS, 19 FAIL in five files (315 total).
+Baseline dc49b0f reproduces the same 19 failures/5 files, 11 PASS (30 total);
+no new failure in the bounded run. Default parallel run additionally hit Mongo
+hook timeouts (15 failed, 254 passed, 9 failed files); do not treat as a pass.
+Lint blocked by existing missing ESLint config. PS syntax, nine invalid proxy
+guard cases and git diff --check PASS. Fresh reviewer round 2/2 PASS with NIT:
+noncanonical IPv4/IPv6 syntax accepted by PS may fail later in Node; use canonical
+IPs or loopback. Actual public proxy behavior is unverified; public mode requires
+explicit configuration. Original worktrees and collection route untouched;
+no commit/push/merge. Token telemetry unavailable. See active/SECURITY_T1_T2_FOLLOWUP.md.
+
 ## UI-CTA-20261107 — Align bottom call-to-action buttons
 
 Status: `REVIEW` (owner visual acceptance pending). Owner asks for equal button heights in the bottom greeting

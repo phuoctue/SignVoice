@@ -22,6 +22,8 @@ import {servePasswordResetLinks} from './password-reset-links';
  */
 export async function createApp(): Promise<Application> {
   const app = express();
+  // Only trust forwarded client IPs from the configured proxy chain (used by rate limits).
+  app.set('trust proxy', env.TRUST_PROXY);
   // Inference runs in its own process. This only permits the browser connection.
   const aiOrigin = new URL(process.env.AI_SERVICE_URL || 'http://localhost:8001').origin;
   const aiSocketOrigin = aiOrigin.replace(/^http/, 'ws');

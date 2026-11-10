@@ -1,7 +1,26 @@
 import dotenv from 'dotenv';
+import { isIP } from 'node:net';
 
 // Load environment variables
 dotenv.config({ path: process.env.SIGNVOICE_ENV_FILE || '.env' });
+
+const DEV_MONGODB_URI = 'mongodb://signvoice:dev_password@localhost:27017/signvoice?authSource=admin';
+const WEAK_ADMIN_PASSWORDS = new Set(['admin123456', 'admin', 'password', 'changeme']);
+
+export function parseTrustProxy(raw: string | undefined): false | number | string {
+  const value = raw?.trim() || 'false';
+  if (value === 'false') return false;
+  if (/^[1-9]\d*$/.test(value) && Number(value) <= 16) return Number(value);
+  const entries = value.split(',').map(part => part.trim());
+  if (entries.every(entry => {
+    if (['loopback', 'linklocal', 'uniquelocal'].includes(entry)) return true;
+    const [ip, bits, extra] = entry.split('/');
+    const version = isIP(ip);
+    return !!version && extra === undefined && (bits === undefined ||
+      /^\d+$/.test(bits) && Number(bits) > 0 && Number(bits) <= (version === 4 ? 32 : 128));
+  })) return entries.join(',');
+  throw new Error('Invalid or unsafe TRUST_PROXY; use false, 1..16, or explicit proxy IP/subnet names');
+}
 
 /**
  * Environment configuration
@@ -19,6 +38,7 @@ export const env = {
   SERVE_WEB: process.env.SERVE_WEB === 'true',
   WEB_BUILD_DIR: process.env.WEB_BUILD_DIR || '',
   PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN || '',
+  TRUST_PROXY: parseTrustProxy(process.env.TRUST_PROXY),
 
   // SMTP credentials stay on the server; never include them in Flutter builds.
   SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -29,8 +49,8 @@ export const env = {
   SMTP_FROM: process.env.SMTP_FROM || process.env.SMTP_USER || '',
   PASSWORD_RESET_ORIGIN: process.env.PASSWORD_RESET_ORIGIN || process.env.PUBLIC_ORIGIN || process.env.WEB_ORIGIN || 'http://localhost:8080',
 
-  // Database
-  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://signvoice:dev_password@localhost:27017/signvoice?authSource=admin',
+  // Database (the local credential fallback is never used in production)
+  MONGODB_URI: process.env.MONGODB_URI || (process.env.NODE_ENV === 'production' ? '' : DEV_MONGODB_URI),
 
   // JWT
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || '',
@@ -62,8 +82,55 @@ export const env = {
 
   // Development
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@signvoice.local',
-  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'admin123456',
+  // No usable default: an admin password must be supplied explicitly.
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
+  SWAGGER_ENABLED: process.env.SWAGGER_ENABLED === 'true',
 };
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+/**
+ * Production-only checks: fail closed instead of running with
+ * development defaults or permissive debug settings.
+ */
+function validateProductionEnv(): void {
+  const errors: string[] = [];
+
+  if (env.MONGODB_URI === DEV_MONGODB_URI || env.MONGODB_URI.includes('dev_password')) {
+    errors.push('MONGODB_URI must not use the development credential in production');
+  }
+  if (env.ADMIN_PASSWORD && (env.ADMIN_PASSWORD.length < 12 || WEAK_ADMIN_PASSWORDS.has(env.ADMIN_PASSWORD.toLowerCase()))) {
+    errors.push('ADMIN_PASSWORD must not be a default/weak value in production');
+  }
+  if (env.SWAGGER_ENABLED) {
+    errors.push('SWAGGER_ENABLED=true is not allowed in production');
+  }
+
+  for (const origin of env.CORS_ALLOWED_ORIGINS) {
+    if (origin.includes('*')) {
+      errors.push(`CORS origin must not contain a wildcard: ${origin}`);
+      continue;
+    }
+    let url: URL;
+    try {
+      url = new URL(origin);
+    } catch {
+      errors.push(`CORS origin is malformed: ${origin}`);
+      continue;
+    }
+    if (url.origin !== origin.replace(/\/$/, '')) {
+      errors.push(`CORS origin must be a bare origin without path/credentials: ${origin}`);
+    } else if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+      errors.push(`CORS origin must use https in production: ${origin}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid production configuration:\n${errors.join('\n')}`);
+  }
+}
 
 /**
  * Validate required environment variables
@@ -100,6 +167,7 @@ export function validateEnv(): void {
 
   // Warn about production-only checks
   if (env.isProduction) {
+    validateProductionEnv();
     if (env.NODE_ENV !== 'production') {
       console.warn('⚠️  NODE_ENV should be "production" in production environment');
     }

@@ -10,10 +10,12 @@ import { env } from './env';
  */
 export function setupSwagger(app: Application): void {
   // Check if Swagger should be enabled
-  const swaggerEnabled = env.NODE_ENV === 'development' || process.env.SWAGGER_ENABLED === 'true';
+  // Only an explicitly set NODE_ENV=development enables docs implicitly; an unset
+  // NODE_ENV must not fall back to exposing the API map. Production rejects the flag in validateEnv.
+  const swaggerEnabled = env.isDevelopment || (!env.isProduction && env.SWAGGER_ENABLED);
 
   if (!swaggerEnabled) {
-    console.log('📖 Swagger UI disabled in production mode');
+    console.log('📖 Swagger UI disabled for this environment');
     return;
   }
 
