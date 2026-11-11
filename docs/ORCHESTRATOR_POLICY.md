@@ -24,3 +24,4 @@ Orchestrator lập kế hoạch
 → chủ dự án duyệt
 → commit local
 → push/merge khi được phép
+```

@@ -18,6 +18,7 @@
 
 ## Quy tắc thay đổi
 
+- Codex và Claude phải đọc và áp dụng skill `ponytail` mức `full` trước task viết/sửa/refactor/review code hoặc chọn dependency, trừ khi chủ dự án tắt hay chọn mức khác. Xác minh skill khả dụng trong session; nếu thiếu thì báo rõ, không tuyên bố đã nạp. Dùng cùng skill chuyên môn cần thiết; không bỏ tiêu chí nghiệm thu, kiểm chứng, bảo mật hoặc accessibility để giảm token. Task chỉ trao đổi trạng thái không cần nạp skill này.
 - Chỉ sửa file trong phạm vi task; không sửa `backend/src/routes/sign-collection.routes.ts` trong task thử nghiệm này vì đang có thay đổi chưa commit của người dùng.
 - Không thêm package, đổi API, schema, auth hoặc migration nếu task không yêu cầu.
 - Mỗi task dùng branch/worktree riêng khi có thể.
