@@ -6,7 +6,7 @@ SignVoice là ứng dụng Flutter mobile/web hỗ trợ tra cứu, học và lu
 
 ## Phạm vi vận hành của orchestrator
 
-- Orchestrator chia task, giữ phạm vi, quyết định merge và cập nhật `docs/TASKS.md`.
+- Orchestrator chia task, giữ phạm vi, quyết định phương án tích hợp trong quyền chủ dự án đã cấp, sau khi chủ dự án duyệt kết quả, và cập nhật `docs/TASKS.md`.
 - Worker thực hiện thay đổi trong phạm vi file được giao, tự chạy kiểm tra và báo cáo ngắn.
 - Reviewer ở session sạch, review diff theo hướng tìm lỗi; không coi báo cáo worker là bằng chứng.
 
