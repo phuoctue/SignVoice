@@ -1,4 +1,4 @@
-import mongoose, { ClientSession } from 'mongoose';
+import mongoose, { ClientSession, mongo } from 'mongoose';
 import { User } from '../models/User.model';
 import { Role } from '../models/Role.model';
 import { AppError } from '../common/errors/AppError';
@@ -10,7 +10,7 @@ async function activeAdministrators(session: ClientSession) {
   ]}).session(session);
 }
 /** Shared by self deletion and administrative role/account mutations. */
-export async function administratorTransaction<T>(operation: (session: ClientSession) => Promise<T>): Promise<T> {
+export async function administratorTransaction<T>(operation: (session: ClientSession) => Promise<T>, options?: mongo.TransactionOptions): Promise<T> {
   const locks = mongoose.connection.db!.collection<{_id: string; version: number}>('account_operation_locks');
   try { await locks.updateOne({_id: 'administrators'}, {$setOnInsert: {version: 0}}, {upsert: true}); }
   catch (error: any) { if (error.code !== 11000) throw error; }
@@ -22,5 +22,5 @@ export async function administratorTransaction<T>(operation: (session: ClientSes
       throw new AppError('Không thể xóa, khóa hoặc hạ quyền quản trị viên hoạt động cuối cùng.', 409, 'LAST_ADMIN_REQUIRED');
     }
     return result;
-  });
+  }, options);
 }

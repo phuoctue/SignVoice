@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { OAuthState } from '../models/OAuthState.model';
 import { oauthConfig, OAuthProvider } from '../config/oauth';
 import { AppError } from '../common/errors/AppError';
-import { User, AccountType } from '../models/User.model';
+import { User, IUser, AccountType } from '../models/User.model';
 import { ProviderIdentity } from './oauth-provider.service';
 
 const random = () => randomBytes(32).toString('base64url');
@@ -35,7 +35,7 @@ export async function resolveOAuthUser(provider: OAuthProvider, identity: Provid
   // Refuse OAuth writes until unique identity/email indexes have actually been created.
   await User.init();
   const field = provider === 'google' ? 'googleProvider' : 'facebookProvider';
-  let user = await User.findOne({ [`${field}.providerId`]: identity.subject });
+  let user = await User.findOne<IUser>({ [`${field}.providerId`]: identity.subject }).select('+sessionRevocationEpoch');
   if (user) return user;
   if (identity.email && await User.exists({ email: identity.email }))
     throw new AppError('Email đã có tài khoản. Hãy đăng nhập bằng phương thức đã đăng ký; liên kết tài khoản cần xác minh riêng.', 409, 'OAUTH_ACCOUNT_COLLISION');
@@ -43,11 +43,11 @@ export async function resolveOAuthUser(provider: OAuthProvider, identity: Provid
     const name = identity.displayName.trim().slice(0, 50);
     user = await User.create({ email: identity.email, displayName: name.length >= 2 ? name : `${provider} User`,
       accountType: provider === 'google' ? AccountType.GOOGLE : AccountType.FACEBOOK,
-      isGuest: false, [field]: { providerId: identity.subject } });
+      isGuest: false, sessionRevocationEpoch: 0, [field]: { providerId: identity.subject } });
   } catch (error) {
     if ((error as { code?: number }).code !== 11000) throw error;
     // Concurrent first login: only the unique provider subject may identify the winner.
-    user = await User.findOne({ [`${field}.providerId`]: identity.subject });
+    user = await User.findOne<IUser>({ [`${field}.providerId`]: identity.subject }).select('+sessionRevocationEpoch');
     if (!user) throw new AppError('Email đã có tài khoản.', 409, 'OAUTH_ACCOUNT_COLLISION');
   }
   return user;

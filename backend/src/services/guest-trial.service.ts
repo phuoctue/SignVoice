@@ -6,6 +6,7 @@ import {User} from '../models/User.model';
 import {AuthSession} from '../models/AuthSession.model';
 import {AppError} from '../common/errors/AppError';
 import {env} from '../config/env';
+import {assertSessionEpoch, loadSessionUser} from './session-fence.service';
 
 export const GUEST_TRIAL_SECONDS = 10 * 60;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -60,6 +61,9 @@ export async function createAiTicket(userId: Types.ObjectId, sessionId: Types.Ob
   await assertTrialActive(userId);
   const session = await AuthSession.findById(sessionId);
   if (!session?.isValid() || !session.userId.equals(userId)) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
+  const user = await loadSessionUser(userId);
+  if (!user?.isActive() || session.passwordVersion !== user.passwordVersion) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
+  assertSessionEpoch(session, user);
   return jwt.sign({purpose: 'ai_stream', userId: String(userId), family: session.sessionFamily}, env.JWT_ACCESS_SECRET,
     {expiresIn: '30s', jwtid: randomBytes(16).toString('hex'), algorithm: 'HS256'});
 }
@@ -72,7 +76,8 @@ export async function authorizeAiTicket(ticket: string) {
   const userId = new Types.ObjectId(payload.userId);
   const session = await AuthSession.findOne({userId, sessionFamily: payload.family, status: 'ACTIVE', expiresAt: {$gt: new Date()}});
   if (!session) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
-  const user = await User.findById(userId);
+  const user = await loadSessionUser(userId);
   if (!user || !user.isActive() || session.passwordVersion !== user.passwordVersion) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
+  assertSessionEpoch(session, user);
   return {expiresAt: await assertTrialActive(userId)};
 }

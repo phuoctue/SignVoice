@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { Types } from 'mongoose';
-import { User, UserRole, IUser } from '../../models/User.model';
+import { UserRole, IUser } from '../../models/User.model';
 import { AuthSession, SessionType } from '../../models/AuthSession.model';
 import { verifyAccessToken, hashToken } from '../../utils/jwt.util';
 import { AppError } from '../errors/AppError';
 import { ErrorCodes } from '../errors/errorCodes';
 import { authorizationFor } from '../../services/authorization.service';
 import { Permission } from '../../models/Role.model';
+import { assertSessionEpoch, loadSessionUser } from '../../services/session-fence.service';
 
 /**
  * Extend Express Request with user info
@@ -77,7 +78,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     const [session, user] = await Promise.all([AuthSession.findOne({
       tokenHash, userId: payload.userId, sessionType: SessionType.ACCESS,
       sessionFamily: payload.sid,
-    }), User.findById(payload.userId)]);
+    }), loadSessionUser(payload.userId)]);
     
     if (!session || !session.isValid()) {
       throw new AppError(
@@ -100,10 +101,10 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     if (session.passwordVersion !== user.passwordVersion) {
       throw new AppError('Password changed; sign in again', 401, ErrorCodes.AUTH_SESSION_INVALID);
     }
+    assertSessionEpoch(session, user);
 
     // Update session last used time
-    session.lastUsedAt = new Date();
-    await session.save();
+    await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
     
     // Attach user info to request
     const authorization = await authorizationFor(user);

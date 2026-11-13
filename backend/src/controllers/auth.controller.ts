@@ -243,7 +243,7 @@ export async function logoutAll(req: Request, res: Response, next: NextFunction)
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
     }
     
-    const count = await authService.logoutAllDevices(req.user.id, getRequestMeta(req));
+    const count = await authService.logoutAllDevices(req.user.id, req.sessionId!, getRequestMeta(req));
     res.clearCookie(refreshCookie, cookieOptions);
     
     res.status(200).json({

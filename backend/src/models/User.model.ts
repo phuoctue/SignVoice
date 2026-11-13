@@ -63,6 +63,7 @@ export interface IUser extends Document {
   accountType: AccountType;
   passwordHash?: string; // Only for LOCAL accounts
   passwordVersion: number;
+  sessionRevocationEpoch?: number;
   dataVersion: number;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date;
@@ -136,6 +137,7 @@ const UserSchema = new Schema<IUser>(
       select: false, // Never include in queries by default
     },
     passwordVersion: { type: Number, default: 0, select: true },
+    sessionRevocationEpoch: { type: Number, min: 0, select: false },
     dataVersion: { type: Number, default: 0, select: false },
     customRoleId: { type: Schema.Types.ObjectId, ref: 'Role', index: true },
     passwordResetTokenHash: { type: String, select: false },

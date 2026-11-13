@@ -9,6 +9,7 @@ import {NotificationDevice, UserNotification} from '../models/Notification.model
 import {AuthSession} from '../models/AuthSession.model';
 import {userTransaction} from './user-data.service';
 import {dueStudyReminder} from './study-reminder-notice';
+import {loadSessionUser, sessionEpoch} from './session-fence.service';
 
 const day = 86400000;
 export const pushConfigured = () => !!process.env.GOOGLE_APPLICATION_CREDENTIALS && !!process.env.FIREBASE_PROJECT_ID;
@@ -68,12 +69,13 @@ export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types
       {$set: {leaseUntil: new Date(+now + 120000), checkedAt: now}}, {new: true, sort: {checkedAt: 1}});
     if (!device) break;
     try {
-      const user = await User.findOne({_id: device.userId, status: 'ACTIVE', isGuest: false});
-      if (!user) {await NotificationDevice.deleteOne({_id: device._id}); continue;}
-      const activeSession = await AuthSession.exists({userId: device.userId, sessionFamily: device.sessionFamily, sessionType: 'REFRESH', status: 'ACTIVE', expiresAt: {$gt: now}, passwordVersion: user.passwordVersion});
+      const user = await loadSessionUser(device.userId);
+      if (!user?.isActive() || user.isGuest) {await NotificationDevice.deleteOne({_id: device._id}); continue;}
+      const activeSession = await AuthSession.findOne({userId: device.userId, sessionFamily: device.sessionFamily, sessionType: 'REFRESH', status: 'ACTIVE', expiresAt: {$gt: now}, passwordVersion: user.passwordVersion});
       // Token refresh temporarily revokes the old family before transferring
       // the device. Preserve registration across that handoff window.
       if (!activeSession) continue;
+      if (sessionEpoch(activeSession.userEpoch) !== sessionEpoch(user.sessionRevocationEpoch)) continue;
       const settings = await UserSettings.findOne({userId: device.userId}).lean();
       if (settings?.notificationsEnabled === false) continue;
       await refreshNotifications(device.userId);

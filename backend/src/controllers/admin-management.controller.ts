@@ -13,22 +13,28 @@ import { ErrorCodes } from '../common/errors/errorCodes';
 import { AuthSession, SessionStatus } from '../models/AuthSession.model';
 import { AuditLog, AuditAction, AuditSeverity } from '../models/AuditLog.model';
 import { authorizationFor } from '../services/authorization.service';
+import { assertSessionEpoch, sessionEpoch, userEpochFilter } from '../services/session-fence.service';
 
 export async function resetUserPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (req.user!.id.equals(req.params.id)) throw new AppError('Hãy dùng Đổi mật khẩu cá nhân và xác nhận mật khẩu hiện tại.', 400, 'ADMIN_PASSWORD_SELF_RESET');
     const passwordHash = await hashPassword(req.body.newPassword);
     await administratorTransaction(async session => {
-      const actor = await User.findById(req.user!.id).session(session);
+      const actor = await User.findById(req.user!.id).select('+sessionRevocationEpoch').session(session);
       const actorSession = await AuthSession.findOne({ _id: req.sessionId, userId: req.user!.id }).session(session);
       if (!actor?.isActive() || !actorSession?.isValid() || actor.passwordVersion !== actorSession.passwordVersion) {
         throw new AppError('Phiên quản trị đã thay đổi. Vui lòng đăng nhập lại.', 401, 'AUTH_SESSION_INVALID');
       }
+      assertSessionEpoch(actorSession, actor);
       const actorAuthorization = await authorizationFor(actor);
       if (actor.isGuest || !actorAuthorization.permissions.includes('admin:access') || !actorAuthorization.permissions.includes('users:write')) {
         throw new AppError('Bạn không còn quyền đặt lại mật khẩu tài khoản.', 403, ErrorCodes.AUTH_FORBIDDEN);
       }
       // Serialize against revocation while this privileged request commits.
+      const actorFence = await User.updateOne({ _id: actor._id, status: AccountStatus.ACTIVE,
+        passwordVersion: actor.passwordVersion, ...userEpochFilter(sessionEpoch(actorSession.userEpoch)) },
+      { $inc: { dataVersion: 1 } }, { session });
+      if (!actorFence.matchedCount) throw new AppError('Phiên quản trị đã hết hiệu lực.', 401, 'AUTH_SESSION_INVALID');
       const active = await AuthSession.updateOne({ _id: actorSession._id, status: SessionStatus.ACTIVE, passwordVersion: actor.passwordVersion },
         { $set: { lastUsedAt: new Date() } }, { session });
       if (!active.matchedCount) throw new AppError('Phiên quản trị đã hết hiệu lực.', 401, 'AUTH_SESSION_INVALID');
@@ -42,7 +48,7 @@ export async function resetUserPassword(req: Request, res: Response, next: NextF
       await AuditLog.create([{ userId: actor._id, actorRole: actorAuthorization.role, action: AuditAction.PASSWORD_RESET,
         severity: AuditSeverity.WARNING, resourceType: 'User', resourceId: user._id, details: { byAdministrator: true },
         ipAddress: req.ip, userAgent: req.get('user-agent'), success: true }], { session });
-    });
+    }, {writeConcern: {w: 'majority', j: true}});
     res.json({ success: true, data: { message: 'Đã đặt lại mật khẩu. Tài khoản cần đăng nhập lại bằng mật khẩu mới.' } });
   } catch (error) { next(error); }
 }
@@ -62,7 +68,7 @@ export async function createUser(req: Request, res: Response, next: NextFunction
     const custom=req.body.customRoleId?await Role.findById(req.body.customRoleId):null;
     if(req.body.customRoleId && !custom) throw notFound();
     assertCanGrant(req.user!.permissions,custom?custom.permissions:builtInPermissions[role as UserRole]);
-    const user = await User.create({email,displayName,role:custom?roleForPermissions(custom.permissions):role,customRoleId:custom?custom._id:undefined,passwordHash:await hashPassword(password),accountType:AccountType.LOCAL,isGuest:false});
+    const user = await User.create({email,displayName,role:custom?roleForPermissions(custom.permissions):role,customRoleId:custom?custom._id:undefined,passwordHash:await hashPassword(password),accountType:AccountType.LOCAL,isGuest:false,sessionRevocationEpoch:0});
     await UserSettings.create({userId:user._id});
     const safeUser = await User.findById(user._id);
     res.status(201).json({success:true,data:safeUser});

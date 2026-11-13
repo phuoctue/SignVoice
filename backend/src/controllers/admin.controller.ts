@@ -425,7 +425,7 @@ export async function getActiveSessions(
 
     const [sessions, total] = await Promise.all([
       AuthSession.find({ status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() } })
-        .select('-tokenHash')
+        .select('-tokenHash -userEpoch')
         .populate('userId', 'displayName email role')
         .sort({ lastUsedAt: -1 })
         .skip(skip)

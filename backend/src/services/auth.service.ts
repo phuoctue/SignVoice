@@ -9,6 +9,7 @@ import {NotificationDevice} from '../models/Notification.model';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
 import { authorizationFor } from './authorization.service';
+import { assertSessionEpoch, loadSessionUser, sessionEpoch, userEpochFilter } from './session-fence.service';
 
 /**
  * Registration data
@@ -85,6 +86,7 @@ export async function registerUser(
     displayName: data.displayName,
     accountType: AccountType.LOCAL,
     passwordHash,
+    sessionRevocationEpoch: 0,
     role: UserRole.USER,
     isGuest: false,
     lastLoginAt: issueSession ? new Date() : undefined,
@@ -99,8 +101,8 @@ export async function registerUser(
 
   // Create auth session
   if (issueSession) {
-    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
   }
 
   // Audit log
@@ -140,7 +142,7 @@ export async function loginUser(
   meta: IRequestMeta = {}
 ): Promise<IAuthResponse> {
   // Find user (include passwordHash)
-  const user = await User.findOne({ email: data.email.toLowerCase() }).select('+passwordHash');
+  const user = await User.findOne({ email: data.email.toLowerCase() }).select('+passwordHash +sessionRevocationEpoch');
 
   if (!user) {
     // Audit failed login attempt
@@ -203,14 +205,18 @@ export async function loginUser(
   // Update last login
   user.lastLoginAt = new Date();
   user.lastLoginIp = meta.ipAddress;
-  await user.save();
+  await User.updateOne({ _id: user._id }, {
+    $set: { lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp },
+    ...(user.lastLoginIp === undefined ? { $unset: { lastLoginIp: 1 } } : {}),
+  });
+  user.updatedAt = new Date();
 
   // Generate tokens
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
 
   // Audit successful login
   await AuditLog.log({
@@ -250,6 +256,7 @@ export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?:
   const user = await User.create({
     displayName,
     accountType: AccountType.GUEST,
+    sessionRevocationEpoch: 0,
     guestTrialId,
     role: UserRole.USER,
     isGuest: true,
@@ -264,8 +271,8 @@ export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?:
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
 
   // Audit log
   await AuditLog.log({
@@ -305,7 +312,7 @@ export async function convertGuestToPermanent(
   issueSession = true
 ): Promise<IAuthResponse> {
   // Find guest user
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('+sessionRevocationEpoch');
 
   if (!user) {
     throw new AppError('User not found', 404, ErrorCodes.USER_NOT_FOUND);
@@ -340,7 +347,11 @@ export async function convertGuestToPermanent(
   user.accountType = AccountType.LOCAL;
   user.isGuest = false;
   user.guestConvertedAt = new Date();
-  await user.save();
+  await User.updateOne({ _id: user._id }, { $set: {
+    email: user.email, displayName: user.displayName, passwordHash: user.passwordHash,
+    accountType: user.accountType, isGuest: user.isGuest, guestConvertedAt: user.guestConvertedAt,
+  } }, { runValidators: true });
+  user.updatedAt = new Date();
 
   // Generate new tokens
   const tokens = generateTokenPair(user._id, user.role);
@@ -350,8 +361,8 @@ export async function convertGuestToPermanent(
 
   // Create new sessions
   if (issueSession) {
-    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
   }
 
   // Audit log
@@ -418,7 +429,7 @@ export async function refreshTokens(
   }
 
   // Load user
-  const user = await User.findById(payload.userId);
+  const user = await loadSessionUser(payload.userId);
 
   if (!user || !user.isActive()) {
     throw new AppError(
@@ -430,10 +441,12 @@ export async function refreshTokens(
   if (session.passwordVersion !== user.passwordVersion) {
     throw new AppError('Password changed; sign in again', 401, ErrorCodes.AUTH_SESSION_INVALID);
   }
+  assertSessionEpoch(session, user);
 
   // Claim the refresh token once, including when requests arrive concurrently.
   const claimed = await AuthSession.findOneAndUpdate({
     _id: session._id, status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() },
+    userEpoch: session.userEpoch === undefined ? { $exists: false } : session.userEpoch,
   }, { $set: { status: SessionStatus.REVOKED, revokedAt: new Date() } });
   if (!claimed) {
     throw new AppError('Refresh token already used', 401, ErrorCodes.AUTH_SESSION_INVALID);
@@ -447,8 +460,12 @@ export async function refreshTokens(
 
   // Create new sessions
   const authenticatedAt = session.authenticatedAt || new Date(0);
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, authenticatedAt);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, authenticatedAt);
+  const userEpoch = sessionEpoch(session.userEpoch);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch);
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch);
+  const currentUser = await loadSessionUser(user._id);
+  if (!currentUser?.isActive()) throw new AppError('User not found or inactive', 401, ErrorCodes.AUTH_USER_NOT_FOUND);
+  assertSessionEpoch(session, currentUser);
 
   // Audit log
   await AuditLog.log({
@@ -500,9 +517,17 @@ export async function logoutUser(
  */
 export async function logoutAllDevices(
   userId: Types.ObjectId,
+  sessionId: Types.ObjectId,
   meta: IRequestMeta = {}
 ): Promise<number> {
-  const count = await AuthSession.revokeAllForUser(userId);
+  const caller = await AuthSession.findOne({ _id: sessionId, userId });
+  if (!caller) throw new AppError('Session not found or expired', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  const epoch = sessionEpoch(caller.userEpoch);
+  if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('Session revocation epoch exhausted');
+  const fence = await User.updateOne({ _id: userId, ...userEpochFilter(epoch) },
+    { $inc: { sessionRevocationEpoch: 1 } }, { writeConcern: { w: 'majority', j: true } });
+  if (!fence.matchedCount) throw new AppError('Session not found or expired', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  const count = await AuthSession.revokeAllForUser(userId, undefined, epoch + 1);
 
   // Audit log
   await AuditLog.log({
@@ -526,7 +551,8 @@ export async function createAuthSession(
   expiresAt: Date,
   meta: IRequestMeta,
   passwordVersion = 0,
-  authenticatedAt = new Date()
+  authenticatedAt = new Date(),
+  userEpoch = 0
 ): Promise<void> {
   const tokenHash = hashToken(token);
   // Both token types have similar lengths; derive the type from verified claims.
@@ -543,6 +569,7 @@ export async function createAuthSession(
     authenticatedAt,
     sessionFamily: payload.sid,
     passwordVersion,
+    userEpoch: sessionEpoch(userEpoch),
     sessionType,
     tokenHash,
     deviceInfo: meta.userAgent,
@@ -558,10 +585,14 @@ export async function loginOAuthUser(user: IUser, meta: IRequestMeta = {}): Prom
   await UserSettings.updateOne({ userId: user._id }, { $setOnInsert: { userId: user._id } }, { upsert: true });
   user.lastLoginAt = new Date();
   user.lastLoginIp = meta.ipAddress;
-  await user.save();
+  await User.updateOne({ _id: user._id }, {
+    $set: { lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp },
+    ...(user.lastLoginIp === undefined ? { $unset: { lastLoginIp: 1 } } : {}),
+  });
+  user.updatedAt = new Date();
   const tokens = generateTokenPair(user._id, user.role);
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
   await AuditLog.log({ userId: user._id, actorRole: user.role, action: AuditAction.USER_LOGIN,
     severity: AuditSeverity.INFO, ipAddress: meta.ipAddress, userAgent: meta.userAgent });
   return { user: { id: user._id.toString(), email: user.email, displayName: user.displayName,

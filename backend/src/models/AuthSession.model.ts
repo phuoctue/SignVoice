@@ -27,6 +27,7 @@ export interface IAuthSession extends Document {
   userId: Types.ObjectId;
   sessionFamily?: string;
   passwordVersion: number;
+  userEpoch?: number;
   authenticatedAt?: Date;
   
   // Token data
@@ -57,7 +58,7 @@ export interface IAuthSession extends Document {
  * Auth session model interface with static methods
  */
 export interface IAuthSessionModel extends Model<IAuthSession> {
-  revokeAllForUser(userId: Types.ObjectId, exceptTokenHash?: string): Promise<number>;
+  revokeAllForUser(userId: Types.ObjectId, exceptTokenHash?: string, beforeUserEpoch?: number): Promise<number>;
   cleanupExpired(): Promise<number>;
   getActiveSessionsForUser(userId: Types.ObjectId): Promise<IAuthSession[]>;
 }
@@ -81,6 +82,7 @@ const AuthSessionSchema = new Schema<IAuthSession>(
     },
     sessionFamily: { type: String, index: true },
     passwordVersion: { type: Number, default: 0 },
+    userEpoch: { type: Number, min: 0, immutable: true },
     authenticatedAt: { type: Date },
     
     tokenHash: {
@@ -181,7 +183,8 @@ AuthSessionSchema.methods.revoke = async function(): Promise<IAuthSession> {
  */
 AuthSessionSchema.statics.revokeAllForUser = async function(
   userId: Types.ObjectId,
-  exceptTokenHash?: string
+  exceptTokenHash?: string,
+  beforeUserEpoch?: number
 ): Promise<number> {
   const query: any = {
     userId,
@@ -190,6 +193,9 @@ AuthSessionSchema.statics.revokeAllForUser = async function(
   
   if (exceptTokenHash) {
     query.tokenHash = { $ne: exceptTokenHash };
+  }
+  if (beforeUserEpoch !== undefined) {
+    query.$or = [{ userEpoch: { $exists: false } }, { userEpoch: { $lt: beforeUserEpoch } }];
   }
   
   const result = await this.updateMany(
