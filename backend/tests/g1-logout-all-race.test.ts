@@ -301,6 +301,48 @@ it.each(['missing', 'explicit'] as const)('PS %s: a stale middleware touch canno
 
 it.each(['login', 'conversion', 'shared'] as const)('PS %s: stale User writes preserve the fence and old issuance snapshot', async path => {
   for (const initial of ['missing', 'explicit'] as const) {
+    // Lead decision r1 supersedes only conversion: r2 must reject stale enrollment authority.
+    if (path === 'conversion') {
+      const app = await createApp(), guest = await authService.createGuestAccount();
+      const id = new mongoose.Types.ObjectId(guest.user.id);
+      const other = (await authService.loginOAuthUser((await User.findById(id).select('+sessionRevocationEpoch'))!)).tokens;
+      const caller = (await AuthSession.findOne({tokenHash: hashToken(other.accessToken)}))!;
+      if (initial === 'missing') await User.collection.updateOne({_id: id}, {$unset: {sessionRevocationEpoch: ''}});
+      const gate = pauseCreate(id, SessionType.ACCESS);
+      const generated = vi.spyOn(jwtUtils, 'generateTokenPair');
+      const rotating = refreshWith(app, guest.tokens.refreshToken).then(response => response);
+      const reached = deferred(), release = deferred(), transaction = mongoose.connection.transaction;
+      vi.spyOn(mongoose.connection, 'transaction').mockImplementation((async function(this: typeof mongoose.connection, ...args: unknown[]) {
+        reached.resolve(); await bounded(release.promise, 'conversion transaction release');
+        return Reflect.apply(transaction, this, args);
+      }) as typeof transaction);
+      let conversion: Promise<unknown> | undefined;
+      try {
+        await bounded(gate.reached.promise, 'conversion late refresh');
+        const late = generated.mock.results[0].value as Tokens;
+        conversion = authService.convertGuestToPermanent(id,
+          {email: `converted-${randomUUID()}@example.com`, password, displayName: 'Converted fixture'}, {}, true, caller._id)
+          .then(value => ({value}), error => ({error}));
+        await bounded(reached.promise, 'conversion captured old authority');
+        await logoutAll(app, other.accessToken).expect(200);
+        release.resolve();
+        expect(await bounded(conversion, 'stale conversion abort')).toMatchObject({error: {statusCode: 401}});
+        expect((await User.collection.findOne({_id: id}))!.sessionRevocationEpoch).toBe(1);
+        expect((await User.collection.findOne({_id: id}))!.isGuest).toBe(true);
+        gate.release.resolve();
+        expect((await bounded(rotating, 'conversion late rotation')).status).toBe(401);
+        for (const tokens of [guest.tokens, other, late]) {
+          await useAccess(app, tokens.accessToken).expect(401);
+          await refreshWith(app, tokens.refreshToken).expect(401);
+        }
+        expect((await User.collection.findOne({_id: id}))!.sessionRevocationEpoch).toBe(1);
+      } finally {
+        release.resolve(); gate.release.resolve();
+        await bounded(Promise.allSettled([rotating, ...(conversion ? [conversion] : [])]), 'conversion cleanup');
+        vi.restoreAllMocks();
+      }
+      continue;
+    }
     const app = await createApp();
     const normal = path === 'conversion' ? null : await fixture(app);
     const guest = path === 'conversion' ? await authService.createGuestAccount() : null;

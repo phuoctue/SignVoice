@@ -12,6 +12,7 @@ import { env, validateEnv } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import {startNotificationDelivery} from './services/notification.service';
 import {ensureLearningIndexes} from './services/learning-indexes.service';
+import {loadChainTransition} from './services/session-chain.service';
 
 /**
  * Start the server
@@ -26,6 +27,7 @@ async function startServer(): Promise<void> {
     // Connect to database
     console.log('🔌 Connecting to MongoDB...');
     await connectDatabase();
+    await loadChainTransition();
     await ensureLearningIndexes();
 
     // Create Express app

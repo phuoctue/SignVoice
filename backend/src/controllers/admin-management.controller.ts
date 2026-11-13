@@ -14,6 +14,7 @@ import { AuthSession, SessionStatus } from '../models/AuthSession.model';
 import { AuditLog, AuditAction, AuditSeverity } from '../models/AuditLog.model';
 import { authorizationFor } from '../services/authorization.service';
 import { assertSessionEpoch, sessionEpoch, userEpochFilter } from '../services/session-fence.service';
+import { assertSessionChain, assertChainDeadline, loadChainTransition } from '../services/session-chain.service';
 
 export async function resetUserPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -26,6 +27,7 @@ export async function resetUserPassword(req: Request, res: Response, next: NextF
         throw new AppError('Phiên quản trị đã thay đổi. Vui lòng đăng nhập lại.', 401, 'AUTH_SESSION_INVALID');
       }
       assertSessionEpoch(actorSession, actor);
+      const {chain: actorChain} = await assertSessionChain(actorSession, session);
       const actorAuthorization = await authorizationFor(actor);
       if (actor.isGuest || !actorAuthorization.permissions.includes('admin:access') || !actorAuthorization.permissions.includes('users:write')) {
         throw new AppError('Bạn không còn quyền đặt lại mật khẩu tài khoản.', 403, ErrorCodes.AUTH_FORBIDDEN);
@@ -48,6 +50,9 @@ export async function resetUserPassword(req: Request, res: Response, next: NextF
       await AuditLog.create([{ userId: actor._id, actorRole: actorAuthorization.role, action: AuditAction.PASSWORD_RESET,
         severity: AuditSeverity.WARNING, resourceType: 'User', resourceId: user._id, details: { byAdministrator: true },
         ipAddress: req.ip, userAgent: req.get('user-agent'), success: true }], { session });
+      const transition = await loadChainTransition();
+      if (actorChain) assertChainDeadline(actorChain, transition);
+      else if (transition) throw new AppError('Session changed', 401, 'AUTH_SESSION_INVALID');
     }, {writeConcern: {w: 'majority', j: true}});
     res.json({ success: true, data: { message: 'Đã đặt lại mật khẩu. Tài khoản cần đăng nhập lại bằng mật khẩu mới.' } });
   } catch (error) { next(error); }

@@ -10,6 +10,9 @@ import {AuthSession} from '../models/AuthSession.model';
 import {userTransaction} from './user-data.service';
 import {dueStudyReminder} from './study-reminder-notice';
 import {loadSessionUser, sessionEpoch} from './session-fence.service';
+import {assertSessionChain, loadChainTransition} from './session-chain.service';
+import {AppError} from '../common/errors/AppError';
+import {authClock} from './auth-clock';
 
 const day = 86400000;
 export const pushConfigured = () => !!process.env.GOOGLE_APPLICATION_CREDENTIALS && !!process.env.FIREBASE_PROJECT_ID;
@@ -62,6 +65,7 @@ async function sendPush(token: string, notice: any) {
 /** One bounded batch, leased per installation so overlapping server processes do not double-send. */
 export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types.ObjectId) {
   if (!pushConfigured()) return;
+  await loadChainTransition();
   const startedAt = new Date();
   for (let i = 0; i < 20; i++) {
     const now = new Date();
@@ -71,11 +75,13 @@ export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types
     try {
       const user = await loadSessionUser(device.userId);
       if (!user?.isActive() || user.isGuest) {await NotificationDevice.deleteOne({_id: device._id}); continue;}
-      const activeSession = await AuthSession.findOne({userId: device.userId, sessionFamily: device.sessionFamily, sessionType: 'REFRESH', status: 'ACTIVE', expiresAt: {$gt: now}, passwordVersion: user.passwordVersion});
+      const activeSession = await AuthSession.findOne({userId: device.userId, sessionFamily: device.sessionFamily, sessionType: 'REFRESH', status: 'ACTIVE', expiresAt: {$gt: authClock.now()}, passwordVersion: user.passwordVersion});
       // Token refresh temporarily revokes the old family before transferring
       // the device. Preserve registration across that handoff window.
       if (!activeSession) continue;
       if (sessionEpoch(activeSession.userEpoch) !== sessionEpoch(user.sessionRevocationEpoch)) continue;
+      try { await assertSessionChain(activeSession); }
+      catch (error) { if (error instanceof AppError && error.statusCode === 401) continue; throw error; }
       const settings = await UserSettings.findOne({userId: device.userId}).lean();
       if (settings?.notificationsEnabled === false) continue;
       await refreshNotifications(device.userId);
@@ -85,7 +91,13 @@ export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types
         const enabled = notice.kind !== 'STUDY_REMINDER' && (notice.kind === 'TEST' || (notice.kind === 'NEW_WORDS' ? settings?.notificationPreferences?.newWords !== false : settings?.notificationPreferences?.favorites !== false));
         // Re-check ownership immediately before delivery after a token transfer/logout.
         if (!await NotificationDevice.exists({_id: device._id, userId: device.userId})) break;
-        if (enabled && !notice.read) await send(device.token, notice);
+        if (enabled && !notice.read) {
+          const currentUser = await loadSessionUser(device.userId);
+          if (!currentUser?.isActive() || currentUser.passwordVersion !== activeSession.passwordVersion ||
+              sessionEpoch(currentUser.sessionRevocationEpoch) !== sessionEpoch(activeSession.userEpoch)) break;
+          await assertSessionChain(activeSession);
+          await send(device.token, notice);
+        }
         await NotificationDevice.updateOne({_id: device._id, userId: device.userId}, {$set: {deliveredAt: notice.createdAt}});
       }
     } catch (error: any) {

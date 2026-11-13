@@ -159,7 +159,8 @@ export async function convertGuest(req: Request, res: Response, next: NextFuncti
       req.user.id,
       { email, password, displayName },
       getRequestMeta(req),
-      req.body.requireLogin !== true
+      req.body.requireLogin !== true,
+      req.sessionId
     );
     if (req.body.requireLogin === true) {
       res.clearCookie(refreshCookie, cookieOptions);
@@ -218,6 +219,7 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
     }
     
     if (req.user.isGuest) {
+      await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
       await deleteGuestOnLogout(new Types.ObjectId(req.user.id));
     } else {
       await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
@@ -274,6 +276,7 @@ export async function getCurrentUser(req: Request, res: Response, next: NextFunc
     if (!user) {
       throw new AppError('User not found', 404, ErrorCodes.USER_NOT_FOUND);
     }
+    const legacyGuestSessionCutoffAt = req.legacyGuestSessionCutoffAt;
     
     res.status(200).json({
       success: true,
@@ -285,6 +288,7 @@ export async function getCurrentUser(req: Request, res: Response, next: NextFunc
         googleLinked: !!user.googleProvider?.providerId,
         accountType: user.accountType,
         isGuest: user.isGuest,
+        ...(legacyGuestSessionCutoffAt ? {legacyGuestSessionCutoffAt} : {}),
         status: user.status,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,

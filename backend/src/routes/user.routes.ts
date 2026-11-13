@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { User, AccountType } from '../models/User.model';
 import { UserSettings } from '../models/UserSettings.model';
-import { AuthSession, SessionStatus, SessionType } from '../models/AuthSession.model';
+import { AuthSession, SessionType } from '../models/AuthSession.model';
 import { Favorite } from '../models/Favorite.model';
 import { Conversation } from '../models/Conversation.model';
 import { SearchHistory } from '../models/SearchHistory.model';
@@ -17,6 +17,7 @@ import { clearOwnedData, conversationDto, missing, provePassword, safeUser, user
 import { deleteAccountBody, idParams, profileBody, settingsBody } from '../validation/user-data.validation';
 import {saveAvatarImage} from '../services/avatar-media.service';
 import {userBootstrap} from '../services/user-bootstrap.service';
+import {deleteOwnedSession, effectiveSessions, sameSessionChain} from '../services/session-chain.service';
 
 const router = Router();
 router.use(requireAuth);
@@ -112,22 +113,14 @@ router.delete('/data', validate(z.object({body: z.object({confirm: z.literal(tru
 router.get('/sessions', async (req, res, next) => {
   try {
     const current = await AuthSession.findById(req.sessionId);
-    const sessions = await AuthSession.find({userId: req.user!.id, sessionType: SessionType.REFRESH, status: SessionStatus.ACTIVE, expiresAt: {$gt: new Date()}})
-      .select('_id sessionFamily deviceInfo ipAddress createdAt lastUsedAt expiresAt').sort({lastUsedAt: -1});
+    const sessions = await effectiveSessions({userId: req.user!.id, sessionType: SessionType.REFRESH});
     res.json({success: true, data: sessions.map(item => ({_id: item.id, deviceInfo: item.deviceInfo, ipAddress: item.ipAddress,
-      createdAt: item.createdAt, lastUsedAt: item.lastUsedAt, expiresAt: item.expiresAt, current: item.sessionFamily === current?.sessionFamily}))});
+      createdAt: item.createdAt, lastUsedAt: item.lastUsedAt, expiresAt: item.expiresAt, current: !!current && sameSessionChain(item, current)}))});
   } catch (error) { next(error); }
 });
 router.delete('/sessions/:id', validate(z.object({params: idParams})), async (req, res, next) => {
   try {
-    const revokedCurrent = await userTransaction(req.user!.id, async session => {
-      const target = await AuthSession.findOne({_id: req.params.id, userId: req.user!.id}).session(session);
-      if (!target) throw missing();
-      const current = await AuthSession.findById(req.sessionId).session(session);
-      const filter = target.sessionFamily ? {userId: req.user!.id, sessionFamily: target.sessionFamily} : {_id: target._id, userId: req.user!.id};
-      await AuthSession.updateMany(filter, {$set: {status: SessionStatus.REVOKED, revokedAt: new Date()}}, {session});
-      return !!current && (target.sessionFamily ? target.sessionFamily === current.sessionFamily : target.id === current.id);
-    });
+    const revokedCurrent = await deleteOwnedSession(req.user!.id, req.params.id, req.sessionId!);
     if (revokedCurrent) res.clearCookie('signvoice_refresh', {path: '/api/v1/auth'});
     res.json({success: true, data: {revokedCurrent}});
   } catch (error) { next(error); }

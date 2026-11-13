@@ -1,7 +1,8 @@
 import { administratorTransaction } from '../services/administrator-transaction.service';
 import { Request, Response, NextFunction } from 'express';
 import { User, UserRole, AccountStatus } from '../models/User.model';
-import { AuthSession, SessionStatus } from '../models/AuthSession.model';
+import { AuthSession } from '../models/AuthSession.model';
+import { effectiveSessions, revokeSessionChain } from '../services/session-chain.service';
 import { DictionaryEntry } from '../models/DictionaryEntry.model';
 import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
@@ -351,7 +352,7 @@ export async function getSystemStats(
     const [users, content, activeSessions] = await Promise.all([
       accountAccess ? accountStats(now) : null,
       contentAccess ? contentStats() : null,
-      sessionAccess ? AuthSession.countDocuments({ status: SessionStatus.ACTIVE, expiresAt: { $gt: now } }) : 0,
+      sessionAccess ? effectiveSessions().then(rows => rows.length) : 0,
     ]);
 
     res.status(200).json({
@@ -423,15 +424,14 @@ export async function getActiveSessions(
     const { page = 1, limit = 20 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [sessions, total] = await Promise.all([
-      AuthSession.find({ status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() } })
-        .select('-tokenHash -userEpoch')
-        .populate('userId', 'displayName email role')
-        .sort({ lastUsedAt: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      AuthSession.countDocuments({ status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() } }),
-    ]);
+    const effective = await effectiveSessions();
+    const total = effective.length;
+    const selected = effective.slice(skip, skip + Number(limit));
+    await AuthSession.populate(selected, {path: 'userId', select: 'displayName email role'});
+    const sessions = selected.map(row => {
+      const {tokenHash, userEpoch, chainId, ...safe} = row.toObject();
+      return safe;
+    });
 
     res.status(200).json({
       success: true,
@@ -467,13 +467,7 @@ export async function terminateSession(
     if (!session) {
       throw new AppError('Session not found', 404, ErrorCodes.NOT_FOUND);
     }
-    if (session.sessionFamily) {
-      await AuthSession.updateMany({ userId: session.userId, sessionFamily: session.sessionFamily }, {
-        $set: { status: SessionStatus.REVOKED, revokedAt: new Date() },
-      });
-    } else {
-      await session.revoke();
-    }
+    await revokeSessionChain(session);
 
     res.status(200).json({
       success: true,

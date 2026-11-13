@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types, Model } from 'mongoose';
+import { authClock } from '../services/auth-clock';
 
 /**
  * Session types
@@ -26,6 +27,7 @@ export interface IAuthSession extends Document {
   // Relationships
   userId: Types.ObjectId;
   sessionFamily?: string;
+  chainId?: string;
   passwordVersion: number;
   userEpoch?: number;
   authenticatedAt?: Date;
@@ -81,6 +83,7 @@ const AuthSessionSchema = new Schema<IAuthSession>(
       required: [true, 'Session type is required'],
     },
     sessionFamily: { type: String, index: true },
+    chainId: { type: String, immutable: true },
     passwordVersion: { type: Number, default: 0 },
     userEpoch: { type: Number, min: 0, immutable: true },
     authenticatedAt: { type: Date },
@@ -143,6 +146,7 @@ const AuthSessionSchema = new Schema<IAuthSession>(
 // Primary queries
 AuthSessionSchema.index({ userId: 1, status: 1 });
 AuthSessionSchema.index({ userId: 1, sessionType: 1, status: 1 });
+AuthSessionSchema.index({ userId: 1, chainId: 1, status: 1 });
 
 // Cleanup jobs
 AuthSessionSchema.index({ status: 1, expiresAt: 1 });
@@ -161,7 +165,7 @@ AuthSessionSchema.index({ ipAddress: 1, createdAt: -1 });
 AuthSessionSchema.methods.isValid = function(): boolean {
   return (
     this.status === SessionStatus.ACTIVE &&
-    this.expiresAt > new Date()
+    this.expiresAt > authClock.now()
   );
 };
 

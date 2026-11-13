@@ -4,6 +4,7 @@ import { Types } from 'mongoose';
 import { env } from '../config/env';
 import { SessionType } from '../models/AuthSession.model';
 import { UserRole } from '../models/User.model';
+import { authClock } from '../services/auth-clock';
 
 /**
  * JWT payload interface
@@ -42,6 +43,7 @@ export function generateAccessToken(userId: Types.ObjectId, role: string, sid = 
   const payload: IJwtPayload = {
     userId: userId.toString(),
     sessionType: SessionType.ACCESS,
+    iat: Math.floor(+authClock.now() / 1000),
     role,
     sid,
   };
@@ -62,6 +64,7 @@ export function generateRefreshToken(userId: Types.ObjectId, role: string, sid =
   const payload: IJwtPayload = {
     userId: userId.toString(),
     sessionType: SessionType.REFRESH,
+    iat: Math.floor(+authClock.now() / 1000),
     role,
     sid,
   };
@@ -97,6 +100,7 @@ export function generateTokenPair(userId: Types.ObjectId, role: string): ITokenP
 export function verifyAccessToken(token: string): IJwtPayload {
   try {
     const payload = jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      clockTimestamp: Math.floor(+authClock.now() / 1000),
       issuer: 'signvoice-api',
       audience: 'signvoice-app',
       algorithms: ['HS256'],
@@ -124,6 +128,7 @@ export function verifyAccessToken(token: string): IJwtPayload {
 export function verifyRefreshToken(token: string): IJwtPayload {
   try {
     const payload = jwt.verify(token, env.JWT_REFRESH_SECRET, {
+      clockTimestamp: Math.floor(+authClock.now() / 1000),
       issuer: 'signvoice-api',
       audience: 'signvoice-app',
       algorithms: ['HS256'],

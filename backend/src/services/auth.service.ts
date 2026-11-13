@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types, ClientSession } from 'mongoose';
 import { User, IUser, AccountType, AccountStatus, UserRole } from '../models/User.model';
 import { AuthSession, SessionType, SessionStatus } from '../models/AuthSession.model';
 import { UserSettings } from '../models/UserSettings.model';
@@ -10,6 +10,9 @@ import { AppError } from '../common/errors/AppError';
 import { ErrorCodes } from '../common/errors/errorCodes';
 import { authorizationFor } from './authorization.service';
 import { assertSessionEpoch, loadSessionUser, sessionEpoch, userEpochFilter } from './session-fence.service';
+import { assertChainDeadline, assertSessionChain, chainWriteConcern, createFreshChain, loadChainTransition, revokeSessionChain, tombstoneChain } from './session-chain.service';
+import { SessionChain } from '../models/SessionChain.model';
+import { authClock } from './auth-clock';
 
 /**
  * Registration data
@@ -66,6 +69,7 @@ export async function registerUser(
   meta: IRequestMeta = {},
   issueSession = true
 ): Promise<IAuthResponse> {
+  await loadChainTransition();
   // Check if email already exists
   const existing = await User.findOne({ email: data.email.toLowerCase() });
 
@@ -101,8 +105,7 @@ export async function registerUser(
 
   // Create auth session
   if (issueSession) {
-    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+    await persistFreshPair(user, tokens, meta);
   }
 
   // Audit log
@@ -141,6 +144,7 @@ export async function loginUser(
   data: ILoginData,
   meta: IRequestMeta = {}
 ): Promise<IAuthResponse> {
+  await loadChainTransition();
   // Find user (include passwordHash)
   const user = await User.findOne({ email: data.email.toLowerCase() }).select('+passwordHash +sessionRevocationEpoch');
 
@@ -215,8 +219,7 @@ export async function loginUser(
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await persistFreshPair(user, tokens, meta);
 
   // Audit successful login
   await AuditLog.log({
@@ -249,6 +252,7 @@ export async function loginUser(
  * Create guest account
  */
 export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?: Types.ObjectId): Promise<IAuthResponse> {
+  await loadChainTransition();
   // Generate random display name
   const displayName = `Guest_${Date.now().toString(36)}`;
 
@@ -271,8 +275,7 @@ export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?:
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth sessions
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await persistFreshPair(user, tokens, meta);
 
   // Audit log
   await AuditLog.log({
@@ -309,7 +312,8 @@ export async function convertGuestToPermanent(
   userId: Types.ObjectId,
   data: IRegisterData,
   meta: IRequestMeta = {},
-  issueSession = true
+  issueSession = true,
+  callerSessionId?: Types.ObjectId
 ): Promise<IAuthResponse> {
   // Find guest user
   const user = await User.findById(userId).select('+sessionRevocationEpoch');
@@ -339,31 +343,55 @@ export async function convertGuestToPermanent(
 
   // Hash password
   const passwordHash = await hashPassword(data.password);
-
-  // Update user
+  if (!callerSessionId) throw new AppError('Current session required', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  const caller = await AuthSession.findOne({_id: callerSessionId, userId});
+  if (!caller?.isValid()) throw new AppError('Session not found or expired', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  const epoch = sessionEpoch(caller.userEpoch);
+  if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('Session revocation epoch exhausted');
+  // Pin authority before transaction retries; never adopt a later epoch as authority.
+  assertSessionEpoch(caller, user);
+  let tokens = generateTokenPair(user._id, user.role);
   user.email = data.email.toLowerCase();
   user.displayName = data.displayName;
   user.passwordHash = passwordHash;
   user.accountType = AccountType.LOCAL;
   user.isGuest = false;
-  user.guestConvertedAt = new Date();
-  await User.updateOne({ _id: user._id }, { $set: {
-    email: user.email, displayName: user.displayName, passwordHash: user.passwordHash,
-    accountType: user.accountType, isGuest: user.isGuest, guestConvertedAt: user.guestConvertedAt,
-  } }, { runValidators: true });
-  user.updatedAt = new Date();
-
-  // Generate new tokens
-  const tokens = generateTokenPair(user._id, user.role);
-
-  // Revoke old sessions
-  await AuthSession.revokeAllForUser(user._id);
-
-  // Create new sessions
-  if (issueSession) {
-    await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-    await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-  }
+  user.guestConvertedAt = authClock.now();
+  await mongoose.connection.transaction(async transaction => {
+    const current = await User.findById(userId).select('+sessionRevocationEpoch').session(transaction);
+    const row = await AuthSession.findOne({_id: callerSessionId, userId}).session(transaction);
+    if (!current?.isActive() || !current.canConvertFromGuest() || !row?.isValid() ||
+        row.passwordVersion !== current.passwordVersion || sessionEpoch(row.userEpoch) !== epoch ||
+        row.chainId !== caller.chainId) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+    assertSessionEpoch(caller, current);
+    const {chain: callerChain} = await assertSessionChain(row, transaction);
+    const guard = await AuthSession.updateOne({_id: row._id, status: SessionStatus.ACTIVE,
+      chainId: row.chainId === undefined ? {$exists: false} : row.chainId,
+      userEpoch: row.userEpoch === undefined ? {$exists: false} : row.userEpoch},
+    {$set: {lastUsedAt: new Date(Math.max(+authClock.now(), +row.lastUsedAt + 1))}}, {session: transaction});
+    if (!guard.matchedCount) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+    const enrolled = await User.updateOne({_id: userId, isGuest: true, status: AccountStatus.ACTIVE,
+      passwordVersion: caller.passwordVersion, ...userEpochFilter(epoch)}, {$set: {
+      email: user.email, displayName: user.displayName, passwordHash: user.passwordHash,
+      accountType: user.accountType, isGuest: false, guestConvertedAt: user.guestConvertedAt,
+    }, $inc: {sessionRevocationEpoch: 1}}, {session: transaction, runValidators: true});
+    if (!enrolled.matchedCount) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+    const roots = await SessionChain.find({userId, legacyDerived: true}).session(transaction);
+    for (const root of roots) await tombstoneChain(userId, root.chainId, transaction);
+    await AuthSession.updateMany({userId, status: SessionStatus.ACTIVE,
+      $or: [{userEpoch: {$exists: false}}, {userEpoch: {$lt: epoch + 1}}]},
+    {$set: {status: SessionStatus.REVOKED, revokedAt: authClock.now()}}, {session: transaction});
+    user.sessionRevocationEpoch = epoch + 1;
+    if (issueSession) {
+      tokens = generateTokenPair(user._id, user.role);
+      await persistFreshPair(user, tokens, meta, transaction);
+    }
+    // A separate singleton reread and the final time checkpoint are not snapshot reads.
+    const transition = await loadChainTransition();
+    if (callerChain) assertChainDeadline(callerChain, transition);
+    else if (transition) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  }, {writeConcern: chainWriteConcern});
+  user.updatedAt = authClock.now();
 
   // Audit log
   await AuditLog.log({
@@ -442,11 +470,13 @@ export async function refreshTokens(
     throw new AppError('Password changed; sign in again', 401, ErrorCodes.AUTH_SESSION_INVALID);
   }
   assertSessionEpoch(session, user);
+  await assertSessionChain(session);
 
   // Claim the refresh token once, including when requests arrive concurrently.
   const claimed = await AuthSession.findOneAndUpdate({
-    _id: session._id, status: SessionStatus.ACTIVE, expiresAt: { $gt: new Date() },
+    _id: session._id, status: SessionStatus.ACTIVE, expiresAt: { $gt: authClock.now() },
     userEpoch: session.userEpoch === undefined ? { $exists: false } : session.userEpoch,
+    chainId: session.chainId === undefined ? { $exists: false } : session.chainId,
   }, { $set: { status: SessionStatus.REVOKED, revokedAt: new Date() } });
   if (!claimed) {
     throw new AppError('Refresh token already used', 401, ErrorCodes.AUTH_SESSION_INVALID);
@@ -461,11 +491,13 @@ export async function refreshTokens(
   // Create new sessions
   const authenticatedAt = session.authenticatedAt || new Date(0);
   const userEpoch = sessionEpoch(session.userEpoch);
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch);
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch, session.chainId);
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, session.passwordVersion, authenticatedAt, userEpoch, session.chainId);
   const currentUser = await loadSessionUser(user._id);
   if (!currentUser?.isActive()) throw new AppError('User not found or inactive', 401, ErrorCodes.AUTH_USER_NOT_FOUND);
   assertSessionEpoch(session, currentUser);
+  if (currentUser.passwordVersion !== session.passwordVersion) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  await assertSessionChain(session);
 
   // Audit log
   await AuditLog.log({
@@ -493,13 +525,7 @@ export async function logoutUser(
   const session = await AuthSession.findById(sessionId);
 
   if (session && session.userId.equals(userId)) {
-    if (session.sessionFamily) {
-      await AuthSession.updateMany({ userId, sessionFamily: session.sessionFamily }, {
-        $set: { status: SessionStatus.REVOKED, revokedAt: new Date() },
-      });
-    } else {
-      await session.revoke();
-    }
+    await revokeSessionChain(session);
   }
 
   // Audit log
@@ -551,8 +577,10 @@ export async function createAuthSession(
   expiresAt: Date,
   meta: IRequestMeta,
   passwordVersion = 0,
-  authenticatedAt = new Date(),
-  userEpoch = 0
+  authenticatedAt = authClock.now(),
+  userEpoch = 0,
+  chainId?: string,
+  transaction?: ClientSession
 ): Promise<void> {
   const tokenHash = hashToken(token);
   // Both token types have similar lengths; derive the type from verified claims.
@@ -564,10 +592,11 @@ export async function createAuthSession(
   }
   const sessionType = payload.sessionType;
 
-  await AuthSession.create({
+  const row = {
     userId,
     authenticatedAt,
     sessionFamily: payload.sid,
+    ...(chainId === undefined ? {} : {chainId}),
     passwordVersion,
     userEpoch: sessionEpoch(userEpoch),
     sessionType,
@@ -575,12 +604,25 @@ export async function createAuthSession(
     deviceInfo: meta.userAgent,
     ipAddress: meta.ipAddress,
     expiresAt,
-    lastUsedAt: new Date(),
-  });
+    lastUsedAt: authClock.now(),
+  };
+  if (transaction) await AuthSession.create([row], {session: transaction});
+  else await AuthSession.create(row);
+}
+
+async function persistFreshPair(user: IUser, tokens: ITokenPair, meta: IRequestMeta, transaction?: ClientSession): Promise<void> {
+  const chainId = await createFreshChain(user._id, transaction);
+  const epoch = sessionEpoch(user.sessionRevocationEpoch);
+  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, epoch, chainId, transaction);
+  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, epoch, chainId, transaction);
+  const current = transaction ? await User.findById(user._id).select('+sessionRevocationEpoch').session(transaction) : await loadSessionUser(user._id);
+  if (!current?.isActive() || current.passwordVersion !== user.passwordVersion) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  await assertSessionChain({userId: user._id, chainId}, transaction);
 }
 
 /** Issue OAuth sessions through the same persisted token/session model as password login. */
 export async function loginOAuthUser(user: IUser, meta: IRequestMeta = {}): Promise<IAuthResponse> {
+  await loadChainTransition();
   if (!user.isActive()) throw new AppError('Account is suspended or deleted', 403, ErrorCodes.USER_DISABLED);
   await UserSettings.updateOne({ userId: user._id }, { $setOnInsert: { userId: user._id } }, { upsert: true });
   user.lastLoginAt = new Date();
@@ -591,8 +633,7 @@ export async function loginOAuthUser(user: IUser, meta: IRequestMeta = {}): Prom
   });
   user.updatedAt = new Date();
   const tokens = generateTokenPair(user._id, user.role);
-  await createAuthSession(user._id, tokens.accessToken, tokens.accessTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
-  await createAuthSession(user._id, tokens.refreshToken, tokens.refreshTokenExpiresAt, meta, user.passwordVersion, undefined, sessionEpoch(user.sessionRevocationEpoch));
+  await persistFreshPair(user, tokens, meta);
   await AuditLog.log({ userId: user._id, actorRole: user.role, action: AuditAction.USER_LOGIN,
     severity: AuditSeverity.INFO, ipAddress: meta.ipAddress, userAgent: meta.userAgent });
   return { user: { id: user._id.toString(), email: user.email, displayName: user.displayName,

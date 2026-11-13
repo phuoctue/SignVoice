@@ -7,6 +7,8 @@ import {AuthSession} from '../models/AuthSession.model';
 import {AppError} from '../common/errors/AppError';
 import {env} from '../config/env';
 import {assertSessionEpoch, loadSessionUser} from './session-fence.service';
+import {assertSessionChain} from './session-chain.service';
+import {authClock} from './auth-clock';
 
 export const GUEST_TRIAL_SECONDS = 10 * 60;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -64,20 +66,22 @@ export async function createAiTicket(userId: Types.ObjectId, sessionId: Types.Ob
   const user = await loadSessionUser(userId);
   if (!user?.isActive() || session.passwordVersion !== user.passwordVersion) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
   assertSessionEpoch(session, user);
-  return jwt.sign({purpose: 'ai_stream', userId: String(userId), family: session.sessionFamily}, env.JWT_ACCESS_SECRET,
+  await assertSessionChain(session);
+  return jwt.sign({purpose: 'ai_stream', userId: String(userId), family: session.sessionFamily, iat: Math.floor(+authClock.now() / 1000)}, env.JWT_ACCESS_SECRET,
     {expiresIn: '30s', jwtid: randomBytes(16).toString('hex'), algorithm: 'HS256'});
 }
 export async function authorizeAiTicket(ticket: string) {
   let payload;
   try {
-    payload = jwt.verify(ticket, env.JWT_ACCESS_SECRET, {algorithms: ['HS256']}) as jwt.JwtPayload;
+    payload = jwt.verify(ticket, env.JWT_ACCESS_SECRET, {algorithms: ['HS256'], clockTimestamp: Math.floor(+authClock.now() / 1000)}) as jwt.JwtPayload;
     if (payload.purpose !== 'ai_stream' || !Types.ObjectId.isValid(payload.userId) || typeof payload.family !== 'string') throw new Error();
   } catch { throw new AppError('Kết nối AI cần phiên hợp lệ.', 401, 'AI_TICKET_INVALID'); }
   const userId = new Types.ObjectId(payload.userId);
-  const session = await AuthSession.findOne({userId, sessionFamily: payload.family, status: 'ACTIVE', expiresAt: {$gt: new Date()}});
+  const session = await AuthSession.findOne({userId, sessionFamily: payload.family, status: 'ACTIVE', expiresAt: {$gt: authClock.now()}});
   if (!session) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
   const user = await loadSessionUser(userId);
   if (!user || !user.isActive() || session.passwordVersion !== user.passwordVersion) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_SESSION_INVALID');
   assertSessionEpoch(session, user);
+  await assertSessionChain(session);
   return {expiresAt: await assertTrialActive(userId)};
 }

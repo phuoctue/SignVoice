@@ -8,6 +8,8 @@ import { ErrorCodes } from '../errors/errorCodes';
 import { authorizationFor } from '../../services/authorization.service';
 import { Permission } from '../../models/Role.model';
 import { assertSessionEpoch, loadSessionUser } from '../../services/session-fence.service';
+import { assertSessionChain } from '../../services/session-chain.service';
+import { authClock } from '../../services/auth-clock';
 
 /**
  * Extend Express Request with user info
@@ -25,6 +27,7 @@ declare global {
       };
       authenticatedUser?: IUser;
       sessionId?: Types.ObjectId;
+      legacyGuestSessionCutoffAt?: string;
     }
   }
 }
@@ -102,6 +105,12 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       throw new AppError('Password changed; sign in again', 401, ErrorCodes.AUTH_SESSION_INVALID);
     }
     assertSessionEpoch(session, user);
+    const {chain, transition} = await assertSessionChain(session);
+    if (user.isGuest && chain?.legacyDerived) {
+      if (transition && +authClock.now() >= +transition.cutoverAt) {
+        req.legacyGuestSessionCutoffAt = new Date(+transition.sunsetAt - 2 * transition.clockBudgetMs).toISOString();
+      }
+    }
 
     // Update session last used time
     await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
