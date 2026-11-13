@@ -1,12 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const ORIGINAL_ENV = { ...process.env };
+const scratch = mkdtempSync(path.join(tmpdir(), 'signvoice-env-production-'));
+const configFile = path.join(scratch, 'dummy-config');
+writeFileSync(configFile, '');
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 const STRONG_ACCESS = 'a'.repeat(48);
 const STRONG_REFRESH = 'b'.repeat(48);
 
 async function loadEnv(overrides: Record<string, string | undefined>) {
   vi.resetModules();
-  process.env = { ...ORIGINAL_ENV, SIGNVOICE_ENV_FILE: '__missing_env_file__' };
+  process.env = { ...ORIGINAL_ENV, SIGNVOICE_ENV_FILE: configFile };
   for (const key of ['MONGODB_URI', 'ADMIN_PASSWORD', 'SWAGGER_ENABLED', 'CORS_ALLOWED_ORIGINS', 'PUBLIC_ORIGIN']) {
     delete process.env[key];
   }
@@ -39,7 +46,7 @@ describe('production environment validation (fail closed)', () => {
   });
 
   it.each(['development', 'test'])('keeps %s reachable by local mobile clients', async nodeEnv => {
-    const {env} = await loadEnv({NODE_ENV: nodeEnv});
+    const {env} = await loadEnv({NODE_ENV: nodeEnv, MONGODB_URI: 'mongodb://127.0.0.1/signvoice_test_config'});
     expect(env.LISTEN_HOST).toBe('0.0.0.0');
   });
 
@@ -94,7 +101,7 @@ describe('swagger exposure', () => {
 
   async function swaggerEnabledFor(nodeEnv: string | undefined, flag?: string) {
     vi.resetModules();
-    process.env = { ...ORIGINAL_ENV, SIGNVOICE_ENV_FILE: '__missing_env_file__' };
+    process.env = { ...ORIGINAL_ENV, SIGNVOICE_ENV_FILE: configFile };
     if (nodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = nodeEnv;
     if (flag === undefined) delete process.env.SWAGGER_ENABLED;

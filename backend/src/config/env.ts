@@ -1,8 +1,19 @@
 import dotenv from 'dotenv';
 import { isIP } from 'node:net';
+import path from 'node:path';
+import { mongo } from 'mongoose';
 
-// Load environment variables
-dotenv.config({ path: process.env.SIGNVOICE_ENV_FILE || '.env' });
+// Resolve source and compiled config paths from the backend root, never cwd.
+const backendRoot = path.resolve(__dirname, '../..');
+const explicitEnvFile = process.env.SIGNVOICE_ENV_FILE;
+if (explicitEnvFile !== undefined && !explicitEnvFile.trim()) {
+  throw new Error('SIGNVOICE_ENV_FILE must not be blank; no fallback is allowed');
+}
+// Process environment wins; dotenv fills missing variables without overriding them.
+const loaded = dotenv.config({ path: path.resolve(backendRoot, explicitEnvFile || '.env') });
+if (explicitEnvFile && loaded.error) {
+  throw new Error('Unable to load explicit SIGNVOICE_ENV_FILE; no fallback is allowed');
+}
 
 const DEV_MONGODB_URI = 'mongodb://signvoice:dev_password@localhost:27017/signvoice?authSource=admin';
 const WEAK_ADMIN_PASSWORDS = new Set(['admin123456', 'admin', 'password', 'changeme']);
@@ -87,6 +98,20 @@ export const env = {
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
   SWAGGER_ENABLED: process.env.SWAGGER_ENABLED === 'true',
 };
+
+// The driver parses credentials, multi-host authorities, IPv6 and query options.
+// Constructing a client parses only; no connect() or DNS resolution is performed.
+if (!env.isProduction) {
+  try {
+    if (!env.MONGODB_URI.startsWith('mongodb://')) throw new Error();
+    const { hosts, proxyHost } = new mongo.MongoClient(env.MONGODB_URI).options;
+    if (proxyHost || !hosts?.length || !hosts.every(({ host }) => host === 'localhost' || host === '::1' ||
+      !!host && isIP(host) === 4 && host.split('.')[0] === '127')) throw new Error();
+  } catch {
+    // Never surface parser errors: they can contain the URI and credentials.
+    throw new Error('MONGODB_URI must be a valid mongodb:// URI with only loopback hosts and no SOCKS proxy outside production');
+  }
+}
 
 function isLoopbackHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';

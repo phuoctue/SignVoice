@@ -40,9 +40,11 @@ if (-not $NoTunnel) {
 if ($Port -eq $AiPort) { throw 'Public and AI service ports must be different.' }
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $workspaceRoot 'backend'
+$envFile = Join-Path $backendRoot $(if ($NoTunnel) { '.env' } else { '.env.production.local' })
 $aiPython = Join-Path $workspaceRoot 'ai_service\.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath (Join-Path $backendRoot '.env'))) {
-    throw 'Missing backend/.env. Copy backend/.env.example to backend/.env and configure it first.'
+if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+    if ($NoTunnel) { throw 'Missing backend/.env. Copy backend/.env.example to backend/.env and configure it first.' }
+    throw 'Missing backend/.env.production.local; production startup refused without fallback.'
 }
 if (-not (Test-Path -LiteralPath $aiPython)) {
     throw 'AI Python environment is missing. Install Python 3.11, then run: .\scripts\setup-ai-service.ps1 -Python (py -3.11 -c "import sys; print(sys.executable)")'
@@ -87,7 +89,7 @@ function Wait-Health([string]$Uri, [int]$Seconds, [int]$WatchProcessId=0) {
 $serverProcess = $null; $newAiWrapper = $null; $newTunnel = $null; $newTunnelWrapper = $null
 $managedAi = $null; $managedAiWrapper = $null; $managedTunnel = $null; $managedTunnelWrapper = $null
 $savedEnvironment = @{}
-foreach ($key in @('PORT','NODE_ENV','SERVE_WEB','PUBLIC_ORIGIN','AI_PUBLIC_PROXY','AI_PROXY_TARGET','LOG_LEVEL',
+foreach ($key in @('PORT','NODE_ENV','SIGNVOICE_ENV_FILE','SERVE_WEB','PUBLIC_ORIGIN','AI_PUBLIC_PROXY','AI_PROXY_TARGET','LOG_LEVEL',
     'WEB_ORIGIN','CORS_ALLOWED_ORIGINS','OAUTH_BACKEND_ORIGIN','OAUTH_FRONTEND_ORIGIN',
     'GOOGLE_CALLBACK_URL','FACEBOOK_CALLBACK_URL','PASSWORD_RESET_ORIGIN','TRUST_PROXY')) {
     $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
@@ -211,6 +213,7 @@ try {
     if (-not $PublicOrigin) { $PublicOrigin = "http://localhost:$Port" }
     $env:PORT = "$Port"
     $env:NODE_ENV = if ($NoTunnel) { 'development' } else { 'production' }
+    $env:SIGNVOICE_ENV_FILE = $envFile
     $env:TRUST_PROXY = if ($NoTunnel) { 'false' } else { $TrustProxy }
     $env:SERVE_WEB = 'true'
     $env:PUBLIC_ORIGIN = $PublicOrigin; $env:LOG_LEVEL = 'info'
@@ -222,6 +225,11 @@ try {
     $env:PASSWORD_RESET_ORIGIN = $PublicOrigin
     $env:AI_PUBLIC_PROXY = if ($SkipAi) { 'false' } else { 'true' }
     $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
+    Push-Location $backendRoot
+    try {
+        & node -e "require('./dist/config/env.js').validateEnv()"
+        if ($LASTEXITCODE) { throw 'Backend configuration validation failed; server was not started.' }
+    } finally { Pop-Location }
     $serverProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList 'dist/server.js' `
         -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $runtimeRoot 'public-server.log') `
