@@ -5,9 +5,19 @@ param(
     [string]$TrustProxy = '',
     [switch]$SkipBuild,
     [switch]$NoTunnel,
+    [switch]$LocalOnly,
+    [switch]$AttachTunnel,
+    [string]$ExpectedSha = '',
     [switch]$SkipAi
 )
 $ErrorActionPreference = 'Stop'
+if (($NoTunnel -and ($LocalOnly -or $AttachTunnel)) -or ($LocalOnly -and $AttachTunnel)) {
+    throw 'NoTunnel (development), LocalOnly (production), and AttachTunnel are mutually exclusive.'
+}
+$stagedProduction = $LocalOnly -or $AttachTunnel
+if ($stagedProduction -and [string]::IsNullOrWhiteSpace($PublicOrigin)) {
+    throw 'Production staged modes require explicit -PublicOrigin for the later HTTPS tunnel, before local smoke.'
+}
 if (-not $NoTunnel -and [string]::IsNullOrWhiteSpace($TrustProxy)) {
     throw 'Public mode requires -TrustProxy for a verified proxy chain. Verify Conveyor X-Forwarded-For behavior first; never use true.'
 }
@@ -46,6 +56,7 @@ if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     if ($NoTunnel) { throw 'Missing backend/.env. Copy backend/.env.example to backend/.env and configure it first.' }
     throw 'Missing backend/.env.production.local; production startup refused without fallback.'
 }
+if ($stagedProduction) { . (Join-Path $PSScriptRoot 'public-server-production.ps1') }
 if (-not (Test-Path -LiteralPath $aiPython)) {
     throw 'AI Python environment is missing. Install Python 3.11, then run: .\scripts\setup-ai-service.ps1 -Python (py -3.11 -c "import sys; print(sys.executable)")'
 }
@@ -54,7 +65,7 @@ $stateFile = Join-Path $runtimeRoot $(if ($NoTunnel) { 'local-server.json' } els
 $settingsFile = Join-Path $runtimeRoot 'public-settings.json'
 New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
 $oldState = if (Test-Path -LiteralPath $stateFile) { Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json } else { $null }
-if (-not $NoTunnel -and -not $PublicOrigin -and (Test-Path -LiteralPath $settingsFile)) {
+if (-not $NoTunnel -and -not $stagedProduction -and -not $PublicOrigin -and (Test-Path -LiteralPath $settingsFile)) {
     $PublicOrigin = (Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json).publicOrigin
 }
 if ($PublicOrigin) {
@@ -86,6 +97,22 @@ function Wait-Health([string]$Uri, [int]$Seconds, [int]$WatchProcessId=0) {
     } while ((Get-Date) -lt $deadline)
     throw "Not ready: $Uri. Check .runtime logs."
 }
+function Set-LaunchEnvironment {
+    $env:PORT = "$Port"
+    $env:NODE_ENV = if ($NoTunnel) { 'development' } else { 'production' }
+    $env:SIGNVOICE_ENV_FILE = $envFile
+    $env:TRUST_PROXY = if ($NoTunnel) { 'false' } else { $TrustProxy }
+    $env:SERVE_WEB = 'true'
+    $env:PUBLIC_ORIGIN = $PublicOrigin; $env:LOG_LEVEL = 'info'
+    # OAuth and refresh cookies must use this launch's origin, not a stale localhost/tunnel in .env.
+    $env:WEB_ORIGIN = $PublicOrigin; $env:CORS_ALLOWED_ORIGINS = $PublicOrigin
+    $env:OAUTH_BACKEND_ORIGIN = $PublicOrigin; $env:OAUTH_FRONTEND_ORIGIN = $PublicOrigin
+    $env:GOOGLE_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/google/callback"
+    $env:FACEBOOK_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/facebook/callback"
+    $env:PASSWORD_RESET_ORIGIN = $PublicOrigin
+    $env:AI_PUBLIC_PROXY = if ($SkipAi) { 'false' } else { 'true' }
+    $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
+}
 $serverProcess = $null; $newAiWrapper = $null; $newTunnel = $null; $newTunnelWrapper = $null
 $managedAi = $null; $managedAiWrapper = $null; $managedTunnel = $null; $managedTunnelWrapper = $null
 $savedEnvironment = @{}
@@ -96,8 +123,24 @@ foreach ($key in @('PORT','NODE_ENV','SIGNVOICE_ENV_FILE','SERVE_WEB','PUBLIC_OR
 }
 Push-Location $workspaceRoot
 try {
+    if (-not $stagedProduction -and $oldState.mode -in @('production-local','production-attached')) {
+        throw 'Legacy launcher refuses staged production state; use AttachTunnel or stop it explicitly first.'
+    }
+    if ($stagedProduction) { Assert-LaunchSha }
+    if ($AttachTunnel) {
+        if (-not $oldState -or $oldState.mode -ne 'production-local') { throw 'No matching API from a production local-only launch.' }
+        $AiPort = $oldState.aiPort; $SkipAi = [bool]$oldState.skipAi
+        Set-LaunchEnvironment
+        $configStamp = Production-Stamp
+        Assert-AttachIdentity
+        $managedAi = $oldState.managedAi; $managedAiWrapper = $oldState.managedAiWrapper
+    }
+    if (-not $AttachTunnel) {
+    $nodeExecutable = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+    if (-not $nodeExecutable) { throw 'Node executable could not be resolved.' }
     $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
     if ($listener) {
+        if ($LocalOnly) { throw 'Local-only launch requires a free API port; stop the existing API explicitly.' }
         $current = if ($oldState) { Get-CimInstance Win32_Process -Filter "ProcessId = $($oldState.processId)" -ErrorAction SilentlyContinue } else { $null }
         if (-not $current -or $current.Name -ne 'node.exe' -or $current.CommandLine -notmatch 'dist/server\.js' -or
             -not ($listener | Where-Object OwningProcess -eq $oldState.processId)) {
@@ -121,6 +164,15 @@ try {
         if ($LASTEXITCODE) { throw 'Flutter web build failed.' }
         Push-Location $backendRoot
         try { & npm.cmd run build; if ($LASTEXITCODE) { throw 'Backend build failed.' } } finally { Pop-Location }
+    }
+    if ($LocalOnly) {
+        $tunnelPattern = '(?:-p|--ports)\s+' + [regex]::Escape("${Port}i") + '(?:\s|$)'
+        if (Get-CimInstance Win32_Process -Filter "Name = 'conveyorcli.exe'" | Where-Object { $_.CommandLine -match $tunnelPattern }) {
+            throw 'A Conveyor tunnel already targets this port; stop it before the local-only smoke.'
+        }
+        Set-LaunchEnvironment
+        Validate-ProductionConfig
+        $configStamp = Production-Stamp
     }
     if (-not $SkipAi) {
     $selectedOutput = & $aiPython -m ai_service.model_selection resolve
@@ -162,13 +214,15 @@ try {
     } else {
         Write-Host 'Starting UI/API preview without starting the AI service.'
     }
-    if (-not $NoTunnel) {
+    }
+    if (-not ($NoTunnel -or $LocalOnly)) {
         $conveyor = Join-Path $workspaceRoot '.tools\conveyor\conveyorcli.exe'
         if (-not (Test-Path -LiteralPath $conveyor)) { throw 'Conveyor CLI is missing.' }
         $tunnelPattern = '(?:-p|--ports)\s+' + [regex]::Escape("${Port}i") + '(?:\s|$)'
         $existingTunnel = Get-CimInstance Win32_Process -Filter "Name = 'conveyorcli.exe'" |
             Where-Object { $_.CommandLine -match $tunnelPattern } | Select-Object -First 1
         if ($existingTunnel) {
+            if ($AttachTunnel) { throw 'An existing tunnel cannot be verified for attach; stop it explicitly first.' }
             if (-not $PublicOrigin) { throw 'An external Conveyor tunnel is running. Supply -PublicOrigin once so it can be reused.' }
             if (Record-Alive $oldState.managedTunnel) {
                 $managedTunnel = $oldState.managedTunnel; $managedTunnelWrapper = $oldState.managedTunnelWrapper
@@ -178,6 +232,7 @@ try {
             Write-Host 'Starting Conveyor tunnel...'
             & $aiPython -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('winpty') else 1)"
             if ($LASTEXITCODE) {
+                if ($AttachTunnel) { throw 'winpty is missing; provision dependencies separately before production attach. No pip install was run.' }
                 Write-Host 'Installing Windows PTY helper for Conveyor...'
                 & $aiPython -m pip install -r (Join-Path $PSScriptRoot 'requirements-public.txt') --disable-pip-version-check
                 if ($LASTEXITCODE) { throw 'Could not install Conveyor PTY helper.' }
@@ -205,32 +260,38 @@ try {
                 Start-Sleep -Milliseconds 700
             } while ((Get-Date) -lt $tunnelDeadline)
             if (-not $issuedOrigin) { throw 'No Conveyor URL received. Check .runtime/conveyor logs and Conveyor sign-in.' }
+            if ($AttachTunnel -and $issuedOrigin -cne $PublicOrigin) {
+                throw 'Issued tunnel origin differs from the explicit production origin; tunnel stopped. Restart local-only with the confirmed origin and repeat smoke.'
+            }
             $PublicOrigin = $issuedOrigin
             $managedTunnel = Process-Record $newTunnel.Id
             $managedTunnelWrapper = Process-Record $newTunnelWrapper.Id
         }
     }
+    if ($AttachTunnel) {
+        # Check again after tunnel startup; never replace/restart the already-smoked API.
+        if ((Production-Stamp) -cne $configStamp) { throw 'Production configuration changed during attach.' }
+        Assert-AttachIdentity
+        $oldState | Add-Member -NotePropertyName managedTunnel -NotePropertyValue $managedTunnel -Force
+        $oldState | Add-Member -NotePropertyName managedTunnelWrapper -NotePropertyValue $managedTunnelWrapper -Force
+        $oldState | Add-Member -NotePropertyName mode -NotePropertyValue 'production-attached' -Force
+        $oldState | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding UTF8
+        Write-Host "Tunnel attached to the existing production API: $PublicOrigin"
+        return
+    }
     if (-not $PublicOrigin) { $PublicOrigin = "http://localhost:$Port" }
-    $env:PORT = "$Port"
-    $env:NODE_ENV = if ($NoTunnel) { 'development' } else { 'production' }
-    $env:SIGNVOICE_ENV_FILE = $envFile
-    $env:TRUST_PROXY = if ($NoTunnel) { 'false' } else { $TrustProxy }
-    $env:SERVE_WEB = 'true'
-    $env:PUBLIC_ORIGIN = $PublicOrigin; $env:LOG_LEVEL = 'info'
-    # OAuth and refresh cookies must use this launch's origin, not a stale localhost/tunnel in .env.
-    $env:WEB_ORIGIN = $PublicOrigin; $env:CORS_ALLOWED_ORIGINS = $PublicOrigin
-    $env:OAUTH_BACKEND_ORIGIN = $PublicOrigin; $env:OAUTH_FRONTEND_ORIGIN = $PublicOrigin
-    $env:GOOGLE_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/google/callback"
-    $env:FACEBOOK_CALLBACK_URL = "$PublicOrigin/api/v1/auth/oauth/facebook/callback"
-    $env:PASSWORD_RESET_ORIGIN = $PublicOrigin
-    $env:AI_PUBLIC_PROXY = if ($SkipAi) { 'false' } else { 'true' }
-    $env:AI_PROXY_TARGET = "http://127.0.0.1:$AiPort"
+    Set-LaunchEnvironment
     Push-Location $backendRoot
     try {
-        & node -e "require('./dist/config/env.js').validateEnv()"
-        if ($LASTEXITCODE) { throw 'Backend configuration validation failed; server was not started.' }
+        if ($LocalOnly) {
+            if ((Production-Stamp) -cne $configStamp) { throw 'Production configuration changed during local-only startup.' }
+        } else {
+            & $nodeExecutable -e "require('./dist/config/env.js').validateEnv()"
+            if ($LASTEXITCODE) { throw 'Backend configuration validation failed; server was not started.' }
+        }
     } finally { Pop-Location }
-    $serverProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList 'dist/server.js' `
+    $serverArgument = if ($LocalOnly) { '"' + (Join-Path $backendRoot 'dist/server.js') + '"' } else { 'dist/server.js' }
+    $serverProcess = Start-Process -FilePath $nodeExecutable -ArgumentList $serverArgument `
         -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $runtimeRoot 'public-server.log') `
         -RedirectStandardError (Join-Path $runtimeRoot 'public-server.error.log')
@@ -243,14 +304,20 @@ try {
         if (-not $proxyHealth.ready) { throw 'Public AI proxy is not ready.' }
     }
     $nodeRecord = Process-Record $serverProcess.Id
-    @{ processId=$serverProcess.Id; startedUtc=$nodeRecord.startedUtc; port=$Port; publicOrigin=$PublicOrigin;
-       aiPort=$AiPort; managedAi=$managedAi; managedAiWrapper=$managedAiWrapper; managedTunnel=$managedTunnel; managedTunnelWrapper=$managedTunnelWrapper } |
-        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding UTF8
-    if ($PublicOrigin.StartsWith('https://')) {
+    $newState = @{ processId=$serverProcess.Id; startedUtc=$nodeRecord.startedUtc; port=$Port; publicOrigin=$PublicOrigin;
+        aiPort=$AiPort; managedAi=$managedAi; managedAiWrapper=$managedAiWrapper; managedTunnel=$managedTunnel; managedTunnelWrapper=$managedTunnelWrapper }
+    if ($LocalOnly) {
+        $newState.mode = 'production-local'; $newState.sha = $ExpectedSha; $newState.envFile = $envFile
+        $newState.configStamp = $configStamp; $newState.trustProxy = $TrustProxy; $newState.skipAi = [bool]$SkipAi
+    }
+    $newState | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding UTF8
+    if (-not $LocalOnly -and $PublicOrigin.StartsWith('https://')) {
         @{publicOrigin=$PublicOrigin} | ConvertTo-Json | Set-Content -LiteralPath $settingsFile -Encoding UTF8
     }
-    Write-Host "SignVoice UI + API: $PublicOrigin"
-    if (-not $SkipAi) { Write-Host "AI health: $PublicOrigin/sign-ai/health" }
+    $displayOrigin = if ($LocalOnly) { "http://127.0.0.1:$Port" } else { $PublicOrigin }
+    if ($LocalOnly) { Write-Host "SignVoice production UI + API (loopback only): $displayOrigin" }
+    else { Write-Host "SignVoice UI + API: $displayOrigin" }
+    if (-not $SkipAi) { Write-Host "AI health: $displayOrigin/sign-ai/health" }
     if ($NoTunnel) { Write-Host 'Stop with: .\scripts\stop-public-server.ps1 -Local' }
     else { Write-Host 'Stop with: .\scripts\stop-public-server.ps1' }
 } catch {

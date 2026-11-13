@@ -7,7 +7,7 @@ $serverState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
 $serverProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($serverState.processId)" -ErrorAction SilentlyContinue
 if ($serverProcess) {
     $listener = Get-NetTCPConnection -State Listen -LocalPort $serverState.port -ErrorAction SilentlyContinue
-    if ($serverProcess.Name -ne 'node.exe' -or $serverProcess.CommandLine -notmatch 'dist/server\.js' -or
+    if ($serverProcess.Name -ne 'node.exe' -or $serverProcess.CommandLine -notmatch 'dist[\\/]server\.js' -or
         ($serverState.startedUtc -and (Get-Process -Id $serverState.processId).StartTime.ToUniversalTime().Ticks -ne ([datetime]$serverState.startedUtc).ToUniversalTime().Ticks) -or
         -not ($listener | Where-Object { $_.OwningProcess -eq $serverState.processId })) {
         throw 'Saved process does not match the SignVoice public server; it was not stopped.'
