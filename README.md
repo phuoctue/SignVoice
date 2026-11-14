@@ -81,6 +81,8 @@ Client Web dùng API cùng origin khi chạy qua server local. Khi chạy trực
 
 ## Chạy môi trường phát triển
 
+Vận hành production tại checkout E dùng release SHA được chốt và `backend/.env.production.local`, tách biệt với `.env` phát triển ở trên. Xem [quy trình vận hành production](docs/OPERATIONS.md); không dùng `npm start` làm lệnh triển khai production.
+
 ### Web + Backend + AI
 
 Từ thư mục gốc:

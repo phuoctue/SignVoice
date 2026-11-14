@@ -55,7 +55,7 @@ backend/
 ```powershell
 npm run dev          # Start development server with auto-reload
 npm run build        # Compile TypeScript to JavaScript
-npm start            # Start production server (requires build)
+npm start            # Run built backend (not the production launcher)
 npm run typecheck    # Check TypeScript types
 npm test             # Run tests
 npm run test:watch   # Run tests in watch mode
@@ -244,17 +244,12 @@ Already configured. Run `npm run dev`.
 9. Configure backups
 10. Set up error tracking
 
-**Production Start:**
-```powershell
-npm run build
-npm start
-```
-
-Or use PM2:
-```powershell
-npm run build
-pm2 start dist/server.js --name signvoice-backend
-```
+**Production operations:** The checklist above is general guidance, not the
+current deployment procedure. Use the pinned-release launcher from checkout E
+with `backend/.env.production.local`, as documented in
+[the production runbook](../docs/OPERATIONS.md). Do not use `npm start` or the
+development `.env` as the production path; direct Node/PM2 startup bypasses the
+reviewed launch checks.
 
 ---
 
