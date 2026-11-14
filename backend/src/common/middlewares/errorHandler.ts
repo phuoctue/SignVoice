@@ -9,11 +9,12 @@ import { Error as MongooseError } from 'mongoose';
  * Must be registered LAST in middleware chain
  */
 export function errorHandler(
-  err: Error,
+  err: Error & {code?: unknown; statusCode?: unknown; keyPattern?: Record<string, unknown>},
   req: Request,
   res: Response,
   _next: NextFunction
 ): void {
+  void _next; // Express identifies error middleware by its four parameters.
   // Default error response
   let statusCode = 500;
   let errorCode: string = ErrorCodes.INTERNAL_SERVER_ERROR;
@@ -26,8 +27,8 @@ export function errorHandler(
     // In production, log error details to logging service
     console.error('❌ Error:', {
       message: err.message,
-      code: (err as any).code,
-      statusCode: (err as any).statusCode,
+      code: err.code,
+      statusCode: err.statusCode,
       stack: env.isDevelopment ? err.stack : undefined,
     });
   }
@@ -47,10 +48,10 @@ export function errorHandler(
       .join(', ');
   }
   // Handle Mongoose duplicate key errors
-  else if ((err as any).code === 11000) {
+  else if (err.code === 11000) {
     statusCode = 409;
     errorCode = ErrorCodes.CONFLICT;
-    const field = Object.keys((err as any).keyPattern)[0];
+    const field = Object.keys(err.keyPattern!)[0];
     message = `${field} already exists`;
   }
   // Handle Mongoose cast errors (invalid ObjectId)

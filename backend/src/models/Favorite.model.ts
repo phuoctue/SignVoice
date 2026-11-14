@@ -173,7 +173,7 @@ FavoriteSchema.statics.bulkCheckFavorites = async function(
 /**
  * Update DictionaryEntry favoriteCount on delete
  */
-FavoriteSchema.post('deleteMany', async function(result: any) {
+FavoriteSchema.post('deleteMany', async function(result: import('mongoose').mongo.DeleteResult) {
   // This hook runs after bulk deletes
   // Note: Individual document favoriteCount updates happen in removeFavorite static
   if (result.deletedCount > 0) {

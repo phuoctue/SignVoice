@@ -13,7 +13,7 @@ async function activeAdministrators(session: ClientSession) {
 export async function administratorTransaction<T>(operation: (session: ClientSession) => Promise<T>, options?: mongo.TransactionOptions): Promise<T> {
   const locks = mongoose.connection.db!.collection<{_id: string; version: number}>('account_operation_locks');
   try { await locks.updateOne({_id: 'administrators'}, {$setOnInsert: {version: 0}}, {upsert: true}); }
-  catch (error: any) { if (error.code !== 11000) throw error; }
+  catch (error: unknown) { if ((error as {code?: unknown}).code !== 11000) throw error; }
   return mongoose.connection.transaction(async session => {
     await locks.updateOne({_id: 'administrators'}, {$inc: {version: 1}}, {session});
     const before = await activeAdministrators(session);

@@ -11,7 +11,7 @@ export async function userBootstrap(userId: Types.ObjectId) {
     UserSettings.findOne({userId}),
     Conversation.find({userId}).sort({createdAt: -1, _id: -1}).limit(20),
     Conversation.countDocuments({userId}),
-    Favorite.find({userId}).select('entryId').populate({path: 'entryId', match: {status: 'PUBLISHED'}, select: '_id categoryId',
+    Favorite.find({userId}).select('entryId').populate<{entryId: {_id: Types.ObjectId; categoryId: {_id: Types.ObjectId} | null} | null}>({path: 'entryId', match: {status: 'PUBLISHED'}, select: '_id categoryId',
       populate: {path: 'categoryId', match: {status: 'ACTIVE'}, select: '_id'}}).lean(),
   ]);
   if (!user) throw missing();
@@ -20,7 +20,7 @@ export async function userBootstrap(userId: Types.ObjectId) {
   return {profile: await safeUser(user), settings,
     conversations: {items: items.map(conversationDto), total, page: 1, pages: Math.ceil(total / 20)},
     favorites: favorites.flatMap(item => {
-      const entry = item.entryId as any;
+      const entry = item.entryId;
       return entry?.categoryId?._id ? [{entryId: String(entry._id)}] : [];
     })};
 }

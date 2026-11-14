@@ -45,11 +45,11 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
  * Sanitize request body for logging
  * Remove sensitive fields like passwords, tokens
  */
-function sanitizeBody(body: any): any {
+function sanitizeBody(body: unknown): unknown {
   if (!body || typeof body !== 'object') return body;
 
   const sensitiveFields = ['idToken', 'challenge', 'nonce', 'avatarImage', 'deviceKey', 'ticket', 'password', 'newPassword', 'currentPassword', 'passwordHash', 'token', 'refreshToken', 'secret', 'code', 'state', 'client_secret', 'access_token', 'id_token', 'input_token', 'code_verifier'];
-  const sanitized = { ...body };
+  const sanitized: Record<string, unknown> = { ...body };
 
   for (const field of sensitiveFields) {
     if (field in sanitized) {
@@ -70,10 +70,8 @@ export function addRequestId(req: Request, res: Response, next: NextFunction): v
 }
 
 // Extend Express Request type to include id
-declare global {
-  namespace Express {
-    interface Request {
-      id: string;
-    }
+declare module 'express-serve-static-core' {
+  interface Request {
+    id: string;
   }
 }

@@ -69,7 +69,7 @@ export async function clearOwnedData(userId: Types.ObjectId, session: ClientSess
   }
   return {favorites: removedFavorites.deletedCount, conversations: conversations.deletedCount, searchHistory: history.deletedCount};
 }
-export function conversationDto(item: any) {
-  return {_id: String(item._id), content: item.content ?? item.messages.map((message: any) => message.content).join('\n'),
+export function conversationDto(item: Pick<import('../models/Conversation.model').IConversation, '_id' | 'content' | 'messages' | 'direction' | 'favorite' | 'createdAt' | 'updatedAt'>) {
+  return {_id: String(item._id), content: item.content ?? item.messages.map((message) => message.content).join('\n'),
     direction: item.direction ?? 'TEXT', favorite: item.favorite ?? false, createdAt: item.createdAt, updatedAt: item.updatedAt};
 }

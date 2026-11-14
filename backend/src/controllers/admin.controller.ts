@@ -31,7 +31,7 @@ export async function getUsers(
       order = 'desc',
     } = req.query;
 
-    const query: any = {};
+    const query: Record<string, unknown> = {};
 
     if (search && typeof search === 'string') {
       query.$or = [
@@ -430,6 +430,7 @@ export async function getActiveSessions(
     await AuthSession.populate(selected, {path: 'userId', select: 'displayName email role'});
     const sessions = selected.map(row => {
       const {tokenHash, userEpoch, chainId, ...safe} = row.toObject();
+      void tokenHash; void userEpoch; void chainId;
       return safe;
     });
 

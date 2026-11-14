@@ -223,7 +223,7 @@ CategorySchema.pre('save', async function() {
   
   // Check for circular references (optional, more expensive)
   if (this.parentId && this.isModified('parentId')) {
-    let current = await (this.constructor as any).findById(this.parentId);
+    let current = await (this.constructor as typeof Category).findById(this.parentId);
     const visited = new Set([this._id.toString()]);
     
     while (current?.parentId) {
@@ -231,7 +231,7 @@ CategorySchema.pre('save', async function() {
         throw new Error('Circular parent reference detected');
       }
       visited.add(current.parentId.toString());
-      current = await (this.constructor as any).findById(current.parentId);
+      current = await (this.constructor as typeof Category).findById(current.parentId);
     }
   }
 });
@@ -243,18 +243,19 @@ CategorySchema.pre('save', async function() {
 /**
  * Get full path for nested categories
  */
-CategorySchema.virtual('path').get(async function() {
-  const path = [this.name];
-  let current = this;
-  
-  while (current.parentId) {
-    const parent = await (this.constructor as any).findById(current.parentId);
-    if (!parent) break;
-    path.unshift(parent.name);
-    current = parent;
-  }
-  
-  return path.join(' > ');
+CategorySchema.virtual('path').get(function() {
+  return (async (current: ICategory) => {
+    const path = [this.name];
+
+    while (current.parentId) {
+      const parent = await (this.constructor as typeof Category).findById(current.parentId);
+      if (!parent) break;
+      path.unshift(parent.name);
+      current = parent;
+    }
+
+    return path.join(' > ');
+  })(this);
 });
 
 // ============================================================================

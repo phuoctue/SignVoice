@@ -100,9 +100,9 @@ export async function createFreshChain(userId: Types.ObjectId, transaction?: Cli
   try {
     await SessionChain.collection.insertOne({userId, chainId, legacyDerived: false, status: 'ACTIVE', guardRevision: 0},
       transaction ? {session: transaction} : {writeConcern: chainWriteConcern});
-  } catch (error: any) {
+  } catch (error: unknown) {
     // A duplicate aborts a transaction; outside one, freshly honor any terminal winner.
-    if (error.code === 11000 && !transaction) await assertSessionChain({userId, chainId});
+    if ((error as {code?: unknown}).code === 11000 && !transaction) await assertSessionChain({userId, chainId});
     throw error;
   }
   await assertSessionChain({userId, chainId}, transaction);
@@ -126,8 +126,8 @@ export async function tombstoneChain(userId: Types.ObjectId, chainId: string, tr
     try {
       await SessionChain.collection.insertOne({userId, chainId, legacyDerived: true,
         status: 'REVOKED', revokedAt: authClock.now(), guardRevision: 0}, options);
-    } catch (error: any) {
-      if (error.code !== 11000 || transaction) throw error;
+    } catch (error: unknown) {
+      if ((error as {code?: unknown}).code !== 11000 || transaction) throw error;
       await tombstoneChain(userId, chainId);
     }
   }

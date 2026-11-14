@@ -4,11 +4,14 @@ import { oauthConfig, OAuthProvider } from '../config/oauth';
 import { AppError } from '../common/errors/AppError';
 
 export interface ProviderIdentity { subject: string; email?: string; displayName: string }
+type ProviderResponse = {error?: unknown; id_token?: unknown; access_token?: unknown; token_type?: string;
+  data?: {is_valid?: unknown; app_id?: unknown; user_id?: unknown; expires_at: number; data_access_expires_at: number; type?: unknown};
+  id?: unknown; email?: unknown; name?: unknown};
 type Config = ReturnType<typeof oauthConfig>;
-async function json(url: string, init: RequestInit = {}): Promise<any> {
+async function json(url: string, init: RequestInit = {}): Promise<ProviderResponse> {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), redirect: 'error' });
   if (!response.ok) throw new Error('Provider refused request');
-  const body: any = await response.json();
+  const body = await response.json() as ProviderResponse;
   if (!body || typeof body !== 'object' || body.error) throw new Error('Invalid provider response');
   return body;
 }

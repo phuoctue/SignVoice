@@ -14,21 +14,19 @@ import { authClock } from '../../services/auth-clock';
 /**
  * Extend Express Request with user info
  */
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: Types.ObjectId;
-        role: UserRole;
-        isGuest: boolean;
-        permissions: readonly string[];
-        customRoleId?: string;
-        customRoleName?: string;
-      };
-      authenticatedUser?: IUser;
-      sessionId?: Types.ObjectId;
-      legacyGuestSessionCutoffAt?: string;
-    }
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: {
+      id: Types.ObjectId;
+      role: UserRole;
+      isGuest: boolean;
+      permissions: readonly string[];
+      customRoleId?: string;
+      customRoleName?: string;
+    };
+    authenticatedUser?: IUser;
+    sessionId?: Types.ObjectId;
+    legacyGuestSessionCutoffAt?: string;
   }
 }
 

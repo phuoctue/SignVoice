@@ -18,11 +18,11 @@ router.get('/', validate(z.object({query: offsetQuery})), async (req, res, next)
     const entries = await DictionaryEntry.find({status: 'PUBLISHED', categoryId: {$in: categories}}).distinct('_id');
     const filter = {userId: req.user!.id, entryId: {$in: entries}};
     const [items, total] = await Promise.all([
-      Favorite.find(filter).sort({createdAt: -1}).skip(skip).limit(limit).populate({path: 'entryId', populate: {path: 'categoryId', select: 'name slug'}}),
+      Favorite.find(filter).sort({createdAt: -1}).skip(skip).limit(limit).populate<{entryId: import('../models/DictionaryEntry.model').IDictionaryEntry}>({path: 'entryId', populate: {path: 'categoryId', select: 'name slug'}}),
       Favorite.countDocuments(filter),
     ]);
     res.json({success: true, data: items.map(item => {
-      const entry = item.entryId as any;
+      const entry = item.entryId;
       return {_id: item.id, id: item.id, userId: String(item.userId), entryId: String(entry._id), entry, notes: item.notes, createdAt: item.createdAt};
     }), pagination: {total, limit, skip}});
   } catch (error) { next(error); }

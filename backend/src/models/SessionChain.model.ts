@@ -21,7 +21,7 @@ schema.pre('save', function () {
   if (!this.isNew && this.isModified('status') && this.status === 'ACTIVE') throw new Error('Session chain revocation is terminal');
 });
 schema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], function () {
-  const update = this.getUpdate() as Record<string, any> | null;
+  const update = this.getUpdate() as {status?: unknown; $set?: {status?: unknown}} | null;
   if (update?.status === 'ACTIVE' || update?.$set?.status === 'ACTIVE') throw new Error('Session chain activation is insert-only');
 });
 schema.pre(['replaceOne', 'findOneAndReplace'], function () {throw new Error('Session chain replacement is forbidden');});

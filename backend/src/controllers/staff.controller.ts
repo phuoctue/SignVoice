@@ -27,7 +27,7 @@ export async function getContentForModeration(
       search,
     } = req.query;
 
-    const query: any = {};
+    const query: Record<string, unknown> = {};
 
     // Filter by status
     if (status) {
@@ -180,7 +180,7 @@ export async function getUsers(
       status,
     } = req.query;
 
-    const query: any = {};
+    const query: Record<string, unknown> = {};
 
     if (search && typeof search === 'string') {
       query.$or = [

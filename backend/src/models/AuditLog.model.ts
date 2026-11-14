@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types, Model } from 'mongoose';
+import type { FilterQuery } from 'mongoose';
 
 /**
  * Action types for audit logging
@@ -76,7 +77,7 @@ export interface IAuditLog extends Document {
   // Context
   resourceType?: string; // e.g., 'User', 'DictionaryEntry', 'Category'
   resourceId?: Types.ObjectId;
-  details?: Record<string, any>; // Additional context (JSON)
+  details?: Record<string, unknown>; // Additional context (JSON)
   
   // Where
   ipAddress?: string;
@@ -102,7 +103,7 @@ export interface IAuditLogModel extends Model<IAuditLog> {
     severity?: AuditSeverity;
     resourceType?: string;
     resourceId?: Types.ObjectId;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
     ipAddress?: string;
     userAgent?: string;
     success?: boolean;
@@ -227,7 +228,7 @@ AuditLogSchema.statics.log = async function(params: {
   severity?: AuditSeverity;
   resourceType?: string;
   resourceId?: Types.ObjectId;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
   success?: boolean;
@@ -289,7 +290,7 @@ AuditLogSchema.statics.getFailedActions = async function(
     userId?: Types.ObjectId;
   } = {}
 ): Promise<IAuditLog[]> {
-  const filter: any = { success: false };
+  const filter: FilterQuery<IAuditLog> = { success: false };
   
   if (options.since) {
     filter.timestamp = { $gte: options.since };
@@ -315,7 +316,7 @@ AuditLogSchema.statics.getFailedActions = async function(
 AuditLogSchema.statics.getSecurityAlerts = async function(
   options: { since?: Date; limit?: number } = {}
 ): Promise<IAuditLog[]> {
-  const filter: any = {
+  const filter: FilterQuery<IAuditLog> = {
     $or: [
       { severity: AuditSeverity.CRITICAL },
       { severity: AuditSeverity.ERROR },
@@ -339,7 +340,7 @@ AuditLogSchema.statics.getSecurityAlerts = async function(
 AuditLogSchema.statics.getActionStats = async function(
   options: { since?: Date; until?: Date } = {}
 ): Promise<Array<{ _id: AuditAction; count: number }>> {
-  const matchStage: any = {};
+  const matchStage: {timestamp?: {$gte?: Date; $lte?: Date}} = {};
   
   if (options.since || options.until) {
     matchStage.timestamp = {};

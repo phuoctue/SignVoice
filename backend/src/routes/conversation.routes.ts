@@ -12,7 +12,7 @@ router.use((req, res, next) => ['POST', 'PATCH', 'DELETE'].includes(req.method) 
 router.get('/', validate(z.object({query: conversationQuery})), async (req, res, next) => {
   try {
     const query = req.query as unknown as z.infer<typeof conversationQuery>;
-    const filter: any = {userId: req.user!.id};
+    const filter: import('mongoose').FilterQuery<import('../models/Conversation.model').IConversation> = {userId: req.user!.id};
     if (query.search) filter.content = {$regex: literalSearch(query.search), $options: 'i'};
     if (query.direction) filter.direction = query.direction;
     if (query.favorite !== undefined) filter.favorite = query.favorite;

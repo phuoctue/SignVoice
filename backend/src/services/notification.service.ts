@@ -51,8 +51,9 @@ export async function refreshNotifications(userId: Types.ObjectId) {
   }
 }
 
+type PushDeliveryError = {code?: unknown; response?: {data?: {error?: {details?: {errorCode?: unknown}[]}}}} | null | undefined;
 let googleAuth: GoogleAuth | undefined;
-async function sendPush(token: string, notice: any) {
+async function sendPush(token: string, notice: Pick<InstanceType<typeof UserNotification>, '_id' | 'userId' | 'title' | 'body' | 'route' | 'expiresAt'>) {
   googleAuth ??= new GoogleAuth({keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
     scopes: ['https://www.googleapis.com/auth/firebase.messaging']});
   const client = await googleAuth.getClient();
@@ -100,10 +101,10 @@ export async function deliverNotificationBatch(send = sendPush, onlyUser?: Types
         }
         await NotificationDevice.updateOne({_id: device._id, userId: device.userId}, {$set: {deliveredAt: notice.createdAt}});
       }
-    } catch (error: any) {
-      const code = error?.response?.data?.error?.details?.find((item: any) => item.errorCode)?.errorCode;
+    } catch (error: unknown) {
+      const code = (error as PushDeliveryError)?.response?.data?.error?.details?.find((item) => item.errorCode)?.errorCode;
       if (code === 'UNREGISTERED') await NotificationDevice.deleteOne({_id: device._id, userId: device.userId});
-      else console.warn('Push delivery deferred:', code || error?.code || 'FCM_ERROR');
+      else console.warn('Push delivery deferred:', code || (error as PushDeliveryError)?.code || 'FCM_ERROR');
     } finally {
       await NotificationDevice.updateOne({_id: device._id, userId: device.userId}, {$set: {leaseUntil: new Date(0)}});
     }

@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import type { FilterQuery } from 'mongoose';
 
 /**
  * Individual message in a conversation
@@ -198,7 +199,7 @@ ConversationSchema.statics.getUserHistory = async function(
   userId: Types.ObjectId,
   options: { limit?: number; skip?: number; includeArchived?: boolean } = {}
 ): Promise<IConversation[]> {
-  const filter: any = { userId };
+  const filter: FilterQuery<IConversation> = { userId };
   
   if (!options.includeArchived) {
     filter.status = ConversationStatus.ACTIVE;

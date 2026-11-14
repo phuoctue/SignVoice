@@ -22,7 +22,7 @@ async function counts(session: ClientSession, ids: string[]) {
 async function audit(session: ClientSession, actor: Actor, id: Types.ObjectId, action: AuditAction) {
   await AuditLog.create([{userId: actor.id, actorRole: actor.role, action, resourceType: 'DictionaryEntry', resourceId: id}], {session});
 }
-export async function writeContent(actor: Actor, body: Record<string, any>, id?: string) {
+export async function writeContent(actor: Actor, body: Record<string, unknown>, id?: string) {
   return mongoose.connection.transaction(async session => {
     const existing = id ? await DictionaryEntry.findById(id).session(session) : null;
     if (id && !existing) throw missing();

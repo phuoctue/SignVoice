@@ -74,7 +74,7 @@ router.patch('/settings', validate(z.object({body: settingsBody})), async (req, 
     const settings = await userTransaction(req.user!.id, async session => {
       if (req.body.studyReminder) {
         const previous = await UserSettings.findOne({userId: req.user!.id}).select('studyReminder').session(session).lean();
-        const normalize = (plan: any) => plan && JSON.stringify([plan.enabled, plan.hour, plan.minute, plan.timezone, [...plan.weekdays].sort()]);
+        const normalize = (plan: import('../models/UserSettings.model').IUserSettings['studyReminder'] | undefined) => plan && JSON.stringify([plan.enabled, plan.hour, plan.minute, plan.timezone, [...plan.weekdays].sort()]);
         if (normalize(previous?.studyReminder) !== normalize(req.body.studyReminder)) changes.studyReminderConfiguredAt = new Date();
       }
       return UserSettings.findOneAndUpdate(

@@ -118,7 +118,7 @@ SearchHistorySchema.statics.clearUserHistory = async function(
 SearchHistorySchema.statics.getMostViewed = async function(
   options: { limit?: number; since?: Date } = {}
 ): Promise<Array<{ entryId: Types.ObjectId; viewCount: number }>> {
-  const matchStage: any = {};
+  const matchStage: {viewedAt?: {$gte: Date}} = {};
   
   if (options.since) {
     matchStage.viewedAt = { $gte: options.since };

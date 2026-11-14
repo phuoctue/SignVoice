@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types, Model } from 'mongoose';
+import type { FilterQuery } from 'mongoose';
 import { authClock } from '../services/auth-clock';
 
 /**
@@ -190,7 +191,7 @@ AuthSessionSchema.statics.revokeAllForUser = async function(
   exceptTokenHash?: string,
   beforeUserEpoch?: number
 ): Promise<number> {
-  const query: any = {
+  const query: FilterQuery<IAuthSession> = {
     userId,
     status: SessionStatus.ACTIVE,
   };

@@ -18,7 +18,7 @@ export async function getPublishedEntries(options: {
   skip?: number;
 }): Promise<{ entries: IDictionaryEntry[]; total: number }> {
   const activeCategories = await Category.find({status: 'ACTIVE'}).distinct('_id');
-  const filter: any = { status: EntryStatus.PUBLISHED, categoryId: {$in: activeCategories} };
+  const filter: import('mongoose').FilterQuery<IDictionaryEntry> = { status: EntryStatus.PUBLISHED, categoryId: {$in: activeCategories} };
   
   if (options.categoryId) {
     filter.categoryId = {$in: activeCategories.filter(id => String(id) === options.categoryId)};
@@ -66,13 +66,13 @@ export async function getPublishedEntries(options: {
 export async function getEntryById(
   entryId: string,
   userId?: Types.ObjectId
-): Promise<IDictionaryEntry> {
+): Promise<Omit<IDictionaryEntry, 'categoryId'> & {categoryId: import('../models/Category.model').ICategory | null}> {
   if (!Types.ObjectId.isValid(entryId)) {
     throw new AppError('Invalid entry ID', 400, ErrorCodes.BAD_REQUEST);
   }
   
   const entry = await DictionaryEntry.findById(entryId)
-    .populate('categoryId', 'name slug icon status')
+    .populate<{categoryId: import('../models/Category.model').ICategory | null}>('categoryId', 'name slug icon status')
     .populate('createdBy', 'displayName')
     .exec();
   
@@ -83,7 +83,7 @@ export async function getEntryById(
   if (entry.status !== EntryStatus.PUBLISHED) {
     throw new AppError('Entry not available', 404, ErrorCodes.DICT_NOT_PUBLISHED);
   }
-  if (!entry.categoryId || (entry.categoryId as any).status !== 'ACTIVE') {
+  if (!entry.categoryId || entry.categoryId.status !== 'ACTIVE') {
     throw new AppError('Danh mục không còn hoạt động.', 404, ErrorCodes.DICT_NOT_PUBLISHED);
   }
   

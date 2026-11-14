@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import type { FilterQuery } from 'mongoose';
 
 /**
  * Entry status
@@ -272,7 +273,7 @@ DictionaryEntrySchema.methods.isPublished = function(): boolean {
  * Increment view count (atomic)
  */
 DictionaryEntrySchema.methods.incrementViewCount = async function(): Promise<void> {
-  const Model = this.constructor as any;
+  const Model = this.constructor as typeof DictionaryEntry;
   await Model.findByIdAndUpdate(this._id, {
     $inc: { viewCount: 1 },
   });
@@ -295,7 +296,7 @@ DictionaryEntrySchema.statics.search = async function(
     skip?: number;
   } = {}
 ): Promise<IDictionaryEntry[]> {
-  const filter: any = {
+  const filter: FilterQuery<IDictionaryEntry> = {
     status: EntryStatus.PUBLISHED,
     $text: { $search: query },
   };

@@ -18,8 +18,13 @@ type Question = { entryId: string; word: string; aliases: string[]; videoUrl: st
   options?: { value: string; label: string }[]; correctOptionId?: string; definition?: string; usageExample?: string };
 type Capture = { entryId: string; recognizedLabel: string };
 type RecallResponse = {entryId:string;answer:string;usedHint:boolean;match:'EXACT'|'CLOSE'|'DIFFERENT'|'SKIPPED';assessment:'SAME_MEANING'|'REVIEW'|null};
+type QuizResult = {items: Array<Record<string, unknown>>; [key: string]: unknown};
+type QuizPreview = Omit<ReturnType<typeof dto>, 'status' | 'kind' | 'result'> & (
+  {status: 'COMPLETED'; kind: 'VIDEO_RECALL'; result: QuizResult & {summary: {independent: number; assisted: number; review: number}}} |
+  {status: 'COMPLETED'; kind: 'VIDEO_CHOICE' | 'CAMERA'; result: QuizResult} |
+  {status: 'DRAFT' | 'ABANDONED'; kind?: string; result: null});
 type Attempt = { _id: Types.ObjectId; userId: Types.ObjectId; topicId?: Types.ObjectId;collectionId?:Types.ObjectId;collectionName?:string;
-  status: string; kind?: string; questions: Question[]; answers?: string[]; captures?: Capture[]; result: any;
+  status: string; kind?: string; questions: Question[]; answers?: string[]; captures?: Capture[]; result: QuizResult | null;
   libraryChanged?:boolean;
   hintedEntries?:string[];recallResponses?:RecallResponse[];
   gradingToken?: string; gradingUntil?: Date | null; createdAt: Date };
@@ -68,7 +73,7 @@ async function previewDto(quiz: Attempt) {
     value.questions=value.questions.map(q=>({...q,...(media.get(q.entryId)?{videoUrl:media.get(q.entryId)!.videoUrl,thumbnailUrl:media.get(q.entryId)!.thumbnailUrl,imageUrls:media.get(q.entryId)!.imageUrls}:{videoUrl:'',thumbnailUrl:'',imageUrls:[],mediaUnavailable:true})}));
   }
   if (quiz.kind === 'VIDEO_RECALL') value.questions = await addInlineThumbnails(value.questions);
-  return value;
+  return value as QuizPreview;
 }
 export async function getReviewQuiz(userId: Types.ObjectId, id: Types.ObjectId) { return previewDto(await owned(userId, id)); }
 
