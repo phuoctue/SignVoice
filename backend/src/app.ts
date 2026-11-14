@@ -133,6 +133,7 @@ export async function createApp(): Promise<Application> {
   servePublicInformation(app);
   app.use('/api/v1/auth', (await import('./routes/auth.routes')).default);
   app.use('/api/v1/guest-trial', (await import('./routes/guest-trial.routes')).default);
+  app.use('/api/v1/guest-data', (await import('./routes/guest-data.routes')).default);
   app.use('/api/v1/dictionary', (await import('./routes/dictionary.routes')).default);
   app.use('/api/v1/learning', (await import('./routes/learning.routes')).default);
   app.use('/api/v1/sign-collections', (await import('./routes/sign-collection.routes')).default);

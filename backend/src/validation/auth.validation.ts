@@ -102,7 +102,7 @@ export const resetPasswordSchema = z.object({
  */
 export const convertGuestSchema = z.object({
   body: z.object({
-    requireLogin: z.boolean().optional(),
+    requireLogin: z.literal(true).optional(),
     email: emailSchema,
     password: passwordSchema,
     displayName: z
@@ -110,7 +110,7 @@ export const convertGuestSchema = z.object({
       .trim()
       .min(2, 'Display name must be at least 2 characters')
       .max(50, 'Display name must be less than 50 characters'),
-  }),
+  }).strict(),
 });
 
 // Type exports

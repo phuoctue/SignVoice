@@ -119,10 +119,12 @@ describe('Guest ten-minute allowance', () => {
     await request(app).post('/api/v1/conversations').set(auth(a)).send({content: 'Cannot save as guest'}).expect(403);
     await request(app).post('/api/v1/favorites').set(auth(a)).send({entryId: 'a'.repeat(24)}).expect(403);
     await Conversation.create({userId: a.user.id, content: 'Previously saved guest content', direction: 'TEXT'});
-    const converted = await request(app).post('/api/v1/auth/convert-guest').set(auth(a)).send({
+    const data = {
       email: randomBytes(8).toString('hex') + '@example.test', password: 'GuestTrial2026!', displayName: 'Converted Guest',
-    }).expect(200);
-    const permanent = converted.body.data;
+    };
+    const converted = await request(app).post('/api/v1/auth/convert-guest').set(auth(a)).send(data).expect(200);
+    expect(converted.body.data.loginRequired).toBe(true);
+    const permanent = (await request(app).post('/api/v1/auth/login').send(data).expect(200)).body.data;
     expect(permanent.user.id).toBe(a.user.id);
     expect((await status(permanent)).body.data.state).toBe('unlimited');
     await request(app).post('/api/v1/sign-sequence').set(auth(permanent)).send({text: 'bạn'}).expect(200);

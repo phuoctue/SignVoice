@@ -72,19 +72,18 @@ afterEach(() => vi.restoreAllMocks());
 afterAll(disconnectDatabase);
 
 describe('guest policy v1 grant and status', () => {
-  it('requires explicit grant parameters and rejects unsupported replacement without writes', async () => {
+  it('requires explicit grant parameters and rejects unauthenticated replacement without writes', async () => {
     const before = await User.countDocuments();
     for (const body of [{}, {newGuest: true}, {...grantBody(), expectedLastGrantAt: undefined}, {...grantBody(), requestKey: ''}]) {
       await request(app).post('/api/v1/auth/guest').send(body).expect(400);
     }
     const trialCount = await GuestTrial.countDocuments();
     for (const authorization of ['Bearer invalid', 'invalid']) {
-      const result = await request(app).post('/api/v1/auth/guest').set('Authorization', authorization).send(grantBody()).expect(409);
-      expect(result.body.error.code).toBe('GUEST_REPLACEMENT_UNAVAILABLE');
-      expect(result.headers['set-cookie']).toBeUndefined();
+      const rejected = await request(app).post('/api/v1/auth/guest').set('Authorization', authorization).send(grantBody()).expect(401);
+      expect(rejected.headers['set-cookie']).toBeUndefined();
     }
-    const replacement = await request(app).post('/api/v1/auth/guest').send({...grantBody(), confirmDiscard: true, expectedDataVersion: 0}).expect(409);
-    expect(replacement.body.error.code).toBe('GUEST_REPLACEMENT_UNAVAILABLE');
+    const replacement = await request(app).post('/api/v1/auth/guest').send({...grantBody(), confirmDiscard: true, expectedDataVersion: 0}).expect(401);
+    expect(replacement.headers['set-cookie']).toBeUndefined();
     expect(await User.countDocuments()).toBe(before);
     expect(await GuestTrial.countDocuments()).toBe(trialCount);
   });

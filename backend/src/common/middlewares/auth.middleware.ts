@@ -56,7 +56,13 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   return authenticateRequest(req, res, next, false);
 }
 
-async function authenticateRequest(req: Request, _res: Response, next: NextFunction, enforceGuestPolicy: boolean): Promise<void> {
+/** Replacement authenticates ownership without admitting trial tools or touching stale-request metadata. */
+export async function authenticateGuestReplacement(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (req.headers.authorization === undefined && req.body.confirmDiscard !== true) return next();
+  return authenticateRequest(req, res, next, false, false);
+}
+
+async function authenticateRequest(req: Request, _res: Response, next: NextFunction, enforceGuestPolicy: boolean, recordUsage = true): Promise<void> {
   try {
     const token = extractBearerToken(req);
     
@@ -126,7 +132,7 @@ async function authenticateRequest(req: Request, _res: Response, next: NextFunct
     req.sessionId = session._id;
     if (enforceGuestPolicy) await enforceGuestAccess(req);
     // Rejected private requests must not touch even session metadata.
-    await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
+    if (recordUsage) await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
     next();
   } catch (error) {
     next(error);

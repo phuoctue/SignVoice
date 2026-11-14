@@ -29,8 +29,11 @@ export async function saveAvatarImage(userId: string, value: string) {
   return `/user-media/avatars/${userId}/${filename}`;
 }
 export async function removeOwnedAvatars(userId: string) {
+  await rm(ownedAvatarPath(userId), {recursive: true, force: true});
+}
+export function ownedAvatarPath(userId: string) {
   if (!idPattern.test(userId)) throw new Error('Invalid avatar owner');
-  await rm(path.join(root, userId), {recursive: true, force: true});
+  return path.join(root, userId);
 }
 export function createAvatarMediaRouter() {
   const router = Router();

@@ -13,6 +13,7 @@ import { connectDatabase, disconnectDatabase } from './config/database';
 import {startNotificationDelivery} from './services/notification.service';
 import {ensureLearningIndexes} from './services/learning-indexes.service';
 import {loadChainTransition} from './services/session-chain.service';
+import {startGuestLedgerExporter} from './services/guest-ledger.service';
 
 /**
  * Start the server
@@ -46,6 +47,7 @@ async function startServer(): Promise<void> {
     });
     app.locals.attachAiUpgrade?.(server);
     const stopNotifications = startNotificationDelivery();
+    const guestLedger = await startGuestLedgerExporter();
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
@@ -56,6 +58,7 @@ async function startServer(): Promise<void> {
         console.log('✅ HTTP server closed');
         
         try {
+          await guestLedger.stop();
           await disconnectDatabase();
           console.log('✅ Database disconnected');
           process.exit(0);

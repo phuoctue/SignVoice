@@ -36,7 +36,7 @@ export async function grantTrial(input: GuestGrantInput, transaction: ClientSess
     startedAt: observed ?? {$exists: false},
     ...(observed ? {$and: [{startedAt: {$lte: new Date(+now - GUEST_COOLDOWN_MS)}}]} : {}),
   }, {$set: {startedAt: now, expiresAt: new Date(+now + GUEST_TRIAL_SECONDS * 1000), lastGrantRequestHash: hash(input.requestKey)}},
-  {new: true, upsert: !trial, session: transaction});
+  {new: true, upsert: !trial, session: transaction}).select('+lastGrantRequestHash');
   if (!granted) throw new GuestGrantConflict('GUEST_GRANT_STALE', observed);
   return granted;
 }
@@ -53,8 +53,13 @@ export async function guestTrialStatus(userId: Types.ObjectId, transaction?: Cli
   const trial = user.guestTrialId ? await GuestTrial.findById(user.guestTrialId).select('+lastGrantRequestHash').session(transaction ?? null) : null;
   // A v1 grant invalidates mutable legacy dates; it must never unlock an older bound guest.
   let legacyGrant: Date | undefined;
-  if (!user.guestGrantedAt && trial?.lastGrantRequestHash === undefined && trial?.startedAt && +trial.startedAt >= +user.createdAt &&
-      await User.countDocuments({guestTrialId: trial._id}).session(transaction ?? null) === 1) legacyGrant = trial.startedAt;
+  if (!user.guestGrantedAt && trial?.lastGrantRequestHash === undefined && !trial?.legacyFallbackDisabledAt && trial?.startedAt && +trial.startedAt >= +user.createdAt &&
+      await User.countDocuments({guestTrialId: trial._id}).session(transaction ?? null) === 1) {
+    // A nontransactional status read may straddle discard; re-check the durable evidence after counting.
+    const proven = await GuestTrial.findOne({_id: trial._id, startedAt: trial.startedAt,
+      lastGrantRequestHash: {$exists: false}, legacyFallbackDisabledAt: {$exists: false}}).session(transaction ?? null);
+    if (proven) legacyGrant = trial.startedAt;
+  }
   const now = authClock.now();
   const startedAt = user.guestGrantedAt ?? legacyGrant;
   const expiresAt = startedAt ? new Date(+startedAt + GUEST_TRIAL_SECONDS * 1000) : undefined;
@@ -74,6 +79,7 @@ export async function guestTrialStatus(userId: Types.ObjectId, transaction?: Cli
 export async function assertGuestDataRetained(userId: Types.ObjectId, transaction?: ClientSession) {
   const status = await guestTrialStatus(userId, transaction);
   if (status.dataState === 'expired') throw new AppError('Đã hết thời hạn giữ dữ liệu khách.', 403, 'GUEST_DATA_EXPIRED');
+  return status;
 }
 export async function assertTrialActive(userId: Types.ObjectId, transaction?: ClientSession) {
   const status = await guestTrialStatus(userId, transaction);

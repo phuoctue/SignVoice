@@ -91,6 +91,8 @@ export const env = {
 
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  GUEST_LEDGER_DIRECTORY: process.env.GUEST_LEDGER_DIRECTORY || '',
+  GUEST_LEDGER_HMAC_KEY: process.env.GUEST_LEDGER_HMAC_KEY || '',
 
   // Development
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@signvoice.local',

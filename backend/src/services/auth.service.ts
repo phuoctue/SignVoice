@@ -15,6 +15,9 @@ import { SessionChain } from '../models/SessionChain.model';
 import { authClock } from './auth-clock';
 import {GuestTrial} from '../models/GuestTrial.model';
 import {assertGuestDataRetained, concurrentGrantConflict, grantTrial, GuestGrantInput} from './guest-trial.service';
+import {appendGuestEvent, ensureGuestOutbox} from './guest-lifecycle-outbox.service';
+import {discardGuestInTransaction, guestDataVersionFilter, GuestAuthority} from './guest-data.service';
+import {retryGuestMediaCleanup} from './guest-media-cleanup.service';
 
 /**
  * Registration data
@@ -253,13 +256,22 @@ export async function loginUser(
 /**
  * Create guest account
  */
-export async function grantGuestAccount(meta: IRequestMeta, input: GuestGrantInput): Promise<IAuthResponse> {
+export async function grantGuestAccount(meta: IRequestMeta, input: GuestGrantInput,
+  replacement?: {authority: GuestAuthority; expectedDataVersion: number}): Promise<IAuthResponse> {
   await GuestTrial.init();
+  await ensureGuestOutbox();
   try {
-    return await mongoose.connection.transaction(async transaction => {
+    const result = await mongoose.connection.transaction(async transaction => {
+      const finalDiscardFence = replacement ? await discardGuestInTransaction(replacement.authority, replacement.expectedDataVersion, transaction, true) : undefined;
       const trial = await grantTrial(input, transaction);
-      return createGuestAccount(meta, trial._id, transaction, trial.startedAt);
+      const result = await createGuestAccount(meta, trial._id, transaction, trial.startedAt);
+      await appendGuestEvent('GRANTED', {deviceHash: trial.deviceHash, lastGrantedAt: trial.startedAt!.toISOString(),
+        guestUserId: result.user.id, requestHash: trial.lastGrantRequestHash!}, transaction);
+      await finalDiscardFence?.();
+      return result;
     }, {writeConcern: chainWriteConcern});
+    if (replacement) await retryGuestMediaCleanup(String(replacement.authority.userId));
+    return result;
   } catch (error) {
     // Concurrent first inserts can hit the unique device index before Mongo retries.
     if ((error as {code?: number; keyPattern?: {deviceHash?: number}}).code === 11000 &&
@@ -333,13 +345,14 @@ export async function convertGuestToPermanent(
   issueSession = true,
   callerSessionId?: Types.ObjectId
 ): Promise<IAuthResponse> {
-  await assertGuestDataRetained(userId);
   // Find guest user
-  const user = await User.findById(userId).select('+sessionRevocationEpoch');
+  const user = await User.findById(userId).select('+sessionRevocationEpoch +dataVersion');
+  await assertGuestDataRetained(userId);
 
   if (!user) {
     throw new AppError('User not found', 404, ErrorCodes.USER_NOT_FOUND);
   }
+  const expectedDataVersion = user.dataVersion;
 
   if (!user.canConvertFromGuest()) {
     throw new AppError(
@@ -369,6 +382,7 @@ export async function convertGuestToPermanent(
   if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('Session revocation epoch exhausted');
   // Pin authority before transaction retries; never adopt a later epoch as authority.
   assertSessionEpoch(caller, user);
+  await ensureGuestOutbox();
   let tokens = generateTokenPair(user._id, user.role);
   user.email = data.email.toLowerCase();
   user.displayName = data.displayName;
@@ -376,25 +390,27 @@ export async function convertGuestToPermanent(
   user.accountType = AccountType.LOCAL;
   user.isGuest = false;
   user.guestConvertedAt = authClock.now();
-  await mongoose.connection.transaction(async transaction => {
-    const current = await User.findById(userId).select('+sessionRevocationEpoch').session(transaction);
+  try { await mongoose.connection.transaction(async transaction => {
+    const current = await User.findById(userId).select('+sessionRevocationEpoch +dataVersion').session(transaction);
     const row = await AuthSession.findOne({_id: callerSessionId, userId}).session(transaction);
     if (!current?.isActive() || !current.canConvertFromGuest() || !row?.isValid() ||
         row.passwordVersion !== current.passwordVersion || sessionEpoch(row.userEpoch) !== epoch ||
         row.chainId !== caller.chainId) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
     assertSessionEpoch(caller, current);
+    if (current.dataVersion !== expectedDataVersion) throw new AppError('Guest data changed.', 409, 'GUEST_DATA_CHANGED');
     const {chain: callerChain} = await assertSessionChain(row, transaction);
-    await assertGuestDataRetained(userId, transaction);
+    const dataState = await assertGuestDataRetained(userId, transaction);
     const guard = await AuthSession.updateOne({_id: row._id, status: SessionStatus.ACTIVE,
       chainId: row.chainId === undefined ? {$exists: false} : row.chainId,
       userEpoch: row.userEpoch === undefined ? {$exists: false} : row.userEpoch},
     {$set: {lastUsedAt: new Date(Math.max(+authClock.now(), +row.lastUsedAt + 1))}}, {session: transaction});
     if (!guard.matchedCount) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
     const enrolled = await User.updateOne({_id: userId, isGuest: true, status: AccountStatus.ACTIVE,
+      guestConvertedAt: {$exists: false}, ...guestDataVersionFilter(expectedDataVersion),
       passwordVersion: caller.passwordVersion, ...userEpochFilter(epoch)}, {$set: {
       email: user.email, displayName: user.displayName, passwordHash: user.passwordHash,
       accountType: user.accountType, isGuest: false, guestConvertedAt: user.guestConvertedAt,
-    }, $inc: {sessionRevocationEpoch: 1}}, {session: transaction, runValidators: true});
+    }, $inc: {sessionRevocationEpoch: 1, dataVersion: 1}}, {session: transaction, runValidators: true});
     if (!enrolled.matchedCount) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
     const roots = await SessionChain.find({userId, legacyDerived: true}).session(transaction);
     for (const root of roots) await tombstoneChain(userId, root.chainId, transaction);
@@ -406,13 +422,22 @@ export async function convertGuestToPermanent(
       tokens = generateTokenPair(user._id, user.role);
       await persistFreshPair(user, tokens, meta, transaction);
     }
+    await appendGuestEvent('CONVERTED', {sameUserId: String(userId), guestGrantedAt: dataState.startedAt?.toISOString() ?? null,
+      newEpoch: epoch + 1, convertedAt: user.guestConvertedAt!.toISOString()}, transaction);
     // A separate singleton reread and the final time checkpoint are not snapshot reads.
     const transition = await loadChainTransition();
     if (callerChain) assertChainDeadline(callerChain, transition);
     else if (transition) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
     // The committed conversion must still be within the original guest data deadline.
     await assertGuestDataRetained(userId);
-  }, {writeConcern: chainWriteConcern});
+    if (!row.isValid()) throw new AppError('Session expired', 401, ErrorCodes.AUTH_SESSION_INVALID);
+  }, {writeConcern: chainWriteConcern}); }
+  catch (error) {
+    if ((error as {code?: number; keyPattern?: {email?: number}}).code === 11000 && (error as {keyPattern?: {email?: number}}).keyPattern?.email) {
+      throw new AppError('Email already registered', 409, ErrorCodes.AUTH_EMAIL_ALREADY_EXISTS);
+    }
+    throw error;
+  }
   user.updatedAt = authClock.now();
 
   // Audit log

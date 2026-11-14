@@ -8,6 +8,7 @@ import * as passwordResetService from '../services/password-reset.service';
 import { authorizationFor } from '../services/authorization.service';
 import {GuestGrantConflict} from '../services/guest-trial.service';
 import {guestDeviceKey, setGuestDeviceCookie} from '../services/guest-device.service';
+import {pinGuestAuthority} from '../services/guest-data.service';
 
 export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -121,11 +122,16 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
 export async function createGuest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     res.setHeader('Cache-Control', 'no-store');
+    let replacement;
     if (req.headers.authorization !== undefined || req.body.confirmDiscard === true) {
-      throw new AppError('Thay lượt thử chưa khả dụng.', 409, 'GUEST_REPLACEMENT_UNAVAILABLE');
+      if (!req.user || !req.sessionId) throw new AppError('Current guest session required.', 401, 'AUTH_REQUIRED');
+      if (!req.user.isGuest || req.body.confirmDiscard !== true || req.body.expectedDataVersion === undefined) {
+        throw new AppError('Confirm the current guest data before replacement.', 409, 'GUEST_DATA_CHANGED');
+      }
+      replacement = {authority: await pinGuestAuthority(req.user.id, req.sessionId), expectedDataVersion: req.body.expectedDataVersion};
     }
     const deviceKey = guestDeviceKey(req);
-    const result = await authService.grantGuestAccount(getRequestMeta(req), {...req.body, deviceKey});
+    const result = await authService.grantGuestAccount(getRequestMeta(req), {...req.body, deviceKey}, replacement);
     setGuestDeviceCookie(res, deviceKey);
     setRefreshCookie(res, result.tokens);
     
@@ -162,20 +168,11 @@ export async function convertGuest(req: Request, res: Response, next: NextFuncti
       req.user.id,
       { email, password, displayName },
       getRequestMeta(req),
-      req.body.requireLogin !== true,
+      false,
       req.sessionId
     );
-    if (req.body.requireLogin === true) {
-      res.clearCookie(refreshCookie, cookieOptions);
-      res.status(200).json({success: true, data: {user: result.user, loginRequired: true}});
-      return;
-    }
-    setRefreshCookie(res, result.tokens);
-    
-    res.status(200).json({
-      success: true,
-      data: result,
-    });
+    res.clearCookie(refreshCookie, cookieOptions);
+    res.status(200).json({success: true, data: {user: result.user, loginRequired: true}});
   } catch (error) {
     next(error);
   }

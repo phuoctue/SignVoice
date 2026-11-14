@@ -278,9 +278,11 @@ describe('Persisted user data', () => {
     await Conversation.create({userId: a.user.id, content: 'Guest saved text', direction: 'TEXT'});
     await x.post('/conversations', {content: 'New guest text'}).expect(403);
     await x.patch('/users/settings', {highContrast: true}).expect(200);
-    const converted = await x.post('/auth/convert-guest', {email: `converted-${Date.now()}@example.com`, password, displayName: 'Converted User'}).expect(200);
+    const credentials = {email: `converted-${Date.now()}@example.com`, password, displayName: 'Converted User'};
+    const converted = await x.post('/auth/convert-guest', credentials).expect(200);
     expect(converted.body.data.user.id).toBe(a.user.id);
-    const signedIn = client(converted.body.data);
+    expect(converted.body.data.loginRequired).toBe(true);
+    const signedIn = client((await request(app).post('/api/v1/auth/login').send(credentials).expect(200)).body.data);
     expect((await signedIn.get('/conversations')).body.data.items[0].content).toBe('Guest saved text');
     expect((await signedIn.get('/users/settings')).body.data.highContrast).toBe(true);
   });

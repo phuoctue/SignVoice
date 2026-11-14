@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as authController from '../controllers/auth.controller';
 import * as oauthController from '../controllers/oauth.controller';
 import { validate } from '../common/middlewares/validate.middleware';
-import { requireAuth } from '../common/middlewares/auth.middleware';
+import { requireAuth, authenticateGuestReplacement } from '../common/middlewares/auth.middleware';
 import {
   guestLimiter,
   loginIpLimiter,
@@ -72,7 +72,7 @@ router.post('/login', requireProxyClientIp, loginIpLimiter, loginLimiter, valida
  * @desc Create guest account
  * @access Public
  */
-router.post('/guest', requireProxyClientIp, guestLimiter, validate(guestGrantSchema), authController.createGuest);
+router.post('/guest', requireProxyClientIp, guestLimiter, validate(guestGrantSchema), authenticateGuestReplacement, authController.createGuest);
 
 /**
  * @route POST /api/v1/auth/convert-guest
