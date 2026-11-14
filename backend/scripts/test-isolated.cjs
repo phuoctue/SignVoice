@@ -114,11 +114,19 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void fi
   if (stopping) return;
   isolated.TEST_MONGODB_URI = db.getUri(`signvoice_test_app_${id}`);
   child = spawn(process.execPath, [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run',
-    '--maxWorkers=2', '--minWorkers=1', '--no-cache', ...process.argv.slice(2)],
+    '--maxWorkers=2', '--minWorkers=1', '--no-cache',
+    '--config', path.join(root, 'tests/database-cleanup.config.ts'), ...process.argv.slice(2)],
   {cwd: root, stdio: 'inherit', env: isolated, detached: process.platform !== 'win32'});
   const code = await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', code => resolve(code ?? 1));
   });
+  const audit = new MongoClient(isolated.TEST_MONGODB_URI, {serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000, socketTimeoutMS: 5000, timeoutMS: 5000});
+  try {
+    const { databases } = await audit.db('admin').admin().listDatabases({nameOnly: true});
+    const remaining = databases.map(database => database.name).filter(name => name.startsWith('signvoice_test_'));
+    console.error('[isolated mongo] test databases before shutdown', JSON.stringify(remaining));
+  } finally { await audit.close(); }
   await finish(code);
 })().catch(async error => { console.error(error); await finish(1); });

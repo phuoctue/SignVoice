@@ -1,8 +1,6 @@
 // Executed before application imports. Never fall back to the user's normal database.
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { afterAll, vi } from 'vitest';
-import { cleanupFileDatabases } from './database-cleanup';
 
 const testUri = process.env.TEST_MONGODB_URI;
 if (!testUri) throw new Error('Tests require explicit TEST_MONGODB_URI targeting signvoice_test_*');
@@ -29,8 +27,4 @@ process.env.JWT_ACCESS_SECRET = 'isolated-test-access-secret-at-least-32-chars';
 process.env.JWT_REFRESH_SECRET = 'isolated-test-refresh-secret-at-least-32-chars';
 
 // Capture ownership now: individual tests may later replace environment values.
-const fileUri = parsed.toString();
-const fileControl = `${control}_${fileId}`;
-// Vitest 1 defaults to parallel hooks; existing disconnect/drop hooks must finish first.
-vi.setConfig({ sequence: { hooks: 'stack' } });
-afterAll(() => cleanupFileDatabases(fileUri, fileControl, fileId));
+export const fileDatabases = Object.freeze({ uri: parsed.toString(), control: `${control}_${fileId}`, fileId });
