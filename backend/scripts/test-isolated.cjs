@@ -50,7 +50,10 @@ async function stopMongo() {
     try {
       await client.db('admin').command({shutdown: 1, force: true, timeoutSecs: 1});
     } catch (error) {
-      if (!(error instanceof MongoNetworkError && /^connection \d+ to 127\.0\.0\.1:\d+ closed$/.test(error.message))) throw error;
+      if (!(error instanceof MongoNetworkError && (
+        /^connection \d+ to 127\.0\.0\.1:\d+ closed$/.test(error.message) ||
+        (error.message === 'read ECONNRESET' && error.cause?.code === 'ECONNRESET')
+      ))) throw error;
     } finally { await client.close(); }
   }
   // The helper's Windows SIGINT interrupts WiredTiger close; let mongod exit first.
