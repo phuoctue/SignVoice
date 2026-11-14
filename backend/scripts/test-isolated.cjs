@@ -12,6 +12,7 @@ if (process.env.MONGOMS_SYSTEM_BINARY) isolated.MONGOMS_SYSTEM_BINARY = process.
 Object.assign(isolated, { NODE_ENV: 'test', MONGOMS_RUNTIME_DOWNLOAD: 'false', MONGOMS_VERSION: '7.0.24' });
 process.env = isolated;
 const { MongoMemoryReplSet } = require('mongodb-memory-server-core');
+const { MongoClient, MongoNetworkError } = require('mongodb');
 const root = path.resolve(__dirname, '..');
 const scratch = mkdtempSync(path.join(tmpdir(), 'signvoice-test-'));
 const id = randomUUID().replace(/-/g, '').slice(0, 24);
@@ -40,6 +41,22 @@ async function bounded(operation, milliseconds, label) {
     })]);
   } finally { clearTimeout(timer); }
 }
+async function stopMongo() {
+  for (const server of db.servers) {
+    const instance = server.instanceInfo?.instance;
+    if (!instance?.mongodProcess || instance.mongodProcess.exitCode !== null || instance.mongodProcess.signalCode !== null) continue;
+    const client = new MongoClient(server.getUri('admin'), {directConnection: true,
+      serverSelectionTimeoutMS: 5000, socketTimeoutMS: 5000, connectTimeoutMS: 5000});
+    try {
+      await client.db('admin').command({shutdown: 1, force: true, timeoutSecs: 1});
+    } catch (error) {
+      if (!(error instanceof MongoNetworkError && /^connection \d+ to 127\.0\.0\.1:\d+ closed$/.test(error.message))) throw error;
+    } finally { await client.close(); }
+  }
+  // The helper's Windows SIGINT interrupts WiredTiger close; let mongod exit first.
+  await Promise.all(mongoExits);
+  return db.stop({doCleanup: false});
+}
 async function finish(code) {
   if (stopping) return;
   stopping = true;
@@ -51,13 +68,7 @@ async function finish(code) {
       if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {timeout: 5000, stdio: 'ignore'});
       else process.kill(-child.pid, 'SIGKILL');
     }
-    // Bound the helper's shutdown command without racing its own process-exit listeners.
-    for (const server of db.servers) {
-      const instance = server.instanceInfo?.instance;
-      if (instance) instance.extraConnectionOptions = {...instance.extraConnectionOptions,
-        socketTimeoutMS: 5000, connectTimeoutMS: 5000};
-    }
-    if (await bounded(db.stop({doCleanup: false}), 25000, 'MongoDB stop') === false) {
+    if (await bounded(stopMongo(), 25000, 'MongoDB stop') === false) {
       throw new Error('Unable to stop disposable MongoDB');
     }
     process.exitCode = unexpectedMongoExit ? 1 : code;
@@ -92,7 +103,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void fi
       if (/shut.?down|terminat|fatal|signal/i.test(line)) console.error('[isolated mongo] output', line.trim());
     });
     mongoExits.push(new Promise(resolve => instance.mongodProcess.once('exit', (code, signal) => {
-      if (!stopping) unexpectedMongoExit = true;
+      if (!stopping || code !== 0) unexpectedMongoExit = true;
       console.error('[isolated mongo] exit', {code, signal, stopping});
       resolve();
     })));
