@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'crypto';
@@ -66,7 +67,7 @@ describe('OAuth configuration and browser-bound state', () => {
     const registered = await request(app).post('/api/v1/auth/register').send({ email, password, displayName: prefix }).expect(201);
     ids.push(registered.body.data.user.id);
     await request(app).post('/api/v1/auth/login').send({ email, password }).expect(200);
-    const guest = await request(app).post('/api/v1/auth/guest').expect(201); ids.push(guest.body.data.user.id);
+    const guest = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201); ids.push(guest.body.data.user.id);
   });
   it.each(['http://evil.example', 'https://u:p@example.com', 'https://example.com/path', 'javascript:alert(1)'])('rejects unsafe origin %s', origin => {
     env.OAUTH_BACKEND_ORIGIN = origin;
@@ -183,7 +184,7 @@ describe('OAuth identity verification and real session handoff', () => {
     await request(app).post('/api/v1/auth/refresh').send({ refreshToken: tokens.refreshToken }).expect(401);
     await request(app).post('/api/v1/auth/login').send({ email, password }).expect(401);
     await request(app).post('/api/v1/auth/login').send({ email, password: 'NewPassword123' }).expect(200);
-    const guest = await request(app).post('/api/v1/auth/guest').expect(201); ids.push(guest.body.data.user.id);
+    const guest = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201); ids.push(guest.body.data.user.id);
     await request(app).post('/api/v1/auth/change-password').set('Authorization', `Bearer ${guest.body.data.tokens.accessToken}`)
       .send({ currentPassword: password, newPassword: 'NewPassword123' }).expect(400);
   });

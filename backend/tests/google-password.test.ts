@@ -20,6 +20,7 @@ async function fixture(type = AccountType.GOOGLE) {
   const subject = randomUUID();
   const user = await User.create({email: `${subject}@example.test`, displayName: 'Google password fixture',
     accountType: type, isGuest: type === AccountType.GUEST,
+    ...(type === AccountType.GUEST ? {guestGrantedAt: new Date()} : {}),
     ...(type === AccountType.GOOGLE ? {googleProvider: {providerId: subject}} : {}),
     ...(type === AccountType.FACEBOOK ? {facebookProvider: {providerId: subject}} : {}),
     ...(type === AccountType.LOCAL ? {passwordHash: await hashPassword(password)} : {})});

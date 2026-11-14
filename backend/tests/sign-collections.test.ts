@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll,beforeEach,afterAll,describe,it,expect,vi} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
@@ -21,7 +22,7 @@ beforeAll(async()=>{
   await ensureLearningIndexes();await Promise.all([WordProgress.init(),TopicEnrollment.init()]);
   const a=await request(app).post('/api/v1/auth/register').send({email:'collections-owner@example.test',password:'Fixture1234',displayName:'Owner'}).expect(201),
     b=await request(app).post('/api/v1/auth/register').send({email:'collections-other@example.test',password:'Fixture1234',displayName:'Other'}).expect(201);
-  const trial=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const trial=await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   guest=new Types.ObjectId(trial.body.data.user.id);guestAuth=`Bearer ${trial.body.data.tokens.accessToken}`;
   expect(a.body.data.user.isGuest).toBe(false);expect(b.body.data.user.isGuest).toBe(false);
   owner=new Types.ObjectId(a.body.data.user.id);other=new Types.ObjectId(b.body.data.user.id);

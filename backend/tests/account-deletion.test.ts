@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
@@ -20,8 +21,8 @@ afterAll(async () => {
   }
   await disconnectDatabase();
 });
-async function guest() {
-  const r = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+async function permanent() {
+  const r = await request(app).post('/api/v1/auth/register').send({email: randomUUID() + '@example.test', password: 'Delete2026!', displayName: 'Permanent'}).expect(201);
   users.push(r.body.data.user.id);
   return r.body.data;
 }
@@ -30,11 +31,11 @@ describe('Account deletion', () => {
     await request(app).delete('/api/v1/users/account').expect(401);
   });
   it('deletes only the authenticated user and invalidates old sessions', async () => {
-    const a = await guest(), b = await guest();
+    const a = await permanent(), b = await permanent();
     const userId = new User({ _id: a.user.id })._id;
     await Conversation.create({ userId, messages: [{ role: 'USER', content: 'private text' }] });
     await request(app).delete('/api/v1/users/account')
-      .set('Authorization', `Bearer ${a.tokens.accessToken}`).send({ confirm: true }).expect(200);
+      .set('Authorization', `Bearer ${a.tokens.accessToken}`).send({ confirm: true, currentPassword: 'Delete2026!' }).expect(200);
     expect(await User.exists({ _id: a.user.id })).toBeNull();
     expect(await User.exists({ _id: b.user.id })).not.toBeNull();
     for (const model of [UserSettings, AuthSession, Conversation, Favorite, SearchHistory, AuditLog]) {
@@ -44,10 +45,10 @@ describe('Account deletion', () => {
     await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${b.tokens.accessToken}`).expect(200);
   });
   it('rolls back deletion when related data cannot be removed', async () => {
-    const a = await guest();
+    const a = await permanent();
     const id = new User({ _id: a.user.id })._id;
     const spy = vi.spyOn(AuditLog, 'deleteMany').mockImplementationOnce(() => { throw new Error('simulated storage error'); });
-    try { await expect(deleteOwnAccount(id)).rejects.toThrow('simulated storage error'); }
+    try { await expect(deleteOwnAccount(id, 'Delete2026!')).rejects.toThrow('simulated storage error'); }
     finally { spy.mockRestore(); }
     expect(await User.exists({ _id: id })).not.toBeNull();
     expect(await AuthSession.countDocuments({ userId: id })).toBeGreaterThan(0);

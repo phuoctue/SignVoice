@@ -6,10 +6,8 @@ import { env } from '../config/env';
 import { ITokenPair } from '../utils/jwt.util';
 import * as passwordResetService from '../services/password-reset.service';
 import { authorizationFor } from '../services/authorization.service';
-import {Types} from 'mongoose';
-import {trialForDevice, guestTrialStatus} from '../services/guest-trial.service';
-import {guestDeviceKey} from '../services/guest-device.service';
-import {deleteGuestOnLogout} from '../services/user-data.service';
+import {GuestGrantConflict} from '../services/guest-trial.service';
+import {guestDeviceKey, setGuestDeviceCookie} from '../services/guest-device.service';
 
 export async function forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -122,12 +120,13 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
  */
 export async function createGuest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const deviceKey = guestDeviceKey(req, res);
-    const trial = await trialForDevice(req.body?.newGuest === true
-      ? 'guest-session:' + new Types.ObjectId().toHexString()
-      : deviceKey);
-    const result = await authService.createGuestAccount(getRequestMeta(req), trial._id);
-    await guestTrialStatus(new Types.ObjectId(result.user.id), true);
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.headers.authorization !== undefined || req.body.confirmDiscard === true) {
+      throw new AppError('Thay lượt thử chưa khả dụng.', 409, 'GUEST_REPLACEMENT_UNAVAILABLE');
+    }
+    const deviceKey = guestDeviceKey(req);
+    const result = await authService.grantGuestAccount(getRequestMeta(req), {...req.body, deviceKey});
+    setGuestDeviceCookie(res, deviceKey);
     setRefreshCookie(res, result.tokens);
     
     res.status(201).json({
@@ -135,6 +134,10 @@ export async function createGuest(req: Request, res: Response, next: NextFunctio
       data: result,
     });
   } catch (error) {
+    if (error instanceof GuestGrantConflict) {
+      res.status(409).json({success: false, error: {code: error.code, message: error.message}, data: error.data});
+      return;
+    }
     next(error);
   }
 }
@@ -218,12 +221,7 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
     }
     
-    if (req.user.isGuest) {
-      await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
-      await deleteGuestOnLogout(new Types.ObjectId(req.user.id));
-    } else {
-      await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
-    }
+    await authService.logoutUser(req.user.id, req.sessionId, getRequestMeta(req));
     res.clearCookie(refreshCookie, cookieOptions);
     
     res.status(200).json({

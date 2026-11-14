@@ -92,11 +92,16 @@ export async function getEntryById(
   
   // Record search history if user is authenticated
   if (userId) {
-    await userTransaction(userId, session => SearchHistory.findOneAndUpdate(
-      { userId, entryId: entry._id },
-      { $set: { viewedAt: new Date() } },
-      { upsert: true, session }
-    ).exec());
+    try {
+      await userTransaction(userId, session => SearchHistory.findOneAndUpdate(
+        { userId, entryId: entry._id },
+        { $set: { viewedAt: new Date() } },
+        { upsert: true, session }
+      ).exec());
+    } catch (error) {
+      // The guest history fence must not block public content.
+      if (!(error instanceof AppError) || error.code !== 'GUEST_TRIAL_EXPIRED') throw error;
+    }
   }
   
   return entry;

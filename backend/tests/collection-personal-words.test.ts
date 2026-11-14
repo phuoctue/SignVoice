@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll,afterAll,it,expect} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
@@ -47,7 +48,7 @@ it('validates collection avatars, preserves omitted images, clears and copies an
 it('creates and edits owner-scoped words, pages/searches both sources, and never leaks private words through sharing or quiz',async()=>{
   const id=await create('Bộ kết hợp');
   const path=base+'/'+id+'/personal-words';
-  const trial=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const trial=await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   const guestAuth=`Bearer ${trial.body.data.tokens.accessToken}`;
   await request(app).post(path).set('Authorization',guestAuth).send(word).expect(403);
   await request(app).post(path).set('Authorization',otherAuth).send(word).expect(404);

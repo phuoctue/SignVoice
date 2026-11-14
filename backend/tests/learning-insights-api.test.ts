@@ -15,7 +15,7 @@ const ago = (days: number) => new Date(now.getTime() - days * 86400000);
 beforeAll(async () => {
   await connectDatabase(); app = await createApp();
   for (let i = 0; i < 2; i++) {
-    const result = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+    const result = await request(app).post('/api/v1/auth/register').send({email: `learning-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`, password: 'Learning2026!', displayName: 'Permanent learning'}).expect(201);
     users.push(new Types.ObjectId(result.body.data.user.id));
     if (i === 0) a = `Bearer ${result.body.data.tokens.accessToken}`; else b = `Bearer ${result.body.data.tokens.accessToken}`;
   }

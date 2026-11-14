@@ -23,7 +23,7 @@ import {
   resetPasswordSchema,
   changePasswordSchema,
   setPasswordSchema,
-  guestSchema,
+  guestGrantSchema,
 } from '../validation/auth.validation';
 
 const router = Router();
@@ -72,7 +72,7 @@ router.post('/login', requireProxyClientIp, loginIpLimiter, loginLimiter, valida
  * @desc Create guest account
  * @access Public
  */
-router.post('/guest', requireProxyClientIp, guestLimiter, validate(guestSchema), authController.createGuest);
+router.post('/guest', requireProxyClientIp, guestLimiter, validate(guestGrantSchema), authController.createGuest);
 
 /**
  * @route POST /api/v1/auth/convert-guest

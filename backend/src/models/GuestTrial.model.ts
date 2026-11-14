@@ -4,11 +4,13 @@ export interface IGuestTrial {
   deviceHash: string;
   startedAt?: Date;
   expiresAt?: Date;
+  lastGrantRequestHash?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 const schema = new Schema<IGuestTrial>({
   deviceHash: {type: String, required: true, unique: true}, startedAt: Date, expiresAt: Date,
+  lastGrantRequestHash: {type: String, select: false},
 }, {timestamps: true, collection: 'guest_trials'});
 // Spent allowances must survive their expiry to prevent granting another trial.
 export const GuestTrial = model<IGuestTrial>('GuestTrial', schema);

@@ -15,6 +15,7 @@ import { NotificationDevice, UserNotification } from '../src/models/Notification
 import { createAiTicket, authorizeAiTicket } from '../src/services/guest-trial.service';
 import { deliverNotificationBatch } from '../src/services/notification.service';
 import { sessionEpoch } from '../src/services/session-fence.service';
+import {authClock} from '../src/services/auth-clock';
 
 function deferred() {
   let resolve!: () => void;
@@ -303,7 +304,7 @@ it.each(['login', 'conversion', 'shared'] as const)('PS %s: stale User writes pr
   for (const initial of ['missing', 'explicit'] as const) {
     // Lead decision r1 supersedes only conversion: r2 must reject stale enrollment authority.
     if (path === 'conversion') {
-      const app = await createApp(), guest = await authService.createGuestAccount();
+      const app = await createApp(), guest = await activeGuestFixture();
       const id = new mongoose.Types.ObjectId(guest.user.id);
       const other = (await authService.loginOAuthUser((await User.findById(id).select('+sessionRevocationEpoch'))!)).tokens;
       const caller = (await AuthSession.findOne({tokenHash: hashToken(other.accessToken)}))!;
@@ -345,7 +346,7 @@ it.each(['login', 'conversion', 'shared'] as const)('PS %s: stale User writes pr
     }
     const app = await createApp();
     const normal = path === 'conversion' ? null : await fixture(app);
-    const guest = path === 'conversion' ? await authService.createGuestAccount() : null;
+    const guest = path === 'conversion' ? await activeGuestFixture() : null;
     const id = normal?.id ?? new mongoose.Types.ObjectId(guest!.user.id);
     const oldTokens = normal?.tokens ?? guest!.tokens;
     const other = normal ? await login(app, normal.email)
@@ -526,3 +527,9 @@ it.each(['missing', 'explicit'] as const)('refresh claim rejects a changed %s im
     await bounded(Promise.allSettled([pending]), 'claim cleanup');
   }
 });
+
+async function activeGuestFixture() {
+  const guest = await authService.createGuestAccount();
+  await User.collection.updateOne({_id: new mongoose.Types.ObjectId(guest.user.id)}, {$set: {guestGrantedAt: authClock.now()}});
+  return guest;
+}

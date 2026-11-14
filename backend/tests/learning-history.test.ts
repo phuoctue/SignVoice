@@ -14,8 +14,8 @@ const entries: Types.ObjectId[] = [];
 const legacyDate = new Date('2026-10-20T08:30:00Z');
 beforeAll(async () => {
   await connectDatabase(); app = await createApp(); await LearningEvent.init();
-  const one = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
-  const two = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const one = await request(app).post('/api/v1/auth/register').send({email: `learning-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`, password: 'Learning2026!', displayName: 'Permanent learning'}).expect(201);
+  const two = await request(app).post('/api/v1/auth/register').send({email: `learning-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`, password: 'Learning2026!', displayName: 'Permanent learning'}).expect(201);
   a = `Bearer ${one.body.data.tokens.accessToken}`; b = `Bearer ${two.body.data.tokens.accessToken}`;
   userA = new Types.ObjectId(one.body.data.user.id); userB = new Types.ObjectId(two.body.data.user.id);
   const topic = await Category.create({ name: 'History greetings', slug: `history-${Date.now()}`, status: 'ACTIVE' });
@@ -112,7 +112,7 @@ describe('Personal learning history', () => {
     expect((await request(app).get('/api/v1/learning/history').set('Authorization', b)).body.data.pagination.total).toBe(1);
     await request(app).patch(`/api/v1/learning/words/${entries[1]}/progress`).set('Authorization', b).send({ stage: 'REMEMBERED' }).expect(200);
     expect(await LearningEvent.countDocuments({ userId: userB })).toBe(1);
-    await request(app).delete('/api/v1/users/account').set('Authorization', b).send({ confirm: true }).expect(200);
+    await request(app).delete('/api/v1/users/account').set('Authorization', b).send({ confirm: true, currentPassword: 'Learning2026!' }).expect(200);
     expect(await LearningEvent.countDocuments({ userId: userB })).toBe(0);
   });
 });

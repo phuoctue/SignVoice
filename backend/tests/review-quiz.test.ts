@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { Types } from 'mongoose';
@@ -15,8 +16,8 @@ beforeAll(async () => {
   await connectDatabase();
   app = await createApp();
   await Promise.all([ReviewQuiz.init(), TopicEnrollment.init(), WordProgress.init()]);
-  const first = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
-  const second = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const first = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
+  const second = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   userA = new Types.ObjectId(first.body.data.user.id); userB = new Types.ObjectId(second.body.data.user.id);
   a = `Bearer ${first.body.data.tokens.accessToken}`; b = `Bearer ${second.body.data.tokens.accessToken}`;
   const category = await Category.create({ name: 'Quiz ' + Date.now(), slug: 'quiz-' + Date.now(), status: 'ACTIVE' });

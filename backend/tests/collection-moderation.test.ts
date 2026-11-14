@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll,afterAll,it,expect,vi} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
@@ -21,7 +22,7 @@ beforeAll(async()=>{
   await connectDatabase();app=await createApp();await ensureLearningIndexes();await AuditLog.init();
   const actors=[];
   for(let i=0;i<6;i++){
-    const response=(await request(app).post('/api/v1/auth/guest').send({}).expect(201)).body.data;
+    const response=(await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201)).body.data;
     actors.push(response);
     if(i!==5)await User.updateOne({_id:response.user.id},{$set:{isGuest:false,displayName:i===0?'OWNER_PRIVATE_IDENTITY':i===1?'Nhân viên kiểm duyệt':'Người kiểm tra',role:i===1?UserRole.STAFF:i===2?UserRole.ADMIN:UserRole.USER}});
   }

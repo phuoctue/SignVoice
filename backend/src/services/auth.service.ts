@@ -13,6 +13,8 @@ import { assertSessionEpoch, loadSessionUser, sessionEpoch, userEpochFilter } fr
 import { assertChainDeadline, assertSessionChain, chainWriteConcern, createFreshChain, loadChainTransition, revokeSessionChain, tombstoneChain } from './session-chain.service';
 import { SessionChain } from '../models/SessionChain.model';
 import { authClock } from './auth-clock';
+import {GuestTrial} from '../models/GuestTrial.model';
+import {assertGuestDataRetained, concurrentGrantConflict, grantTrial, GuestGrantInput} from './guest-trial.service';
 
 /**
  * Registration data
@@ -251,34 +253,50 @@ export async function loginUser(
 /**
  * Create guest account
  */
-export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?: Types.ObjectId): Promise<IAuthResponse> {
+export async function grantGuestAccount(meta: IRequestMeta, input: GuestGrantInput): Promise<IAuthResponse> {
+  await GuestTrial.init();
+  try {
+    return await mongoose.connection.transaction(async transaction => {
+      const trial = await grantTrial(input, transaction);
+      return createGuestAccount(meta, trial._id, transaction, trial.startedAt);
+    }, {writeConcern: chainWriteConcern});
+  } catch (error) {
+    // Concurrent first inserts can hit the unique device index before Mongo retries.
+    if ((error as {code?: number; keyPattern?: {deviceHash?: number}}).code === 11000 &&
+        (error as {keyPattern?: {deviceHash?: number}}).keyPattern?.deviceHash) return concurrentGrantConflict(input);
+    throw error;
+  }
+}
+export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?: Types.ObjectId,
+  transaction?: ClientSession, guestGrantedAt?: Date): Promise<IAuthResponse> {
   await loadChainTransition();
   // Generate random display name
   const displayName = `Guest_${Date.now().toString(36)}`;
 
   // Create guest user
-  const user = await User.create({
+  const [user] = await User.create([{
     displayName,
     accountType: AccountType.GUEST,
     sessionRevocationEpoch: 0,
     guestTrialId,
+    guestGrantedAt,
     role: UserRole.USER,
     isGuest: true,
     lastLoginAt: new Date(),
     lastLoginIp: meta.ipAddress,
-  });
+  }], {session: transaction});
 
   // Create default settings
-  await UserSettings.create({ userId: user._id });
+  await UserSettings.create([{ userId: user._id }], {session: transaction});
 
   // Generate tokens
   const tokens = generateTokenPair(user._id, user.role);
 
   // Create auth sessions
-  await persistFreshPair(user, tokens, meta);
+  await persistFreshPair(user, tokens, meta, transaction);
 
   // Audit log
-  await AuditLog.log({
+  await AuditLog.create([{
     userId: user._id,
     actorRole: user.role,
     action: AuditAction.USER_REGISTER,
@@ -288,7 +306,7 @@ export async function createGuestAccount(meta: IRequestMeta = {}, guestTrialId?:
     details: { accountType: 'GUEST' },
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
-  });
+  }], {session: transaction});
 
   return {
     user: {
@@ -315,6 +333,7 @@ export async function convertGuestToPermanent(
   issueSession = true,
   callerSessionId?: Types.ObjectId
 ): Promise<IAuthResponse> {
+  await assertGuestDataRetained(userId);
   // Find guest user
   const user = await User.findById(userId).select('+sessionRevocationEpoch');
 
@@ -365,6 +384,7 @@ export async function convertGuestToPermanent(
         row.chainId !== caller.chainId) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
     assertSessionEpoch(caller, current);
     const {chain: callerChain} = await assertSessionChain(row, transaction);
+    await assertGuestDataRetained(userId, transaction);
     const guard = await AuthSession.updateOne({_id: row._id, status: SessionStatus.ACTIVE,
       chainId: row.chainId === undefined ? {$exists: false} : row.chainId,
       userEpoch: row.userEpoch === undefined ? {$exists: false} : row.userEpoch},
@@ -390,6 +410,8 @@ export async function convertGuestToPermanent(
     const transition = await loadChainTransition();
     if (callerChain) assertChainDeadline(callerChain, transition);
     else if (transition) throw new AppError('Session changed', 401, ErrorCodes.AUTH_SESSION_INVALID);
+    // The committed conversion must still be within the original guest data deadline.
+    await assertGuestDataRetained(userId);
   }, {writeConcern: chainWriteConcern});
   user.updatedAt = authClock.now();
 

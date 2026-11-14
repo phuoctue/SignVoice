@@ -10,6 +10,7 @@ import { Permission } from '../../models/Role.model';
 import { assertSessionEpoch, loadSessionUser } from '../../services/session-fence.service';
 import { assertSessionChain } from '../../services/session-chain.service';
 import { authClock } from '../../services/auth-clock';
+import {enforceGuestAccess} from './guest-trial.middleware';
 
 /**
  * Extend Express Request with user info
@@ -51,7 +52,11 @@ function extractBearerToken(req: Request): string | null {
  * Authenticate request - verify JWT and load user
  * Optional: allows unauthenticated requests to pass through
  */
-export async function authenticate(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
+  return authenticateRequest(req, res, next, false);
+}
+
+async function authenticateRequest(req: Request, _res: Response, next: NextFunction, enforceGuestPolicy: boolean): Promise<void> {
   try {
     const token = extractBearerToken(req);
     
@@ -110,9 +115,6 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       }
     }
 
-    // Update session last used time
-    await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
-    
     // Attach user info to request
     const authorization = await authorizationFor(user);
     req.user = {
@@ -122,7 +124,9 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     };
     req.authenticatedUser = user;
     req.sessionId = session._id;
-    
+    if (enforceGuestPolicy) await enforceGuestAccess(req);
+    // Rejected private requests must not touch even session metadata.
+    await AuthSession.updateOne({ _id: session._id }, { $set: { lastUsedAt: new Date() } });
     next();
   } catch (error) {
     next(error);
@@ -136,22 +140,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     res.setHeader('Cache-Control', 'no-store');
     // First run authenticate
-    await authenticate(req, res, (err) => {
-      if (err) {
-        return next(err);
-      }
-      
-      // Check if user is attached
-      if (!req.user) {
-        throw new AppError(
-          'Authentication required',
-          401,
-          ErrorCodes.AUTH_REQUIRED
-        );
-      }
-      
-      next();
+    await new Promise<void>((resolve, reject) => {
+      void authenticateRequest(req, res, err => err ? reject(err) : resolve(), true);
     });
+    if (!req.user) throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
+    next();
   } catch (error) {
     next(error);
   }

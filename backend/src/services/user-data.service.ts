@@ -13,21 +13,7 @@ import { TopicEnrollment, WordProgress, PersonalWord } from '../models/Learning.
 import { LearningEvent } from '../models/LearningEvent.model';
 import {NotificationDevice, UserNotification} from '../models/Notification.model';
 import {SignCollection,SignNote,CollectionReport} from '../models/SignCollection.model';
-import {AuthSession} from '../models/AuthSession.model';
-import {GuestTrial} from '../models/GuestTrial.model';
-
-export async function deleteGuestOnLogout(userId: Types.ObjectId) {
-  await userTransaction(userId, async session => {
-    const guest = await User.findOne({_id: userId, isGuest: true}).select('+guestTrialId').session(session);
-    if (!guest) throw new AppError('Tài khoản không còn là khách.', 409, 'NOT_GUEST');
-    await clearOwnedData(userId, session);
-    await AuthSession.deleteMany({userId}, {session});
-    await User.deleteOne({_id: userId, isGuest: true}, {session});
-    if (guest.guestTrialId && !await User.exists({guestTrialId: guest.guestTrialId}).session(session)) {
-      await GuestTrial.deleteOne({_id: guest.guestTrialId}, {session});
-    }
-  });
-}
+import {assertTrialActive} from './guest-trial.service';
 
 export const missing = () => new AppError('Không tìm thấy dữ liệu.', 404, 'NOT_FOUND');
 export async function safeUser(user: IUser) {
@@ -49,7 +35,11 @@ export async function userTransaction<T>(userId: Types.ObjectId, operation: (ses
   return mongoose.connection.transaction(async session => {
     const lock = await User.updateOne({_id: userId, status: AccountStatus.ACTIVE}, {$inc: {dataVersion: 1}}, {session});
     if (!lock.matchedCount) throw missing();
-    return operation(session);
+    const user = await User.findById(userId).select('isGuest').session(session);
+    if (user?.isGuest) await assertTrialActive(userId, session);
+    const result = await operation(session);
+    if (user?.isGuest) await assertTrialActive(userId, session);
+    return result;
   });
 }
 export async function clearOwnedData(userId: Types.ObjectId, session: ClientSession) {

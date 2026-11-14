@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll, afterAll, afterEach, describe, it, expect, vi} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
@@ -27,8 +28,8 @@ beforeAll(async()=>{
   writeFileSync(previewFilename,previewBytes,{flag:'wx'});
   await connectDatabase();app=await createApp();
   await Promise.all([ReviewQuiz.init(),TopicEnrollment.init(),WordProgress.init()]);
-  const a=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
-  const b=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const a=await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
+  const b=await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   owner=new Types.ObjectId(a.body.data.user.id);other=new Types.ObjectId(b.body.data.user.id);
   auth=`Bearer ${a.body.data.tokens.accessToken}`;otherAuth=`Bearer ${b.body.data.tokens.accessToken}`;
   const topic=await Category.create({name:'Recall '+Date.now(),slug:'recall-'+Date.now(),status:'ACTIVE'});topics.push(topic._id);

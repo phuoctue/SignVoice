@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import mongoose, { Types } from 'mongoose';
@@ -18,7 +19,7 @@ beforeAll(async () => {
   app = await createApp();
   const tokens = [];
   for (let i = 0; i < 3; i++) {
-    const response = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+    const response = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
     tokens.push(`Bearer ${response.body.data.tokens.accessToken}`);
     ownerIds.push(new Types.ObjectId(response.body.data.user.id));
   }

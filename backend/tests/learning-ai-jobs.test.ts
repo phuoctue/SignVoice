@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll,afterAll,afterEach,describe,it,expect,vi} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
@@ -21,7 +22,7 @@ afterAll(async()=>{
   await disconnectDatabase();
 });
 async function account(){
-  const r=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const r=await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   const id=new Types.ObjectId(r.body.data.user.id);owners.push(id);
   return {id,auth:`Bearer ${r.body.data.tokens.accessToken}`};
 }

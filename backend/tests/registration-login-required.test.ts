@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import {beforeAll, afterAll, it, expect} from 'vitest';
 import request from 'supertest';
 import {randomUUID} from 'crypto';
@@ -26,7 +27,7 @@ it('registration creates no active session or refresh cookie, and login is requi
 });
 
 it('guest conversion retains the account ID and revokes guest sessions until a new login', async () => {
-  const guest = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const guest = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   const data = account();
   const result = await request(app).post('/api/v1/auth/convert-guest')
     .set('Authorization',`Bearer ${guest.body.data.tokens.accessToken}`).send({...data,requireLogin:true}).expect(200);

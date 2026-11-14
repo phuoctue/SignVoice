@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
@@ -17,7 +18,7 @@ beforeAll(async () => {
 afterAll(async () => { await disconnectDatabase(); });
 async function account(local = true) {
   const response = await request(app).post('/api/v1/auth/' + (local ? 'register' : 'guest'))
-    .send(local ? {email: `completion-${Date.now()}-${sequence++}@example.com`, password, displayName: 'Verification User'} : {}).expect(201);
+    .send(local ? {email: `completion-${Date.now()}-${sequence++}@example.com`, password, displayName: 'Verification User'} : guestGrantBody()).expect(201);
   return response.body.data;
 }
 function client(user: any) {

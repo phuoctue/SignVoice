@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { Types } from 'mongoose';
@@ -16,8 +17,8 @@ const stamp = `learn-${Date.now()}`;
 beforeAll(async () => {
   await connectDatabase(); app = await createApp();
   await Promise.all([TopicEnrollment.init(), WordProgress.init(), PersonalWord.init()]);
-  const first = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
-  const second = await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const first = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
+  const second = await request(app).post('/api/v1/auth/guest').send(guestGrantBody()).expect(201);
   a = `Bearer ${first.body.data.tokens.accessToken}`; b = `Bearer ${second.body.data.tokens.accessToken}`;
   userA = new Types.ObjectId(first.body.data.user.id); userB = new Types.ObjectId(second.body.data.user.id);
   for (let i = 0; i < 12; i++) {

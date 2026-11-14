@@ -1,3 +1,4 @@
+import {guestGrantBody} from './guest-fixture';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
@@ -119,7 +120,7 @@ describe('Authentication', () => {
   describe('POST /api/v1/auth/guest', () => {
     it('should create guest account', async () => {
       const response = await request(app)
-        .post('/api/v1/auth/guest')
+        .post('/api/v1/auth/guest').send(guestGrantBody())
         .expect(201);
       
       expect(response.body.success).toBe(true);

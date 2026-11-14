@@ -1,3 +1,5 @@
+import {guestGrantBody} from './guest-fixture';
+import {Types} from 'mongoose';
 import {beforeAll, afterAll, describe, it, expect} from 'vitest';
 import request from 'supertest';
 import {randomBytes} from 'node:crypto';
@@ -15,7 +17,7 @@ beforeAll(async () => {
 });
 afterAll(disconnectDatabase);
 async function guest(deviceKey = randomBytes(32).toString('hex'), cookie?: string) {
-  let req = request(app).post('/api/v1/auth/guest').send({deviceKey});
+  let req = request(app).post('/api/v1/auth/guest').send({...guestGrantBody(), deviceKey});
   if (cookie) req = req.set('Cookie', cookie);
   const response = await req.expect(201);
   const data = response.body.data;
@@ -26,8 +28,7 @@ const auth = (a: any) => ({Authorization: 'Bearer ' + a.tokens.accessToken});
 const status = (a: any) => request(app).get('/api/v1/guest-trial/status').set(auth(a));
 const start = (a: any) => request(app).post('/api/v1/guest-trial/start').set(auth(a)).send({});
 async function expire(a: any) {
-  const user = await User.findById(a.user.id).select('+guestTrialId');
-  await GuestTrial.updateOne({_id: user!.guestTrialId}, {$set: {expiresAt: new Date(Date.now() - 1000)}});
+  await User.collection.updateOne({_id: new Types.ObjectId(a.user.id)}, {$set: {guestGrantedAt: new Date(Date.now() - 601000)}});
 }
 describe('Guest ten-minute allowance', () => {
   it('keeps the public catalog readable and requires authentication for trial/inference', async () => {
@@ -63,7 +64,7 @@ describe('Guest ten-minute allowance', () => {
     await request(app).get('/api/v1/learning/progress').set(auth(a)).expect(200);
     await request(app).get('/api/v1/sign-collections').set(auth(a)).expect(403);
     await expire(a);
-    await request(app).get('/api/v1/learning/topics/' + category.id).set(auth(a)).expect(200);
+    await request(app).get('/api/v1/learning/topics/' + category.id).set(auth(a)).expect(403);
     await request(app).get('/api/v1/learning/topics/' + category.id + '?stage=LEARNING').set(auth(a)).expect(403);
     await request(app).post('/api/v1/learning/topics/' + category.id + '/start').set(auth(a)).send({}).expect(403);
     await request(app).get('/api/v1/learning/history').set(auth(a)).expect(403);
@@ -79,40 +80,39 @@ describe('Guest ten-minute allowance', () => {
     await request(app).post('/api/v1/guest-trial/ai-ticket').set(auth(a)).expect(403);
     await request(app).get('/api/v1/auth/me').set(auth(a)).expect(200);
     await request(app).get('/api/v1/learning/progress').set(auth(a)).expect(403);
-    await request(app).get('/api/v1/learning/topics').set(auth(a)).expect(200);
+    await request(app).get('/api/v1/learning/topics').set(auth(a)).expect(403);
     await request(app).get('/api/v1/sign-collections').set(auth(a)).expect(403);
     await request(app).get('/api/v1/learning/my-words').set(auth(a)).expect(403);
     await request(app).get('/api/v1/dictionary?limit=1').expect(200);
   });
-  it('grants a fresh allowance for an explicit new guest while preserving the old expiry', async () => {
+  it('rejects the old newGuest bypass without another User or trial', async () => {
     const old = await guest(); await expire(old);
-    const fresh = await request(app).post('/api/v1/auth/guest')
-      .set('Cookie', old.cookie).send({deviceKey: old.deviceKey, newGuest: true}).expect(201);
-    const next = fresh.body.data;
-    expect(next.user.id).not.toBe(old.user.id);
-    expect((await status(next)).body.data.remainingSeconds).toBeGreaterThan(590);
+    const before = await GuestTrial.countDocuments();
+    await request(app).post('/api/v1/auth/guest')
+      .set('Cookie', old.cookie).send({deviceKey: old.deviceKey, newGuest: true}).expect(400);
+    expect(await GuestTrial.countDocuments()).toBe(before);
     expect((await status(old)).body.data.state).toBe('expired');
   });
-  it('deletes the guest and owned data on logout and permits a fresh allowance', async () => {
+  it('revokes only the session on logout and preserves owned data and cooldown', async () => {
     const a = await guest(); await start(a); await expire(a);
     await Conversation.create({userId: a.user.id, content: 'Temporary guest data', direction: 'TEXT'});
+    const before = await GuestTrial.find().lean();
     await request(app).post('/api/v1/auth/logout').set(auth(a)).expect(200);
-    expect(await User.findById(a.user.id)).toBeNull();
-    expect(await UserSettings.countDocuments({userId: a.user.id})).toBe(0);
-    expect(await AuthSession.countDocuments({userId: a.user.id})).toBe(0);
-    expect(await Conversation.countDocuments({userId: a.user.id})).toBe(0);
+    expect(await User.findById(a.user.id)).not.toBeNull();
+    expect(await UserSettings.countDocuments({userId: a.user.id})).toBe(1);
+    expect(await Conversation.countDocuments({userId: a.user.id})).toBe(1);
+    expect(await GuestTrial.find().lean()).toEqual(before);
     await request(app).get('/api/v1/auth/me').set(auth(a)).expect(401);
-    const native = await guest(a.deviceKey);
-    expect((await status(native)).body.data.state).toBe('active');
-    const browser = await guest(randomBytes(32).toString('hex'), a.cookie);
-    expect((await status(browser)).body.data.state).toBe('active');
+    await request(app).post('/api/v1/auth/guest').send({...guestGrantBody(), deviceKey: a.deviceKey}).expect(409);
+    await request(app).post('/api/v1/auth/guest').set('Cookie', a.cookie).send(guestGrantBody()).expect(409);
   });
-  it('binds pre-existing guest accounts to the persistent device allowance', async () => {
-    const spent = await guest(); await start(spent); await expire(spent);
+  it('never binds an unbound legacy guest by a supplied device identity', async () => {
+    const spent = await guest(); await expire(spent);
     const old = await guest();
-    await User.updateOne({_id: old.user.id}, {$unset: {guestTrialId: ''}});
+    await User.collection.updateOne({_id: new Types.ObjectId(old.user.id)}, {$unset: {guestTrialId: '', guestGrantedAt: ''}});
     const response = await request(app).get('/api/v1/guest-trial/status').query({deviceKey: spent.deviceKey}).set(auth(old)).expect(200);
-    expect(response.body.data.state).toBe('expired');
+    expect(response.body.data.dataState).toBe('legacy_unknown');
+    expect((await User.findById(old.user.id).select('+guestTrialId'))!.guestTrialId).toBeUndefined();
   });
   it('requires a personal account for saving, then unlocks after conversion without losing old data', async () => {
     const a = await guest(); await start(a); await expire(a);

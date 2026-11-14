@@ -6,6 +6,7 @@ import { ErrorCodes } from '../common/errors/errorCodes';
 import { z } from 'zod';
 import { validate } from '../common/middlewares/validate.middleware';
 import { offsetQuery } from '../validation/user-data.validation';
+import {userTransaction} from '../services/user-data.service';
 
 const router = Router();
 
@@ -56,7 +57,7 @@ router.delete('/', async (req: Request, res: Response, next: NextFunction) => {
       throw new AppError('Authentication required', 401, ErrorCodes.AUTH_REQUIRED);
     }
     
-    const result = await SearchHistory.deleteMany({ userId: req.user.id });
+    const result = await userTransaction(req.user.id, session => SearchHistory.deleteMany({userId: req.user!.id}, {session}).exec());
     
     res.status(200).json({
       success: true,

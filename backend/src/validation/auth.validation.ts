@@ -1,6 +1,12 @@
 import { z } from 'zod';
 export const guestDeviceFields = z.object({deviceKey: z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict();
 export const guestSchema = z.object({body: guestDeviceFields.extend({newGuest: z.boolean().optional()}).default({})});
+export const guestGrantSchema = z.object({body: guestDeviceFields.extend({
+  requestKey: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  expectedLastGrantAt: z.string().datetime({offset: true}).nullable(),
+  confirmDiscard: z.boolean().optional(),
+  expectedDataVersion: z.number().int().nonnegative().safe().optional(),
+})});
 
 /**
  * Password validation schema
