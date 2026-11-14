@@ -1,15 +1,110 @@
-const { MongoMemoryReplSet } = require('mongodb-memory-server-core');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 
-(async () => {
-  const db = await MongoMemoryReplSet.create({instanceOpts: [{ip: '127.0.0.1'}],
-    replSet: {count: 1, storageEngine: 'wiredTiger', ip: '127.0.0.1'}, binary: {version: '7.0.24'}});
+// Strip application credentials/config before loading MongoDB or starting any child.
+const allowed = new Set(['SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATH', 'PATHEXT', 'TEMP', 'TMP',
+  'USERPROFILE', 'HOME', 'LOCALAPPDATA', 'APPDATA', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']);
+const isolated = Object.fromEntries(Object.entries(process.env).filter(([key]) => allowed.has(key.toUpperCase())));
+if (process.env.MONGOMS_SYSTEM_BINARY) isolated.MONGOMS_SYSTEM_BINARY = process.env.MONGOMS_SYSTEM_BINARY;
+Object.assign(isolated, { NODE_ENV: 'test', MONGOMS_RUNTIME_DOWNLOAD: 'false', MONGOMS_VERSION: '7.0.24' });
+process.env = isolated;
+const { MongoMemoryReplSet } = require('mongodb-memory-server-core');
+const root = path.resolve(__dirname, '..');
+const scratch = mkdtempSync(path.join(tmpdir(), 'signvoice-test-'));
+const id = randomUUID().replace(/-/g, '').slice(0, 24);
+Object.assign(isolated, {
+  SIGNVOICE_ENV_FILE: path.join(scratch, 'dummy-config'),
+  JWT_ACCESS_SECRET: 'isolated-test-access-secret-at-least-32-chars',
+  JWT_REFRESH_SECRET: 'isolated-test-refresh-secret-at-least-32-chars',
+  SESSION_CHAIN_MODE: 'compat', SESSION_CHAIN_CONTROL_DB: `signvoice_test_control_${id}`,
+  SESSION_CHAIN_CONTROL_COLLECTION: 'transitions',
+});
+writeFileSync(isolated.SIGNVOICE_ENV_FILE, '');
+const db = new MongoMemoryReplSet({instanceOpts: [{ip: '127.0.0.1', launchTimeout: 30000}],
+  replSet: {count: 1, storageEngine: 'wiredTiger', ip: '127.0.0.1'}, binary: {version: '7.0.24'}});
+let child;
+let stopping = false;
+let unexpectedMongoExit = false;
+const mongoExits = [];
+db.on('stateChange', (state, error) => {
+  console.error('[isolated mongo] state', state, error || '');
+});
+async function bounded(operation, milliseconds, label) {
+  let timer;
   try {
-    const uri = db.getUri('signvoice_test_isolated');
-    const child = spawn(process.execPath, [path.resolve('node_modules/vitest/vitest.mjs'), 'run', ...process.argv.slice(2)],
-      {stdio: 'inherit', env: {...process.env, TEST_MONGODB_URI: uri, NODE_ENV: 'test'}});
-    const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
-    process.exitCode = code ?? 1;
-  } finally { await db.stop(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+async function finish(code) {
+  if (stopping) return;
+  stopping = true;
+  clearTimeout(deadline);
+  // A hung child/Mongo teardown must not leave the test command waiting indefinitely.
+  const teardown = setTimeout(() => { console.error('Isolated test teardown timed out'); process.exit(1); }, 60000);
+  try {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {timeout: 5000, stdio: 'ignore'});
+      else process.kill(-child.pid, 'SIGKILL');
+    }
+    // Bound the helper's shutdown command without racing its own process-exit listeners.
+    for (const server of db.servers) {
+      const instance = server.instanceInfo?.instance;
+      if (instance) instance.extraConnectionOptions = {...instance.extraConnectionOptions,
+        socketTimeoutMS: 5000, connectTimeoutMS: 5000};
+    }
+    if (await bounded(db.stop({doCleanup: false}), 25000, 'MongoDB stop') === false) {
+      throw new Error('Unable to stop disposable MongoDB');
+    }
+    process.exitCode = unexpectedMongoExit ? 1 : code;
+  } catch (error) { console.error(error); process.exitCode = 1; }
+  finally {
+    // Windows can report termination before the heavy full-suite process actually exits.
+    try {
+      if (db.servers.some(server => server.instanceInfo?.instance.mongodProcess)) {
+        await bounded(Promise.all(mongoExits), 15000, 'MongoDB exit');
+        await bounded(db.stop({doCleanup: false}), 5000, 'MongoDB final stop');
+      }
+    } catch (error) { console.error(error); process.exitCode = 1; }
+    try { await bounded(db.cleanup({doCleanup: true, force: true}), 10000, 'MongoDB cleanup'); }
+    catch (error) { console.error(error); process.exitCode = 1; }
+    finally {
+      try { rmSync(scratch, {recursive: true, force: true}); }
+      catch (error) { console.error(error); process.exitCode = 1; }
+      clearTimeout(teardown);
+    }
+  }
+}
+const deadline = setTimeout(() => { console.error('Isolated tests exceeded 900 seconds'); void finish(1); }, 900000);
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void finish(1); });
+(async () => {
+  await db.start();
+  for (const server of db.servers) {
+    const instance = server.instanceInfo.instance;
+    console.error('[isolated mongo] started', instance.mongodProcess.pid, server.instanceInfo.dbPath, scratch);
+    instance.on('instanceError', error => console.error('[isolated mongo] instanceError', error));
+    instance.on('instanceClosed', (code, signal) => console.error('[isolated mongo] instanceClosed', {code, signal, stopping}));
+    instance.on('instanceSTDOUT', line => {
+      if (/shut.?down|terminat|fatal|signal/i.test(line)) console.error('[isolated mongo] output', line.trim());
+    });
+    mongoExits.push(new Promise(resolve => instance.mongodProcess.once('exit', (code, signal) => {
+      if (!stopping) unexpectedMongoExit = true;
+      console.error('[isolated mongo] exit', {code, signal, stopping});
+      resolve();
+    })));
+  }
+  if (stopping) return;
+  isolated.TEST_MONGODB_URI = db.getUri(`signvoice_test_app_${id}`);
+  child = spawn(process.execPath, [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run',
+    '--maxWorkers=2', '--minWorkers=1', '--no-cache', ...process.argv.slice(2)],
+  {cwd: root, stdio: 'inherit', env: isolated, detached: process.platform !== 'win32'});
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', code => resolve(code ?? 1));
+  });
+  await finish(code);
+})().catch(async error => { console.error(error); await finish(1); });

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import dotenv from 'dotenv';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -146,6 +146,7 @@ describe('production launchers (no server execution)', () => {
     const script = path.join(scripts, 'start-public-server.ps1');
     writeFileSync(script, source);
     const expectedFile = path.join(scratch, 'backend', noTunnel ? '.env' : '.env.production.local');
+    mkdirSync(path.dirname(expectedFile), { recursive: true });
     const decoyFile = path.join(scratch, 'backend', noTunnel ? '.env.production.local' : '.env');
     const probe = path.join(scratch, `launcher-probe-${noTunnel}.ps1`);
     // Virtual existence fixtures prove no fallback without opening any .env file.
@@ -169,7 +170,12 @@ describe('production launchers (no server execution)', () => {
       { cwd: scratch, encoding: 'utf8', timeout: 15000 });
     expect(result.status).toBe(1);
     expect(result.stdout + result.stderr).toMatch(noTunnel ? /Missing backend\/\.env\./ : /Missing.*production/);
-    expect(JSON.parse(result.stdout.match(/^LOOKUPS=(.*)$/m)![1])).toEqual([expectedFile]);
+    const lookups: string[] = JSON.parse(result.stdout.match(/^LOOKUPS=(.*)$/m)![1]);
+    expect(lookups).toHaveLength(1);
+    expect(path.basename(lookups[0])).toBe(path.basename(expectedFile));
+    // Native realpath expands Windows 8.3 aliases on the existing parent, never the virtual file.
+    expect(realpathSync.native(path.dirname(lookups[0])))
+      .toBe(realpathSync.native(path.dirname(expectedFile)));
     expect(source).toMatch(/\$env:SIGNVOICE_ENV_FILE\s*=\s*\$envFile/);
     expect(source).toMatch(/\$env:NODE_ENV\s*=\s*if\s*\(\$NoTunnel\)\s*\{\s*'development'\s*\}\s*else\s*\{\s*'production'/);
     expect(source.indexOf("require('./dist/config/env.js').validateEnv()"))

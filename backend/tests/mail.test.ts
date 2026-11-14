@@ -18,14 +18,23 @@ describe('Gmail SMTP configuration',()=>{
     const create = vi.spyOn(nodemailer,'createTransport').mockReturnValue({sendMail} as any);
     const token='a'.repeat(64);
     await sendPasswordResetEmail('recipient@example.com',token);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({host:'smtp.gmail.com',port,secure,requireTLS:!secure,auth:{user:'sender@gmail.com',pass:'abcdefghijklmnop'}}));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({host:'smtp.gmail.com',port,secure,requireTLS:!secure,auth:{user:'sender@gmail.com',pass:'abcdefghijklmnop'},
+      connectionTimeout:10000,greetingTimeout:10000,socketTimeout:15000,disableFileAccess:true,disableUrlAccess:true}));
     const message = sendMail.mock.calls[0][0];
     expect(message.to).toBe('recipient@example.com');
-    const link = message.text.match(/https:\/\/[^\s]+/)[0];
-    const url = new URL(link);
-    expect(url.search).toBe('');
-    expect(url.hash).toBe(`#/reset-password?token=${token}`);
+    const links = (message.text.match(/https:\/\/[^\s]+/g) as string[]).map(link => new URL(link));
+    expect(links).toHaveLength(2);
+    const native = links.find(url => url.pathname === '/auth/reset-password')!;
+    const browser = links.find(url => url.pathname === '/')!;
+    for (const url of [native, browser]) {
+      expect(url.origin).toBe('https://public.conveyor.cloud');
+      expect(url.search).toBe('');
+      expect(message.html).toContain(`href="${url.toString()}"`);
+    }
+    expect(native.hash).toBe(`#token=${token}`);
+    expect(browser.hash).toBe(`#/reset-password?token=${token}`);
     expect(message.text).toContain('15 phút');
+    expect(message.html).toContain('15 phút');
   });
 
   it('rejects missing credentials or a mismatched secure port',()=>{

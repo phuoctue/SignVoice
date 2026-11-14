@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "test": "vitest run",
+    "test": "node scripts/test-isolated.cjs",
     "test:isolated": "node scripts/test-isolated.cjs",
     "qa:local": "node scripts/qa-local.cjs",
     "preqa:local": "npm run build",
