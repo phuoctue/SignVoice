@@ -1,4 +1,4 @@
-import {beforeAll,afterAll,describe,it,expect} from 'vitest';
+import {beforeAll,beforeEach,afterAll,describe,it,expect} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
 import {randomBytes} from 'node:crypto';
@@ -28,8 +28,24 @@ beforeAll(async()=>{
     const file=path.join(media,name);writeFileSync(file,Buffer.from([255,216,255,1]),{flag:'wx'});files.push(file);
   }
   author=(await User.create({email:'library-sync-'+Date.now()+'@example.test',displayName:'Sync author',role:'ADMIN',accountType:'LOCAL',status:'ACTIVE',passwordHash:'test-only'}))._id;
-  const user=await request(app).post('/api/v1/auth/guest').send({}).expect(201);owner=new Types.ObjectId(user.body.data.user.id);auth=`Bearer ${user.body.data.tokens.accessToken}`;
+  const user=await request(app).post('/api/v1/auth/register').send({email:'library-owner@example.test',password:'Fixture1234',displayName:'Library owner'}).expect(201);
+  expect(user.body.data.user.isGuest).toBe(false);owner=new Types.ObjectId(user.body.data.user.id);auth=`Bearer ${user.body.data.tokens.accessToken}`;
 });
+beforeEach(async()=>{
+  await DictionaryEntry.deleteMany({createdBy:author});await LibraryRevision.deleteOne({_id:'dictionary'});
+  for(const model of [SignCollection,SignNote,ReviewQuiz,WordProgress,TopicEnrollment,LearningEvent])await model.deleteMany({userId:owner});
+  await importReferenceRows([row(word,clipA)],'http://localhost',author,{syncRemoved:true});
+  entry=(await DictionaryEntry.findOne({word}))!._id;
+  initialRevision=(await request(app).get('/api/v1/library/version').expect(200)).body.data.revision;
+  collection=(await request(app).post('/api/v1/sign-collections').set('Authorization',auth).send({name:'Bộ dùng media đồng bộ'}).expect(201)).body.data._id;
+  await request(app).post('/api/v1/sign-collections/'+collection+'/entries').set('Authorization',auth).send({entryIds:[String(entry)]}).expect(200);
+});
+async function prepareHistory() {
+  completed=(await request(app).post('/api/v1/sign-collections/'+collection+'/quiz').set('Authorization',auth).send({}).expect(200)).body.data._id;
+  await request(app).post('/api/v1/learning/quizzes/'+completed+'/check').set('Authorization',auth).send({entryId:String(entry),answer:word}).expect(200);
+  await request(app).post('/api/v1/learning/quizzes/'+completed+'/submit').set('Authorization',auth).send({}).expect(200);
+  draft=(await request(app).post('/api/v1/sign-collections/'+collection+'/quiz').set('Authorization',auth).send({}).expect(200)).body.data._id;
+}
 afterAll(async()=>{
   for(const file of files)unlinkSync(file);
   await DictionaryEntry.deleteMany({createdBy:author});await LibraryRevision.deleteOne({_id:'dictionary'});
@@ -43,14 +59,9 @@ describe('Canonical media package synchronization',()=>{
     const version=await request(app).get('/api/v1/library/version').expect(200);
     initialRevision=version.body.data.revision;expect(initialRevision).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(version.body)).not.toContain(String(author));
-    collection=(await request(app).post('/api/v1/sign-collections').set('Authorization',auth).send({name:'Bộ dùng media đồng bộ'}).expect(201)).body.data._id;
-    await request(app).post('/api/v1/sign-collections/'+collection+'/entries').set('Authorization',auth).send({entryIds:[String(entry)]}).expect(200);
-    completed=(await request(app).post('/api/v1/sign-collections/'+collection+'/quiz').set('Authorization',auth).send({}).expect(200)).body.data._id;
-    await request(app).post('/api/v1/learning/quizzes/'+completed+'/check').set('Authorization',auth).send({entryId:String(entry),answer:word}).expect(200);
-    await request(app).post('/api/v1/learning/quizzes/'+completed+'/submit').set('Authorization',auth).send({}).expect(200);
-    draft=(await request(app).post('/api/v1/sign-collections/'+collection+'/quiz').set('Authorization',auth).send({}).expect(200)).body.data._id;
   });
   it('updates live media everywhere while retaining IDs, notes, progress and historical grades',async()=>{
+    await prepareHistory();
     await SignNote.create({userId:owner,entryId:entry,text:'Keep my note'});
     const progress=await WordProgress.findOne({userId:owner,entryId:entry});
     await importReferenceRows([row(word,clipB)],'http://localhost',author,{syncRemoved:true});
@@ -66,6 +77,7 @@ describe('Canonical media package synchronization',()=>{
     const version=await request(app).get('/api/v1/library/version').expect(200);expect(version.body.data.revision).not.toBe(initialRevision);
   });
   it('does not expire a draft when the same package is imported again',async()=>{
+    await importReferenceRows([row(word,clipB)],'http://localhost',author,{syncRemoved:true});
     const current=(await request(app).post('/api/v1/sign-collections/'+collection+'/quiz').set('Authorization',auth).send({}).expect(200)).body.data;
     const version=(await request(app).get('/api/v1/library/version')).body.data.revision;
     await importReferenceRows([row(word,clipB)],'http://localhost',author,{syncRemoved:true});

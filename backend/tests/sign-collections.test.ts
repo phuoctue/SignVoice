@@ -1,4 +1,4 @@
-import {beforeAll,afterAll,describe,it,expect,vi} from 'vitest';
+import {beforeAll,beforeEach,afterAll,describe,it,expect,vi} from 'vitest';
 import request from 'supertest';
 import {Types} from 'mongoose';
 import {connectDatabase,disconnectDatabase} from '../src/config/database';
@@ -12,23 +12,39 @@ import {ensureLearningIndexes} from '../src/services/learning-indexes.service';
 import {clearOwnedData,userTransaction} from '../src/services/user-data.service';
 
 let app:Awaited<ReturnType<typeof createApp>>,owner:Types.ObjectId,other:Types.ObjectId;
-let auth:string,otherAuth:string,id:string,code:string;
+let auth:string,otherAuth:string,guestAuth:string,guest:Types.ObjectId,id:string,code:string;
 const topics:Types.ObjectId[]=[],entries:Types.ObjectId[]=[];
 const base='/api/v1/sign-collections';
 beforeAll(async()=>{
   await connectDatabase();app=await createApp();await ReviewQuiz.init();
   await ReviewQuiz.collection.createIndex({userId:1,topicId:1},{name:'userId_1_topicId_1',unique:true,partialFilterExpression:{status:'DRAFT'}});
   await ensureLearningIndexes();await Promise.all([WordProgress.init(),TopicEnrollment.init()]);
-  const a=await request(app).post('/api/v1/auth/guest').send({}).expect(201),b=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const a=await request(app).post('/api/v1/auth/register').send({email:'collections-owner@example.test',password:'Fixture1234',displayName:'Owner'}).expect(201),
+    b=await request(app).post('/api/v1/auth/register').send({email:'collections-other@example.test',password:'Fixture1234',displayName:'Other'}).expect(201);
+  const trial=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  guest=new Types.ObjectId(trial.body.data.user.id);guestAuth=`Bearer ${trial.body.data.tokens.accessToken}`;
+  expect(a.body.data.user.isGuest).toBe(false);expect(b.body.data.user.isGuest).toBe(false);
   owner=new Types.ObjectId(a.body.data.user.id);other=new Types.ObjectId(b.body.data.user.id);
   auth=`Bearer ${a.body.data.tokens.accessToken}`;otherAuth=`Bearer ${b.body.data.tokens.accessToken}`;
   for(let i=0;i<3;i++)topics.push((await Category.create({name:'Collection QA '+i,slug:'collection-qa-'+Date.now()+'-'+i,status:i===2?'ARCHIVED':'ACTIVE'}))._id);
   for(let i=0;i<14;i++)entries.push((await DictionaryEntry.create({word:'Ký hiệu '+String(i).padStart(2,'0'),definition:'Nghĩa đã duyệt '+i,
     categoryId:topics[i===13?2:i%2],createdBy:owner,status:i===12?'DRAFT':'PUBLISHED',videoUrl:'https://example.com/'+i+'.mp4'}))._id);
 });
+beforeEach(async()=>{
+  vi.restoreAllMocks();
+  for(const model of [SignCollection,SignNote,ReviewQuiz,WordProgress,TopicEnrollment,LearningEvent])await model.deleteMany({userId:{$in:[owner,other]}});
+  await DictionaryEntry.updateOne({_id:entries[0]},{$set:{videoUrl:'https://example.com/0.mp4'}});
+  await DictionaryEntry.updateOne({_id:entries[11]},{$set:{status:'PUBLISHED'}});
+  const collection=await SignCollection.create({userId:owner,name:'Đi khám bệnh',description:'Bộ kết hợp nhiều chủ đề.',entryIds:entries.slice(0,12)});
+  id=String(collection._id);code='';
+});
+async function importCopy() {
+  code=(await request(app).post(base+'/'+id+'/share').set('Authorization',auth).send({enabled:true}).expect(200)).body.data.shareCode;
+  await request(app).post(base+'/import').set('Authorization',otherAuth).send({code}).expect(200);
+}
 afterAll(async()=>{
   await DictionaryEntry.deleteMany({_id:{$in:entries}});await Category.deleteMany({_id:{$in:topics}});
-  for(const userId of [owner,other])for(const model of [SignCollection,SignNote,ReviewQuiz,WordProgress,TopicEnrollment,LearningEvent,AuthSession,UserSettings,User])await model.collection.deleteMany(model===User?{_id:userId}:{userId});
+  for(const userId of [owner,other,guest])for(const model of [SignCollection,SignNote,ReviewQuiz,WordProgress,TopicEnrollment,LearningEvent,AuthSession,UserSettings,User])await model.collection.deleteMany(model===User?{_id:userId}:{userId});
   await disconnectDatabase();
 });
 describe('Sign collections',()=>{
@@ -43,6 +59,11 @@ describe('Sign collections',()=>{
   });
   it('requires authentication, validates inputs and never accepts a supplied owner',async()=>{
     await request(app).get(base).expect(401);
+    await request(app).get(base).set('Authorization',guestAuth).expect(403);
+    await request(app).post(base).set('Authorization',guestAuth).send({name:'Guest collection'}).expect(403);
+    await request(app).post(base+'/import').set('Authorization',guestAuth).send({code:'a'.repeat(32)}).expect(403);
+    await request(app).put('/api/v1/sign-notes/'+entries[0]).set('Authorization',guestAuth).send({text:'Guest note'}).expect(403);
+    await SignCollection.deleteMany({userId:owner});
     await request(app).post(base).set('Authorization',auth).send({name:' '}).expect(400);
     await request(app).post(base).set('Authorization',auth).send({name:'Riêng',userId:String(other)}).expect(400);
     const created=await request(app).post(base).set('Authorization',auth).send({name:'Đi khám bệnh',description:'Bộ kết hợp nhiều chủ đề.'}).expect(201);
@@ -53,6 +74,7 @@ describe('Sign collections',()=>{
     await request(app).post(base+'/'+id+'/share').set('Authorization',otherAuth).send({enabled:true}).expect(404);
   });
   it('adds dictionary references idempotently and excludes unpublished/inactive entries',async()=>{
+    await SignCollection.updateOne({_id:id},{$set:{entryIds:[]}});
     await request(app).post(base+'/'+id+'/entries').set('Authorization',auth).send({entryIds:[String(entries[12])]}).expect(409);
     await request(app).post(base+'/'+id+'/entries').set('Authorization',auth).send({entryIds:[String(entries[13])]}).expect(409);
     const ids=entries.slice(0,12).map(String);
@@ -82,6 +104,7 @@ describe('Sign collections',()=>{
     expect(await SignNote.countDocuments({userId:owner,entryId:entries[0]})).toBe(1);
   });
   it('shares only public dictionary content and imports an independent copy, once',async()=>{
+    await SignNote.create({userId:owner,entryId:entries[0],text:'Ghi chú riêng không được chia sẻ.'});
     const shared=await request(app).post(base+'/'+id+'/share').set('Authorization',auth).send({enabled:true}).expect(200);code=shared.body.data.shareCode;
     expect(code).toMatch(/^[a-f0-9]{32}$/);
     const repeated=await request(app).post(base+'/'+id+'/share').set('Authorization',auth).send({enabled:true}).expect(200);expect(repeated.body.data.shareCode).toBe(code);
@@ -96,6 +119,7 @@ describe('Sign collections',()=>{
     expect(await SignNote.countDocuments({userId:other})).toBe(0);
   });
   it('revokes sharing and live references follow media changes in owner and imported collections',async()=>{
+    await importCopy();
     await DictionaryEntry.updateOne({_id:entries[0]},{$set:{videoUrl:'https://example.com/updated.mp4'}});
     const mine=await request(app).get(base+'/'+id).set('Authorization',auth).expect(200);expect(mine.body.data.items[0].videoUrl).toContain('updated');
     const copy=await SignCollection.findOne({userId:other});
@@ -106,6 +130,7 @@ describe('Sign collections',()=>{
     expect(await SignCollection.countDocuments({userId:other})).toBe(1);
   });
   it('reviews mixed-topic collections, reuses progress and applies results only once',async()=>{
+    await WordProgress.create({userId:owner,entryId:entries[0],topicId:topics[0],stage:'REVIEW'});
     const started=await request(app).post(base+'/'+id+'/quiz').set('Authorization',auth).send({}).expect(200),quiz=started.body.data;
     expect(quiz.collectionId).toBe(id);expect(quiz).not.toHaveProperty('topicId');expect(quiz.questions).toHaveLength(10);
     expect(JSON.stringify(quiz)).not.toContain('Nghĩa đã duyệt');
@@ -138,13 +163,13 @@ describe('Sign collections',()=>{
     const detail=await request(app).get(base+'/'+id+'?search=11').set('Authorization',auth).expect(200);expect(detail.body.data.items).toHaveLength(0);
   });
   it('discovers only explicitly published collections and removes listings without exposing private state',async()=>{
-    await request(app).post(base+'/'+id+'/discovery').set('Authorization',auth).send({enabled:true}).expect(403);
-    await User.updateOne({_id:owner},{$set:{isGuest:false}});
+    await importCopy();
+    await request(app).post(base+'/'+id+'/discovery').set('Authorization',guestAuth).send({enabled:true}).expect(403);
     const before=await request(app).get('/api/v1/shared-collections').expect(200);
     expect(before.body.data.items).toEqual([]);
     const empty=(await request(app).post(base).set('Authorization',auth).send({name:'Bộ rỗng'}).expect(201)).body.data;
     await request(app).post(base+'/'+empty._id+'/discovery').set('Authorization',auth).send({enabled:true}).expect(409);
-    await request(app).post(base+'/'+id+'/discovery').set('Authorization',otherAuth).send({enabled:true}).expect(403);
+    await request(app).post(base+'/'+id+'/discovery').set('Authorization',otherAuth).send({enabled:true}).expect(404);
     await request(app).post(base+'/'+id+'/discovery').set('Authorization',auth).send({enabled:true,owner:String(other)}).expect(400);
     const published=(await request(app).post(base+'/'+id+'/discovery').set('Authorization',auth).send({enabled:true}).expect(200)).body.data;
     expect(published.discoverable).toBe(true);expect(published.shareCode).toMatch(/^[a-f0-9]{32}$/);
@@ -169,6 +194,7 @@ describe('Sign collections',()=>{
     expect(JSON.stringify(explain)).toContain('IXSCAN');
   });
   it('limits collection size and account count, removes owned data without deleting dictionary words',async()=>{
+    await SignNote.create({userId:owner,entryId:entries[0],text:'Ghi chú riêng không được chia sẻ.'});
     const exported=await request(app).get('/api/v1/users/data/export').set('Authorization',auth).expect(200);
     expect(exported.body.data.signCollections.some((row:any)=>row._id===id)).toBe(true);
     expect(exported.body.data.signNotes.some((row:any)=>row.entryId===String(entries[0]))).toBe(true);

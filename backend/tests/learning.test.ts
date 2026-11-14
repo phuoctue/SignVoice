@@ -10,6 +10,7 @@ import { LearningEvent } from '../src/models/LearningEvent.model';
 
 let app: Awaited<ReturnType<typeof createApp>>;
 let a: string, b: string, userA: Types.ObjectId, userB: Types.ObjectId;
+const privateUsers: Types.ObjectId[] = [];
 const topics: Types.ObjectId[] = [], entries: Types.ObjectId[] = [];
 const stamp = `learn-${Date.now()}`;
 beforeAll(async () => {
@@ -35,7 +36,7 @@ afterAll(async () => {
   vi.restoreAllMocks();
   await DictionaryEntry.deleteMany({ categoryId: { $in: topics } });
   await Category.deleteMany({ _id: { $in: topics } });
-  for (const userId of [userA, userB]) {
+  for (const userId of [userA, userB, ...privateUsers]) {
     if (!userId) continue;
     for (const model of [TopicEnrollment, WordProgress, PersonalWord, LearningEvent]) await model.collection.deleteMany({ userId });
     await AuthSession.deleteMany({ userId }); await UserSettings.deleteMany({ userId }); await User.deleteOne({ _id: userId });
@@ -100,20 +101,32 @@ describe('Dictionary learning', () => {
     expect(search.body.data.items).toHaveLength(0);
   });
   it('stores private words, examples, images and ownership checks', async () => {
+    await request(app).post('/api/v1/learning/my-words').set('Authorization', a).send({ word: 'Guest private', definition: 'Forbidden' }).expect(403);
+    const owner = await request(app).post('/api/v1/auth/register').send({ email: 'learning-private-owner@example.test', password: 'Fixture1234', displayName: 'Private owner' }).expect(201);
+    const other = await request(app).post('/api/v1/auth/register').send({ email: 'learning-private-other@example.test', password: 'Fixture1234', displayName: 'Private other' }).expect(201);
+    expect(owner.body.data.user.isGuest).toBe(false); expect(other.body.data.user.isGuest).toBe(false);
+    const ownAuth = `Bearer ${owner.body.data.tokens.accessToken}`, foreignAuth = `Bearer ${other.body.data.tokens.accessToken}`;
+    const ownerId = new Types.ObjectId(owner.body.data.user.id), otherId = new Types.ObjectId(other.body.data.user.id);
+    privateUsers.push(ownerId, otherId);
     let id = '';
     for (let i = 0; i < 11; i++) {
-      const created = await request(app).post('/api/v1/learning/my-words').set('Authorization', a).send({ word: `Từ riêng ${i}`, definition: 'Ý nghĩa riêng', usageExample: 'Ví dụ của tôi', imageUrl: 'https://example.com/sign.jpg' }).expect(201);
+      const created = await request(app).post('/api/v1/learning/my-words').set('Authorization', ownAuth).send({ word: `Từ riêng ${i}`, definition: 'Ý nghĩa riêng', usageExample: 'Ví dụ của tôi', imageUrl: 'https://example.com/sign.jpg' }).expect(201);
       id = created.body.data._id;
     }
-    const mine = await request(app).get('/api/v1/learning/my-words?page=2').set('Authorization', a).expect(200);
+    const mine = await request(app).get('/api/v1/learning/my-words?page=2').set('Authorization', ownAuth).expect(200);
     expect(mine.body.data.items).toHaveLength(1);
     expect(mine.body.data.pagination.total).toBe(11);
-    expect((await request(app).get('/api/v1/learning/my-words').set('Authorization', b)).body.data.items).toHaveLength(0);
-    await request(app).patch(`/api/v1/learning/my-words/${id}`).set('Authorization', b).send({ definition: 'Xâm nhập' }).expect(404);
-    await request(app).delete(`/api/v1/learning/my-words/${id}`).set('Authorization', b).expect(404);
-    await request(app).patch(`/api/v1/learning/my-words/${id}`).set('Authorization', a).send({ definition: 'Đã sửa' }).expect(200);
-    await request(app).post('/api/v1/learning/my-words').set('Authorization', a).send({ word: 'Sai', definition: 'Sai', videoUrl: 'javascript:alert(1)' }).expect(400);
-    await request(app).delete(`/api/v1/learning/my-words/${id}`).set('Authorization', a).expect(200);
+    expect((await request(app).get('/api/v1/learning/my-words').set('Authorization', foreignAuth)).body.data.items).toHaveLength(0);
+    await request(app).patch(`/api/v1/learning/my-words/${id}`).set('Authorization', foreignAuth).send({ definition: 'Xâm nhập' }).expect(404);
+    await request(app).delete(`/api/v1/learning/my-words/${id}`).set('Authorization', foreignAuth).expect(404);
+    await request(app).patch(`/api/v1/learning/my-words/${id}`).set('Authorization', ownAuth).send({ definition: 'Đã sửa' }).expect(200);
+    await request(app).post('/api/v1/learning/my-words').set('Authorization', ownAuth).send({ word: 'Sai', definition: 'Sai', videoUrl: 'javascript:alert(1)' }).expect(400);
+    await request(app).delete(`/api/v1/learning/my-words/${id}`).set('Authorization', a).expect(403);
+    await request(app).patch(`/api/v1/learning/my-words/${id}`).set('Authorization', a).send({ definition: 'Forbidden' }).expect(403);
+    await request(app).delete(`/api/v1/learning/my-words/${id}`).set('Authorization', ownAuth).expect(200);
+    await deleteOwnAccount(ownerId, 'Fixture1234');
+    expect(await PersonalWord.countDocuments({ userId: ownerId })).toBe(0);
+    expect(await User.exists({ _id: otherId })).not.toBeNull();
   });
   it('labels LM Studio advice and never lets advice change self ratings', async () => {
     const before = await WordProgress.find({ userId: userA }).lean();

@@ -3,7 +3,7 @@ import request from 'supertest';
 import {Types} from 'mongoose';
 import {connectDatabase,disconnectDatabase} from '../src/config/database';
 import {createApp} from '../src/app';
-import {Category,DictionaryEntry,User} from '../src/models';
+import {Category,DictionaryEntry} from '../src/models';
 import {SignCollection} from '../src/models/SignCollection.model';
 import {PersonalWord} from '../src/models/Learning.model';
 import {ReviewQuiz} from '../src/models/ReviewQuiz.model';
@@ -15,10 +15,11 @@ const photo='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
 const word={word:'Từ bí mật',definition:'Nội dung riêng',usageExample:'Ví dụ riêng',notes:'Ghi chú bí mật',imageUrl:photo,videoUrl:''};
 beforeAll(async()=>{
   await connectDatabase();app=await createApp();await ensureLearningIndexes();
-  const a=await request(app).post('/api/v1/auth/guest').send({}).expect(201),b=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const a=await request(app).post('/api/v1/auth/register').send({email:'personal-owner@example.test',password:'Fixture1234',displayName:'Owner'}).expect(201),
+    b=await request(app).post('/api/v1/auth/register').send({email:'personal-other@example.test',password:'Fixture1234',displayName:'Other'}).expect(201);
+  expect(a.body.data.user.isGuest).toBe(false);expect(b.body.data.user.isGuest).toBe(false);
   owner=new Types.ObjectId(a.body.data.user.id);other=new Types.ObjectId(b.body.data.user.id);
   auth=`Bearer ${a.body.data.tokens.accessToken}`;otherAuth=`Bearer ${b.body.data.tokens.accessToken}`;
-  await User.updateOne({_id:owner},{$set:{isGuest:false}});
   topic=(await Category.create({name:'Private collection QA',slug:'private-qa-'+Date.now(),status:'ACTIVE'}))._id;
   entry=(await DictionaryEntry.create({word:'Từ thư viện',definition:'Đã duyệt',status:'PUBLISHED',categoryId:topic,createdBy:owner,videoUrl:'https://example.com/sample.mp4'}))._id;
 });
@@ -46,9 +47,15 @@ it('validates collection avatars, preserves omitted images, clears and copies an
 it('creates and edits owner-scoped words, pages/searches both sources, and never leaks private words through sharing or quiz',async()=>{
   const id=await create('Bộ kết hợp');
   const path=base+'/'+id+'/personal-words';
+  const trial=await request(app).post('/api/v1/auth/guest').send({}).expect(201);
+  const guestAuth=`Bearer ${trial.body.data.tokens.accessToken}`;
+  await request(app).post(path).set('Authorization',guestAuth).send(word).expect(403);
   await request(app).post(path).set('Authorization',otherAuth).send(word).expect(404);
   await request(app).post(path).set('Authorization',auth).send({...word,userId:String(other)}).expect(400);
   const saved=(await request(app).post(path).set('Authorization',auth).send(word).expect(201)).body.data;
+  await request(app).get(path+'/'+saved._id).set('Authorization',guestAuth).expect(403);
+  await request(app).patch(path+'/'+saved._id).set('Authorization',guestAuth).send(word).expect(403);
+  await request(app).delete(path+'/'+saved._id).set('Authorization',guestAuth).expect(403);
   await request(app).get(path+'/'+saved._id).set('Authorization',otherAuth).expect(404);
   await request(app).patch(path+'/'+saved._id).set('Authorization',otherAuth).send(word).expect(404);
   await request(app).delete(path+'/'+saved._id).set('Authorization',otherAuth).expect(404);

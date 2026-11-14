@@ -17,8 +17,8 @@ This is a navigation/handoff note, not a complete audit or replacement for sourc
 - Use separate branch/worktree when feasible; maximum two review/fix rounds.
 - Audits are read-only. Fixes require a separate implementation task.
 - Workers do not push/merge. Lead integrates only with owner authorization.
-- Preserve existing changes. Do not edit `backend/src/routes/sign-collection.routes.ts`
-  under the existing restricted trial task; obtain a new explicit scope if needed.
+- Preserve existing changes. The owner lifted the restriction on `backend/src/routes/sign-collection.routes.ts`
+  on 2026-11-14 for sign-collections/collection-personal-words test/bug tasks; preserve guards; no out-of-scope refactor.
 - Never print `.env`, tokens, credential-helper output or database credentials.
 - Do not delete sec-t1/sec-t2 worktrees: they contain uncommitted Claude work.
 - Do not invent token telemetry; current tooling has not supplied it.
