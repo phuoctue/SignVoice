@@ -35,7 +35,8 @@ Future<bool> confirmGuestLogout(BuildContext context) async {
             ? auth.trial == null
                   ? 'Bạn không thể quay lại dữ liệu khách này sau khi thoát. Chưa tải được hạn giữ dữ liệu… Đăng ký tài khoản mới ngay khi còn quyền chuyển để giữ dữ liệu.'
                   : deadline == null ||
-                        auth.trial?.dataState == 'legacy_unknown'
+                        (auth.trial?.dataState == 'legacy_unknown' &&
+                            auth.trial?.dataRetainedUntil == null)
                   ? 'Bạn không thể quay lại dữ liệu khách này sau khi thoát. Máy chủ chưa xác định hạn giữ dữ liệu của phiên này; không thể hẹn ngày dọn dữ liệu. '
                         '${auth.user?.legacyGuestSessionCutoffAt == null ? '' : 'Phiên khách hết hạn: ${guestDate(auth.user?.legacyGuestSessionCutoffAt)}. '}'
                         'Đăng ký tài khoản mới ngay khi còn quyền chuyển để giữ dữ liệu.'
@@ -178,7 +179,8 @@ class _GuestDataPanelState extends State<GuestDataPanel> {
             Text(
               auth.user == null && auth.guestOperationMessage != null
                   ? 'Kết quả yêu cầu dữ liệu khách'
-                  : trial?.dataState == 'legacy_unknown'
+                  : trial?.dataState == 'legacy_unknown' &&
+                        trial?.dataRetainedUntil == null
                   ? 'Chưa xác định thời hạn dữ liệu khách'
                   : trial?.dataState == 'expired'
                   ? 'Đã hết quyền truy cập dữ liệu khách'

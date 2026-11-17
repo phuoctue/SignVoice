@@ -32,6 +32,7 @@ void main() {
       bool guest = true,
       bool offlineStatus = false,
       bool rejectGrant = false,
+      Map<String, dynamic>? status,
       Widget child = const GuestDataPanel(),
     }) async {
       tester.view.physicalSize = desktop
@@ -59,7 +60,7 @@ void main() {
             );
           }
           if (offlineStatus) throw http.ClientException('offline');
-          return envelope(trialStatus('retained'));
+          return envelope(status ?? trialStatus('retained'));
         }),
       );
       final auth = AuthProvider(
@@ -98,6 +99,58 @@ void main() {
         state.dispose();
       });
       return auth;
+    }
+
+    for (final hasDate in [false, true]) {
+      testWidgets('$layout legacy deadline date=$hasDate and RS1 agree', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        final status = trialStatus('legacy_unknown', eligible: true);
+        status['dataRetainedUntil'] = hasDate
+            ? DateTime(2030, 1, 2, 3, 4).toUtc().toIso8601String()
+            : null;
+        final auth = await mount(tester, status: status);
+        final deadline = find.text(
+          hasDate
+              ? 'Hạn giữ dữ liệu: 03:04 02/01/2030'
+              : 'Hạn giữ dữ liệu: chưa xác định từ máy chủ',
+        );
+        expect(deadline, findsOneWidget);
+        expect(
+          tester.getSemantics(deadline).getSemanticsData().label,
+          contains(hasDate ? '03:04 02/01/2030' : 'chưa xác định'),
+        );
+        expect(find.byKey(const ValueKey('guest-replace')), findsNothing);
+        expect(find.byKey(const ValueKey('guest-convert')), findsOneWidget);
+        expect(find.byKey(const ValueKey('guest-discard')), findsOneWidget);
+        final logout = find.byKey(const ValueKey('guest-logout'));
+        await tester.ensureVisible(logout);
+        await tester.tap(logout);
+        await tester.pumpAndSettle();
+        final message = find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.textContaining(
+            hasDate
+                ? 'Hạn giữ hoặc chuyển dữ liệu của phiên này là 03:04 02/01/2030'
+                : 'Máy chủ chưa xác định hạn giữ dữ liệu',
+          ),
+        );
+        expect(message, findsOneWidget);
+        expect(
+          tester.getSemantics(message).getSemanticsData().label,
+          contains(hasDate ? '03:04 02/01/2030' : 'chưa xác định'),
+        );
+        await tester.tap(find.text('Ở lại'));
+        await tester.pumpAndSettle();
+        expect(auth.isAuthenticated, true);
+        expect(
+          find.text('Chưa xác định thời hạn dữ liệu khách'),
+          hasDate ? findsNothing : findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        semantics.dispose();
+      });
     }
 
     testWidgets('$layout privacy summary and accessible details', (
