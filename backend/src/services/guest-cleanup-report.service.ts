@@ -14,11 +14,12 @@ import {AuthSession} from '../models/AuthSession.model';
 import {SessionChain} from '../models/SessionChain.model';
 import {GuestTrial} from '../models/GuestTrial.model';
 import {GuestMediaCleanup} from '../models/GuestMediaCleanup.model';
-import {cleanupClassification} from './guest-cleanup-candidates.service';
+import {cleanupClassification, loadSyntheticCleanupRegistry} from './guest-cleanup-candidates.service';
 
 /** No writes, initialization, indexes, outbox barriers or media calls, even on an empty DB. */
-export async function guestCleanupDryRun(now: Date) {
+export async function guestCleanupDryRun(now: Date, registryFile = process.env.GUEST_SYNTHETIC_REGISTRY_FILE) {
   if (!(now instanceof Date) || !Number.isFinite(+now)) throw new Error('Explicit report time required');
+  const registry = await loadSyntheticCleanupRegistry(registryFile);
   const session = await mongoose.startSession();
   try {
     return await session.withTransaction(async () => {
@@ -28,7 +29,7 @@ export async function guestCleanupDryRun(now: Date) {
       const cursor = User.find().select('_id').sort({_id: 1}).session(session).lean().cursor();
       try {
         for await (const row of cursor) {
-          const {category, deadline} = await cleanupClassification(row._id, now, session);
+          const {category, deadline} = await cleanupClassification(row._id, now, session, registry);
           counts[category]++;
           list.push({userId: String(row._id), deadline: deadline?.toISOString() ?? null, category});
           if (category === 'ordinary_expired' || category === 'legacy_unknown') ids.push(row._id);

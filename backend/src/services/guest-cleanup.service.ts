@@ -6,19 +6,20 @@ import {User} from '../models/User.model';
 import {env} from '../config/env';
 import {authClock} from './auth-clock';
 import {guestRetentionStatus} from './guest-retention.service';
-import {cleanupClassification, cleanupScanFilter, syntheticCleanupExempt} from './guest-cleanup-candidates.service';
+import {cleanupClassification, cleanupScanFilter, loadSyntheticCleanupRegistry, syntheticCleanupExempt} from './guest-cleanup-candidates.service';
 import {deleteGuestOwnedData, guestDataVersionFilter} from './guest-data.service';
 import {sessionEpoch, userEpochFilter} from './session-fence.service';
 import {appendGuestEvent, ensureGuestOutbox} from './guest-lifecycle-outbox.service';
 import {retryGuestMediaCleanup} from './guest-media-cleanup.service';
 import {chainWriteConcern} from './session-chain.service';
+import {SyntheticCanaryRegistry} from './synthetic-canary.service';
 
 class CleanupStopped extends Error {}
 interface Budget {check: (session?: ClientSession) => Promise<void>; remaining: () => number}
 interface Candidate {userId: Types.ObjectId; dataVersion: number}
 
 /** Original candidate version remains pinned across bounded transaction retries. */
-async function cleanupExpiredCandidate(candidate: Candidate, budget: Budget) {
+async function cleanupExpiredCandidate(candidate: Candidate, budget: Budget, registry: SyntheticCanaryRegistry) {
   const session = await mongoose.startSession();
   let attempts = 0;
   try {
@@ -29,7 +30,7 @@ async function cleanupExpiredCandidate(candidate: Candidate, budget: Budget) {
       if (!user?.isGuest || user.guestConvertedAt || user.dataVersion !== candidate.dataVersion) return 'skipped' as const;
       if (!Number.isSafeInteger(user.dataVersion) || user.dataVersion < 0 || user.dataVersion >= Number.MAX_SAFE_INTEGER) return 'skipped' as const;
       const status = await guestRetentionStatus(user._id, session);
-      if (!status.dataRetainedUntil || +authClock.now() < +status.dataRetainedUntil || await syntheticCleanupExempt(user._id, authClock.now())) return 'skipped' as const;
+      if (!status.dataRetainedUntil || +authClock.now() < +status.dataRetainedUntil || await syntheticCleanupExempt(user._id, authClock.now(), registry)) return 'skipped' as const;
       const epoch = sessionEpoch(user.sessionRevocationEpoch);
       const lock = await User.updateOne({_id: user._id, isGuest: true, guestConvertedAt: {$exists: false},
         ...guestDataVersionFilter(candidate.dataVersion), ...userEpochFilter(epoch)}, {$inc: {dataVersion: 1}}, {session});
@@ -47,6 +48,15 @@ export async function runGuestCleanup(options: {enabled?: boolean; monotonicNow?
   const result = {state: 'disabled', considered: 0, deleted: 0, skipped: 0, syntheticExempt: 0, failed: 0,
     pendingCount: 0, oldestPendingAgeMs: 0, pendingCountExact: false};
   if (!(options.enabled ?? env.GUEST_CLEANUP_ENABLED)) return result;
+  let registry: SyntheticCanaryRegistry;
+  try {registry = await loadSyntheticCleanupRegistry(process.env.GUEST_SYNTHETIC_REGISTRY_FILE);}
+  catch (error) {
+    result.state = 'failed'; result.failed++;
+    const reason = error instanceof Error && error.message === 'SYNTHETIC_TRANSITION_UNAVAILABLE' ? error.message : 'SYNTHETIC_REGISTRY_INVALID';
+    console.warn('Guest cleanup ALERT: run aborted before deletion', {reason});
+    console.info('Guest cleanup summary', result);
+    return result;
+  }
   result.state = 'paused';
   const monotonic = options.monotonicNow ?? (() => performance.now()), started = monotonic();
   const remaining = () => {
@@ -96,8 +106,8 @@ export async function runGuestCleanup(options: {enabled?: boolean; monotonicNow?
       await budget.check();
       result.considered++;
       try {
-        if (await syntheticCleanupExempt(row._id, authClock.now())) result.syntheticExempt++;
-        else if (await cleanupExpiredCandidate({userId: row._id, dataVersion: row.dataVersion ?? 0}, budget) === 'deleted') result.deleted++;
+        if (await syntheticCleanupExempt(row._id, authClock.now(), registry)) result.syntheticExempt++;
+        else if (await cleanupExpiredCandidate({userId: row._id, dataVersion: row.dataVersion ?? 0}, budget, registry) === 'deleted') result.deleted++;
         else result.skipped++;
       } catch (error) {
         if (error instanceof CleanupStopped) throw error;
@@ -111,7 +121,7 @@ export async function runGuestCleanup(options: {enabled?: boolean; monotonicNow?
     try {
       for await (const row of pending) {
         await budget.check();
-        const classified = await cleanupClassification(row._id, authClock.now());
+        const classified = await cleanupClassification(row._id, authClock.now(), undefined, registry);
         if (classified.category === 'ordinary_expired' || classified.category === 'legacy_unknown') {
           result.pendingCount++;
           result.oldestPendingAgeMs = Math.max(result.oldestPendingAgeMs, +authClock.now() - +classified.deadline!);

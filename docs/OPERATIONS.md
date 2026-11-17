@@ -123,6 +123,21 @@ compares all collection counts with the manifest. Prior drill: 26 collections,
 proved. Keep drills on loopback; do not pass `-AllowRemoteTarget` or `-ApproveDrop`
 for routine drills. A real production restore needs a separate reviewed plan.
 
+## Synthetic guests and cleanup
+
+`GUEST_SYNTHETIC_REGISTRY_FILE` is an absolute JSON file path, loaded into a new snapshot at each enabled cleanup run (unset means no exemptions). Production value: `C:/Users/Phuoc Tue/SignVoice-ops/kplus-s/registry.json`. The format is an array of `{ "alias": "G-QA", "kind": "guest", "userId": "0123456789abcdef01234567", "status": "active" }`, or the existing K+S envelope `{ "accounts": [ ... ] }`. All four fields are required strings; kind is `guest` or `permanent`, and userId is 24 hexadecimal characters. Extra fields/metadata are ignored and never logged. Only `guest` entries with status exactly `active` qualify.
+
+An invalid, unreadable, missing, relative-path or oversized (>64 KB) configured file aborts the entire run **before any deletion or media retry**, emits a sanitized ALERT and reports failure; it never falls back to an empty registry. An active registered guest is exempt from cleanup while durable `T_s` is absent or server time is strictly before `T_s+30m`; at and after that boundary it follows ordinary cleanup eligibility. Access/trial/deadline checks remain unchanged. Run summaries count `syntheticExempt`; dry-run reports use category `synthetic_exempt`, without a new lifecycle event.
+
+An explicitly empty registry path is invalid. If the loaded registry contains any active guest, cleanup and dry-run validate and snapshot `T_s` before any writes; a failed control read aborts the whole run with zero deletions and sanitized reason `SYNTHETIC_TRANSITION_UNAVAILABLE` (registry failures use `SYNTHETIC_REGISTRY_INVALID`). Control errors never mean "not exempt".
+
+The dry-run CLI accepts `--synthetic-registry '<absolute-path>'` (or the same environment variable) and uses the same loader/evaluator. Supply the existing nonsecret `SESSION_CHAIN_MODE` and `SESSION_CHAIN_CONTROL_*` settings for the target's control namespace (plus the accepted transition identity/policy settings in enforcement mode); for a DB copy, point only at its copied control namespace. No application `.env` is loaded by the operator script. Using the protected prompt helper below, from `backend/`:
+
+```powershell
+Invoke-GuestOp scripts/guest-cleanup-dry-run.ts @('--synthetic-registry','C:/Users/Phuoc Tue/SignVoice-ops/kplus-s/registry.json')
+# A remote authenticated COPY also requires --allow-copy matching its copy_* database.
+```
+
 ## Guest data after a DB restore (manual, v1)
 
 Recovery checklist for an owner-approved restore, **after this v1 code is released**; not permission to execute on production. Rehearse on a disposable loopback copy first. Use a protected operator terminal, outside transcripts, from `backend/`. No reconciliation tool is supplied. URI/HMAC secrets enter only a hidden prompt and the child's stdin:

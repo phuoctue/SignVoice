@@ -4,7 +4,7 @@ import {assertOperatorTarget, readOperatorUri, serverTime} from './guest-cleanup
 
 if (require.main === module) {
   (async () => {
-    const {values} = parseArgs({options: {'allow-copy': {type: 'string'}}});
+    const {values} = parseArgs({options: {'allow-copy': {type: 'string'}, 'synthetic-registry': {type: 'string'}}});
     const uri = await readOperatorUri(), target = assertOperatorTarget(uri, values['allow-copy']);
     // No application config import or dotenv, and no model auto-creation/index writes.
     mongoose.set('autoCreate', false); mongoose.set('autoIndex', false);
@@ -15,7 +15,7 @@ if (require.main === module) {
         if (!status.authInfo?.authenticatedUsers?.length) throw new Error();
       }
       const {guestCleanupDryRun} = await import('../src/services/guest-cleanup-report.service');
-      const report = await guestCleanupDryRun(await serverTime(mongoose.connection.db!));
+      const report = await guestCleanupDryRun(await serverTime(mongoose.connection.db!), values['synthetic-registry']);
       if (!report) throw new Error();
       console.log(JSON.stringify(report, null, 2));
       console.error(`Dry-run: ${report.counts.ordinary_expired} ordinary + ${report.counts.legacy_unknown} legacy due; ${report.counts.synthetic_exempt} synthetic exempt; ${report.counts.converted_permanent_skipped} converted/permanent skipped. Zero writes.`);

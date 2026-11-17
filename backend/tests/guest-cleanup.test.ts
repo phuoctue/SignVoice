@@ -1,6 +1,9 @@
 import {beforeAll, beforeEach, afterAll, afterEach, it, expect, vi} from 'vitest';
 import mongoose, {Types} from 'mongoose';
 import {createHash} from 'node:crypto';
+import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import {connectDatabase, disconnectDatabase} from '../src/config/database';
 import {User} from '../src/models/User.model';
 import {createGuestAccount, grantGuestAccount} from '../src/services/auth.service';
@@ -26,15 +29,18 @@ import {changeCleanupControl, waitForCleanupDrain} from '../scripts/guest-cleanu
 import {guestCleanupDryRun} from '../src/services/guest-cleanup-report.service';
 
 const day = 86400000;
-beforeAll(async () => {await connectDatabase(); await User.init();});
+let registryDirectory: string;
+beforeAll(async () => {registryDirectory = await mkdtemp(path.join(tmpdir(), 'synthetic-cleanup-')); await connectDatabase(); await User.init();});
 beforeEach(async () => {
+  vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', '');
+  delete process.env.GUEST_SYNTHETIC_REGISTRY_FILE;
   for (const model of [User, GuestTrial, AuthSession, Conversation, UserSettings, AuditLog, SessionChain,
     GuestCleanupControl, GuestMediaCleanup, GuestLifecycleOutbox]) await model.deleteMany({});
   await mongoose.connection.collection('guest_retention_activation').deleteMany({});
   await GuestCleanupControl.create({_id: 'guest-cleanup', paused: false, reason: 'test resume', changedAt: new Date(), changedBy: 'test', version: 1});
 });
-afterEach(() => {vi.restoreAllMocks();});
-afterAll(async () => {await mongoose.connection.dropDatabase(); await disconnectDatabase();});
+afterEach(() => {vi.restoreAllMocks(); vi.unstubAllEnvs();});
+afterAll(async () => {await mongoose.connection.dropDatabase(); await disconnectDatabase(); await rm(registryDirectory, {recursive: true, force: true});});
 
 it('shows a durable activation plus seven days without granting legacy trial access', async () => {
   const a = await createGuestAccount({}), id = new Types.ObjectId(a.user.id);
@@ -136,8 +142,126 @@ it.each(['registered', 'unknown', 'unreadable', 'no-transition', 'boundary'])('e
   expect((await guestTrialStatus(a.id)).allowedActions).not.toContain('convert');
   expect((await guestTrialStatus(a.id)).state).toBe('expired');
   const result = await run();
-  expect(result.deleted).toBe(kind === 'registered' ? 0 : 1);
-  expect(result.syntheticExempt).toBe(kind === 'registered' ? 1 : 0);
+  expect(result.deleted).toBe(kind === 'registered' || kind === 'no-transition' ? 0 : 1);
+  expect(result.syntheticExempt).toBe(kind === 'registered' || kind === 'no-transition' ? 1 : 0);
+});
+
+async function registryFile(contents: string) {
+  const file = path.join(registryDirectory, 'registry.json');
+  await writeFile(file, contents);
+  vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', file);
+  return file;
+}
+
+it.each(['expired', 'not-due', 'not-in-database'])('aborts before all deletions when the control read fails: %s registered guest', async kind => {
+  const ordinary = await expiredGuest();
+  const registeredId = kind === 'expired' ? (await expiredGuest()).id : kind === 'not-due' ?
+    new Types.ObjectId((await createGuestAccount({})).user.id) : new Types.ObjectId();
+  await registryFile(JSON.stringify([{alias: 'G-QA', kind: 'guest', userId: String(registeredId), status: 'active'}]));
+  vi.spyOn(chainService, 'loadChainTransition').mockRejectedValue(new Error('private control failure must never be logged'));
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  expect(await run()).toMatchObject({state: 'failed', considered: 0, deleted: 0, syntheticExempt: 0, failed: 1});
+  expect(await User.exists({_id: ordinary.id})).not.toBeNull();
+  if (kind !== 'not-in-database') expect(await User.exists({_id: registeredId})).not.toBeNull();
+  expect(await GuestLifecycleOutbox.countDocuments()).toBe(0);
+  expect((await GuestCleanupControl.findById('guest-cleanup').lean())?.lease).toBeUndefined();
+  const logs = JSON.stringify([...warning.mock.calls, ...info.mock.calls]);
+  expect(logs).toContain('ALERT');
+  expect(logs).toContain('SYNTHETIC_TRANSITION_UNAVAILABLE');
+  expect(logs).not.toContain('private control failure');
+  await expect(guestCleanupDryRun(new Date())).rejects.toThrow('SYNTHETIC_TRANSITION_UNAVAILABLE');
+});
+
+it('uses one validated transition snapshot for the whole run and reloads it on the next run', async () => {
+  const ordinary = await expiredGuest(), registered = await expiredGuest();
+  await registryFile(JSON.stringify([{alias: 'G-QA', kind: 'guest', userId: String(registered.id), status: 'active'}]));
+  vi.spyOn(chainService, 'loadChainTransition').mockResolvedValueOnce(null).mockRejectedValue(new Error('later read fails'));
+  expect(await run()).toMatchObject({state: 'finished', deleted: 1, syntheticExempt: 1});
+  expect(await User.exists({_id: ordinary.id})).toBeNull();
+  expect(await User.exists({_id: registered.id})).not.toBeNull();
+  expect(await run()).toMatchObject({state: 'failed', considered: 0, deleted: 0});
+  expect(await User.exists({_id: registered.id})).not.toBeNull();
+});
+
+it.each([
+  {shape: 'array', transition: 'absent', deleted: 0, exempt: 1},
+  {shape: 'envelope', transition: 'absent', deleted: 0, exempt: 1},
+  {shape: 'array', transition: 'before-boundary', deleted: 0, exempt: 1},
+  {shape: 'array', transition: 'boundary', deleted: 1, exempt: 0},
+  {shape: 'array', transition: 'after-boundary', deleted: 1, exempt: 0},
+])('loads the active registry at run start: $shape/$transition', async ({shape, transition, deleted, exempt}) => {
+  const a = await expiredGuest(), now = new Date();
+  const entries = [{alias: 'G-QA', kind: 'guest', userId: String(a.id).toUpperCase(), status: 'active', privateExtra: 'never-log-this'}];
+  await registryFile(JSON.stringify(shape === 'array' ? entries : {schemaVersion: 1, intendedRelease: 'qa', createdAt: 'qa', accounts: entries}));
+  vi.spyOn(authClock, 'now').mockReturnValue(now);
+  vi.spyOn(chainService, 'loadChainTransition').mockResolvedValue(transition === 'absent' ? null : {
+    _id: 'session-chain-transition', sunsetAt: new Date(+now - (transition === 'before-boundary' ? 1799999 : transition === 'boundary' ? 1800000 : 1800001)),
+  } as any);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  await expect(convertGuestToPermanent(a.id, enrollment, {}, false, a.sessionId)).rejects.toMatchObject({statusCode: 403});
+  const result = await run();
+  expect(result).toMatchObject({state: 'finished', deleted, syntheticExempt: exempt});
+  expect(!!await User.exists({_id: a.id})).toBe(exempt === 1);
+  expect((await guestCleanupDryRun(now)).counts.synthetic_exempt).toBe(exempt);
+  expect(JSON.stringify(log.mock.calls)).not.toContain('never-log-this');
+  expect(await GuestLifecycleOutbox.countDocuments({kind: 'EXPIRED_CLEANED'})).toBe(deleted);
+});
+
+it.each(['unregistered', 'permanent', 'inactive', 'padded-active'])('does not exempt a %s registry candidate', async kind => {
+  const a = await expiredGuest();
+  await registryFile(JSON.stringify([{alias: 'QA', kind: kind === 'permanent' ? 'permanent' : 'guest',
+    userId: kind === 'unregistered' ? String(new Types.ObjectId()) : String(a.id),
+    status: kind === 'inactive' ? 'inactive' : kind === 'padded-active' ? ' active ' : 'active'}]));
+  if (kind !== 'unregistered') vi.spyOn(chainService, 'loadChainTransition').mockRejectedValue(new Error('no active registered guests require this read'));
+  expect(await run()).toMatchObject({deleted: 1, syntheticExempt: 0});
+  expect(await User.exists({_id: a.id})).toBeNull();
+});
+
+it.each(['missing', 'unreadable', 'oversized', 'invalid-json', 'invalid-id', 'invalid-kind', 'invalid-status', 'missing-field', 'wrong-envelope', 'relative', 'blank'])('aborts the entire run before deletion for a %s registry', async kind => {
+  const a = await expiredGuest();
+  const entry: Record<string, unknown> = {alias: 'QA', kind: 'guest', userId: String(a.id), status: 'active'};
+  if (kind === 'invalid-id') entry.userId = 'not-an-objectid';
+  if (kind === 'invalid-kind') entry.kind = 'other';
+  if (kind === 'invalid-status') entry.status = true;
+  if (kind === 'missing-field') delete entry.alias;
+  const file = await registryFile(kind === 'oversized' ? '[]' + ' '.repeat(65535) : kind === 'invalid-json' ? 'private-malformed-json' :
+    JSON.stringify(kind === 'wrong-envelope' ? {entries: [entry]} : [entry]));
+  if (kind === 'missing') await rm(file);
+  if (kind === 'unreadable') vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', registryDirectory);
+  if (kind === 'relative') vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', 'registry.json');
+  if (kind === 'blank') vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', '');
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  expect(await run()).toMatchObject({state: 'failed', deleted: 0, considered: 0});
+  expect(await User.exists({_id: a.id})).not.toBeNull();
+  expect(await GuestLifecycleOutbox.countDocuments()).toBe(0);
+  expect(JSON.stringify(warning.mock.calls)).toContain('ALERT');
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('private-malformed-json');
+  await expect(guestCleanupDryRun(new Date())).rejects.toThrow();
+});
+
+it('accepts a registry file of exactly 64 KB', async () => {
+  await expiredGuest();
+  await registryFile('[]' + ' '.repeat(65534));
+  expect(await run()).toMatchObject({state: 'finished', deleted: 1});
+});
+
+it('keeps a registered legacy_unknown guest beyond activation+7d while T_s is absent', async () => {
+  const a = await createGuestAccount({}), activatedAt = new Date(Date.now() - 8 * day);
+  await mongoose.connection.collection('guest_retention_activation').insertOne({_id: 'legacy-retention' as any, activatedAt});
+  await registryFile(JSON.stringify({accounts: [{alias: 'G-L-QA', kind: 'guest', userId: a.user.id, status: 'active'}]}));
+  expect((await guestTrialStatus(new Types.ObjectId(a.user.id))).dataState).toBe('expired');
+  expect(await run()).toMatchObject({state: 'finished', deleted: 0, syntheticExempt: 1});
+  expect((await guestCleanupDryRun(new Date())).counts).toMatchObject({legacy_unknown: 0, synthetic_exempt: 1});
+  expect(await User.exists({_id: a.user.id})).not.toBeNull();
+});
+
+it('reloads the registry on every run rather than reusing the previous snapshot', async () => {
+  const a = await expiredGuest();
+  const file = await registryFile(JSON.stringify([{alias: 'QA', kind: 'guest', userId: String(a.id), status: 'active'}]));
+  expect(await run()).toMatchObject({deleted: 0, syntheticExempt: 1});
+  await writeFile(file, '[]');
+  expect(await run()).toMatchObject({deleted: 1, syntheticExempt: 0});
 });
 
 it('leaves unknown legacy guests until activation, then cleans at exactly activation+7d', async () => {

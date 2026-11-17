@@ -14,6 +14,8 @@ import {syntheticCanaryRegistry} from '../src/services/synthetic-canary.service'
 import * as chain from '../src/services/session-chain.service';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
+import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 
 const day = 86400000, attest = {confirm: true, tasksAccepted: true, clientReleased: true};
 beforeAll(async () => {await connectDatabase(); await User.init();});
@@ -113,7 +115,9 @@ it('dry-run counts the categories and deletion documents without writing, includ
 
 async function operatorCommand(script: string, uri: string, args: string[] = []) {
   const child = spawn(process.execPath, [path.resolve('node_modules/tsx/dist/cli.mjs'), script, ...args],
-    {env: {SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, TEMP: process.env.TEMP, TMP: process.env.TMP}, stdio: ['pipe', 'pipe', 'pipe']});
+    {env: {SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      SESSION_CHAIN_MODE: 'compat', SESSION_CHAIN_CONTROL_DB: process.env.SESSION_CHAIN_CONTROL_DB,
+      SESSION_CHAIN_CONTROL_COLLECTION: process.env.SESSION_CHAIN_CONTROL_COLLECTION}, stdio: ['pipe', 'pipe', 'pipe']});
   let stdout = '', stderr = '';
   child.stdout.on('data', b => {stdout += String(b);}); child.stderr.on('data', b => {stderr += String(b);});
   child.stdin.end(uri + '\n');
@@ -121,6 +125,24 @@ async function operatorCommand(script: string, uri: string, args: string[] = [])
   return {code, stdout, stderr};
 }
 const dryCommand = (uri: string, args: string[] = []) => operatorCommand('scripts/guest-cleanup-dry-run.ts', uri, args);
+it('the real dry-run CLI reads --synthetic-registry, reports exemptions and refuses invalid files', async () => {
+  const a = await createGuestAccount({});
+  await User.collection.updateOne({_id: new Types.ObjectId(a.user.id)}, {$set: {guestGrantedAt: new Date(Date.now() - 8 * day)}});
+  const directory = await mkdtemp(path.join(tmpdir(), 'synthetic-dry-run-')), file = path.join(directory, 'registry.json');
+  try {
+    await writeFile(file, JSON.stringify({accounts: [{alias: 'G-QA', kind: 'guest', userId: a.user.id, status: 'active', privateExtra: 'never-print-me'}]}));
+    const result = await dryCommand(process.env.MONGODB_URI!, ['--synthetic-registry', file]);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout).counts.synthetic_exempt).toBe(1);
+    expect(JSON.parse(result.stdout).list).toContainEqual({userId: a.user.id, deadline: expect.any(String), category: 'synthetic_exempt'});
+    expect(result.stdout + result.stderr).not.toContain('never-print-me');
+    await writeFile(file, '{');
+    const refused = await dryCommand(process.env.MONGODB_URI!, ['--synthetic-registry', file]);
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toBe('');
+    expect(await User.exists({_id: a.user.id})).not.toBeNull();
+  } finally {await rm(directory, {recursive: true, force: true});}
+});
 it('the actual dry-run CLI never auto-creates collections on an empty DB and suppresses refused URI credentials', async () => {
   const uri = new URL(process.env.MONGODB_URI!);
   const empty = mongoose.connection.name + '_dry';
