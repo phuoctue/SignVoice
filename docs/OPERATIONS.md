@@ -1,15 +1,14 @@
 # SignVoice production operations
 
-Operator reference as of 2026-11-14; run on the production Windows host. This does not authorize deployment or restore.
+Operator reference as of 2026-11-17; run on the production Windows host. This does not authorize deployment or restore.
 
 ## Current production
 
 - Checkout E: `E:/WorkSpace/SignVoice/SignVoice`.
-- Approved release: `86393eca2e7eec6eece25124d5674bd2a56a64a1` (`86393ec`),
-  ref `gitlab/release/logout-all-a-86393eca2e7e`. This is **not** dev head `f89ea47`.
-- `-LocalOnly`, `-AttachTunnel` and `-ExpectedSha` exist only on that release pin
-  (branch `release/logout-all-a-86393eca2e7e`); the release has not been merged into
-  dev `f89ea47`, which lacks these flags. **Do not deploy from dev.**
+- Approved release: `c08ebd111763ba475a78de27a3b07e399c03c2fb` (`c08ebd1`),
+  ref `gitlab/release/guest-v1-c08ebd111763`.
+- The approved release provides `-LocalOnly`, `-AttachTunnel` and `-ExpectedSha`.
+  Deploy only the accepted full release SHA, never an unreviewed dev head.
 - Backend + web: `127.0.0.1:3001`; AI: `127.0.0.1:8001`, accessed publicly only
   through the backend `/sign-ai` gateway. Never route directly to 8001.
 - Production loads `backend/.env.production.local`, with no fallback to the dev
@@ -20,21 +19,21 @@ Operator reference as of 2026-11-14; run on the production Windows host. This do
 
 ## Start and stop
 
-Use checkout E, not a development worktree. To restart the verified build at the approved pin:
+Use checkout E, not a development worktree. The following launcher command is for a transient local verification session using the verified build. After acceptance, finish the scheduled handoff below; production processes must not remain children of an Orca worker terminal:
 
 ```powershell
 Set-Location 'E:/WorkSpace/SignVoice/SignVoice'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start-public-server.ps1 `
   -LocalOnly -SkipBuild -Port 3001 -AiPort 8001 `
   -PublicOrigin https://signvoice.id.vn -TrustProxy loopback `
-  -ExpectedSha 86393eca2e7eec6eece25124d5674bd2a56a64a1
+  -ExpectedSha c08ebd111763ba475a78de27a3b07e399c03c2fb
 ```
 
 The launcher requires a clean checkout at the full expected SHA and validates
 production configuration. `-SkipBuild` reuses artifacts; a matching HEAD alone
 does not prove those artifacts were built from that SHA.
 
-Before maintenance, remove the public hostname route in Cloudflare, then stop:
+Before maintenance, create maintenance.flag as described below and wait for any wrapper to settle, then stop. The Cloudflare route may remain published during an accepted short window (returning 502), or the owner can remove it:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/stop-public-server.ps1
@@ -45,8 +44,64 @@ the managed API/AI processes; it does **not** stop the separate Cloudflared
 Windows service. As a Windows convenience (not a recorded deployment step), an
 elevated owner session can use `Stop-Service Cloudflared` / `Start-Service Cloudflared`.
 Cloudflared autostarts after reboot; an existing route stays published and returns
-502 until the app server is started manually (it does **not** autostart).
+502 until the app server is ready. App recovery is provided by the scheduled task below after this Windows account logs on.
 Check local health before restoring any route removed for maintenance.
+
+## Guest v1 environment additions
+
+The production environment adds these keys by name: `SESSION_CHAIN_MODE`,
+`SESSION_CHAIN_CONTROL_DB`, `SESSION_CHAIN_CONTROL_COLLECTION`,
+`GUEST_LEDGER_DIRECTORY`, `GUEST_LEDGER_HMAC_KEY` and `GUEST_CLEANUP_ENABLED`.
+Keep the ledger and owner key outside the repository and backup directory with owner-only ACLs.
+Reuse the saved owner key across restarts; never print it or pass it in command arguments.
+Cleanup, legacy-retention activation and strict session-chain transitions require separate owner approval.
+
+## Autostart
+
+Owner-managed scripts live at `C:/Users/Phuoc Tue/SignVoice-ops/autostart` with owner-only ACLs.
+The owner registers `SignVoice Production Autostart` after review using `register-autostart-task.ps1`.
+The interactive-user task stores no password, runs 90 seconds after logon and every 15 minutes,
+with StartWhenAvailable and IgnoreNew. After reboot this Windows account must log on;
+pre-logon availability is not provided. Other logon/account modes need a separate credential and key-access review.
+
+`pin.json` is the single deploy-updated release pin: accepted full SHA, LocalOnly=true, SkipBuild=true,
+ports 3001/8001, origin https://signvoice.id.vn and TrustProxy=loopback.
+The wrapper targets only `E:/WorkSpace/SignVoice/SignVoice`, never pulls or builds, and refuses
+a dirty or wrong-SHA checkout before cleanup/start. Validate a sibling temporary JSON with
+`Read-AutostartPin` from autostart-core.ps1, then replace atomically on the same volume with
+`[IO.File]::Replace($temporaryPin,$pinPath,$backupPin)` using an explicit retained backup path.
+
+Before a planned stop/deploy:
+
+```powershell
+$root = 'C:/Users/Phuoc Tue/SignVoice-ops/autostart'
+New-Item -ItemType File -Path (Join-Path $root 'maintenance.flag') -Force
+```
+
+Wait for any running wrapper and its file lock to settle before stopping production.
+The flag prevents recovery but cannot cancel an in-flight launcher. Build and run local smoke
+at the accepted pin, update pin.json while keeping SkipBuild=true, then stop that transient runtime.
+Finish through the enabled scheduled task, rather than leaving services attached to the worker terminal:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/stop-public-server.ps1
+Remove-Item -LiteralPath (Join-Path $root 'maintenance.flag')
+schtasks /Run /TN "SignVoice Production Autostart"
+```
+
+Require fresh STARTED in evidence/autostart.log, API/AI health 200, and listener ancestry independent
+of the worker shell before public smoke and observation. Apply the same scheduled handoff to rollback.
+Both API readiness and proxied AI health 200 yield ALREADY_RUNNING without a launch.
+Network wait is bounded to 180 seconds, followed by at most two launch attempts with bounded
+health polling, backoff and managed cleanup. Use internal bounded waits: PT0S on task and both
+triggers, AllowHardTerminate=false. Do not force-End the task or add Scheduler kill-on-expiry limits.
+Verify the app survives launcher completion and the next 15-minute watchdog tick logs ALREADY_RUNNING.
+
+`check-autostart.ps1` prints task state/result, historical success/failure markers and health.
+evidence/autostart.log, LAST-SUCCESS and LAST-FAILED contain UTC timestamps and fixed stage codes;
+child output is discarded. `start-production.ps1 -CheckAlreadyRunningOnly` is an enforced read-only probe.
+Logs are unrotated; archive them during maintenance as needed. `unregister-autostart-task.ps1` removes
+scheduling without stopping the app. Cloudflared remains its independent Windows service.
 
 ## Health and acceptance
 
@@ -68,7 +123,7 @@ Inspect `.runtime/public-server.log`, `.runtime/public-server.error.log` and AI 
 
 1. Obtain the owner's approved full SHA and release ref; take and verify a backup
    of the **current** cluster using the [manual backup procedure](#backup-freshness-and-restore)
-   (`run-daily-backup.ps1 -NoPrune`). Remove the public route and stop.
+   (`run-daily-backup.ps1 -NoPrune`). Set maintenance.flag and stop; the public route may remain published during the accepted window.
 2. Fetch that exact release ref in E, verify its resolved commit against the
    approved full SHA, and advance the clean production checkout to that pin
    (`--ff-only` where applicable). Stop on mismatch, dirty files or divergence.
