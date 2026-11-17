@@ -13,6 +13,7 @@ import '../../core/app_state.dart';
 import '../../core/navigation.dart';
 import '../../core/theme.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/guest_data_panel.dart';
 import '../../widgets/user_avatar.dart';
 import '../../services/user/avatar_picker.dart';
 import '../auth/auth_screens.dart';
@@ -28,7 +29,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<AuthProvider>().refreshUser();
+      if (mounted) {
+        final auth = context.read<AuthProvider>();
+        auth.refreshUser().then((_) => auth.loadGuestTrial());
+      }
     });
   }
 
@@ -76,13 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ? 'Nhân viên'
                     : 'Người dùng'),
           ),
-          if (state.guest) ...[
-            const SizedBox(height: 16),
-            AppButton(
-              'Tạo tài khoản',
-              onPressed: () => openScreen(context, 'S06'),
-            ),
-          ],
+          if (state.guest) const GuestDataPanel(),
         ],
       ),
     );
@@ -108,12 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           label: const Text('Đăng xuất'),
           onPressed: () async {
             final epoch = auth.accountEpoch;
-            if (await confirm(
-              context,
-              title: 'Đăng xuất?',
-              message: 'Bạn sẽ quay về màn hình đăng nhập.',
-              destructive: true,
-            )) {
+            if (await confirmGuestLogout(context)) {
               if (!context.mounted || auth.accountEpoch != epoch) return;
               await auth.logout();
               if (context.mounted) openRoot(context, 'S05');
@@ -174,16 +167,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (state.guest) ...[
-            const Notice(
-              'Bạn có một phiên dùng thử 10 phút, tính từ lúc bắt đầu. Tạo tài khoản để tiếp tục phiên dịch, lưu hội thoại và đồng bộ.',
-            ),
-            const SizedBox(height: 12),
-            AppButton(
-              'Tạo tài khoản và giữ dữ liệu',
-              onPressed: () => openScreen(context, 'S06'),
-            ),
-          ] else
+          if (state.guest)
+            const GuestDataPanel()
+          else
             Column(
               children: [
                 const SizedBox(height: 12),
@@ -231,12 +217,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             color: AppColors.red,
             onTap: () async {
               final epoch = auth.accountEpoch;
-              if (await confirm(
-                context,
-                title: 'Đăng xuất?',
-                destructive: true,
-                message: 'Bạn sẽ quay về màn hình đăng nhập.',
-              )) {
+              if (await confirmGuestLogout(context)) {
                 if (!context.mounted || auth.accountEpoch != epoch) return;
                 await auth.logout();
                 if (context.mounted) openRoot(context, 'S05');

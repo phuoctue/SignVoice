@@ -6,6 +6,7 @@ import '../storage/token_store.dart';
 import '../api/api_exception.dart';
 import 'guest_device_identity.dart';
 import 'guest_trial_access.dart';
+import 'guest_grant_operation.dart';
 import 'google_sign_in_native.dart';
 
 import 'package:flutter/foundation.dart';
@@ -66,6 +67,12 @@ class AuthService {
   }
 
   ValueListenable<int> get sessionInvalidated => _apiClient.sessionInvalidated;
+  ValueListenable<int> get guestTrialExpired => _apiClient.guestTrialExpired;
+
+  /// End local authorization without requesting any server mutation.
+  Future<void> clearLocalSession() async {
+    await _apiClient.clearSession();
+  }
 
   Future<Map<String, bool>> oauthProviders() async {
     final response = await _apiClient.get(
@@ -246,32 +253,79 @@ class AuthService {
   }
 
   /// Login as guest
-  Future<UserModel> loginAsGuest() async {
-    final epoch = _apiClient.beginAuthentication();
-    final response = await _apiClient.post(
-      '${ApiConfig.authEndpoint}/guest',
-      body: {'deviceKey': await guestDeviceKey(), 'newGuest': true},
-      requiresAuth: false,
+  Future<UserModel> loginAsGuest() => _grantGuest();
+
+  Future<UserModel> replaceGuest({
+    required int dataVersion,
+    required String ownerId,
+  }) => _grantGuest(dataVersion: dataVersion, ownerId: ownerId);
+
+  Future<UserModel> _grantGuest({int? dataVersion, String? ownerId}) async {
+    final operation = await GuestGrantOperation.loadOrCreate(
+      dataVersion: dataVersion,
+      ownerId: ownerId,
     );
-
-    if (response['success'] == true && response['data'] != null) {
-      return _saveAuthResponse(response, epoch);
+    if (operation['confirmDiscard'] == true) {
+      final current = await getCurrentUser();
+      if (!current.isGuest || current.id != operation['ownerId']) {
+        throw StateError(
+          'Phiên khách đã thay đổi. Không thể thay dữ liệu của phiên khác.',
+        );
+      }
     }
-
-    throw Exception('Guest login failed');
+    final epoch = _apiClient.beginAuthentication();
+    try {
+      final response = await _apiClient.post(
+        '${ApiConfig.authEndpoint}/guest',
+        body: {'deviceKey': await guestDeviceKey(), ...operation}
+          ..remove('ownerId'),
+        requiresAuth: operation['confirmDiscard'] == true,
+      );
+      if (response['success'] == true && response['data'] != null) {
+        final user = await _saveAuthResponse(response, epoch);
+        await GuestGrantOperation.finish(operation['requestKey'] as String);
+        return user;
+      }
+      throw StateError('Chưa xác nhận được kết quả cấp lượt thử.');
+    } on ApiException catch (error) {
+      if (error.statusCode == 409) {
+        if (error.details?.containsKey('nextTrialAvailableAt') == true) {
+          await GuestGrantOperation.observe(
+            error.details!['nextTrialAvailableAt'] as String?,
+          );
+        }
+        await GuestGrantOperation.finish(operation['requestKey'] as String);
+      }
+      rethrow;
+    }
   }
 
-  Future<GuestTrialAccess> guestTrial({bool start = false}) async {
+  Future<GuestTrialAccess> guestTrial() async {
     final key = await guestDeviceKey();
-    final response = start
-        ? await _apiClient.post('/guest-trial/start', body: {'deviceKey': key})
-        : await _apiClient.get(
-            '/guest-trial/status',
-            queryParameters: {'deviceKey': key},
-          );
-    return GuestTrialAccess.fromJson(
+    final response = await _apiClient.get(
+      '/guest-trial/status',
+      queryParameters: {'deviceKey': key},
+    );
+    final value = GuestTrialAccess.fromJson(
       Map<String, dynamic>.from(response['data'] as Map),
     );
+    await GuestGrantOperation.observe(
+      value.nextTrialAvailableAt?.toUtc().toIso8601String(),
+    );
+    return value;
+  }
+
+  Future<void> discardGuest(int dataVersion) async {
+    final epoch = _apiClient.sessionEpoch;
+    final response = await _apiClient.post(
+      '/guest-data/discard',
+      body: {'expectedDataVersion': dataVersion, 'confirmDiscard': true},
+    );
+    if (response?['success'] != true ||
+        response?['data']?['discarded'] != true) {
+      throw StateError('Chưa xác nhận được việc xóa dữ liệu khách.');
+    }
+    await _apiClient.clearSession(expectedEpoch: epoch);
   }
 
   /// Convert guest to permanent account

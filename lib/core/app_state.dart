@@ -210,6 +210,12 @@ class AppState extends ChangeNotifier {
       _revision++;
       _reset();
       _accountId = accountId;
+      if (_guestDraft?.id == accountId) {
+        sentence.addAll(_guestDraft!.sentence);
+        transcript = _guestDraft!.transcript;
+        detectedSign = _guestDraft!.detectedSign;
+        _guestDraft = null;
+      }
       avatarImages.bind(accountId);
     }
     guest = asGuest;
@@ -220,7 +226,18 @@ class AppState extends ChangeNotifier {
     if (changed && persisted) unawaited(synchronize());
   }
 
+  ({String id, List<String> sentence, String transcript, String detectedSign})?
+  _guestDraft;
+
   void unbindAccount() {
+    if (guest && _accountId != null) {
+      _guestDraft = (
+        id: _accountId!,
+        sentence: List.of(sentence),
+        transcript: transcript,
+        detectedSign: detectedSign,
+      );
+    }
     unawaited(avatarImages.clear());
     _epoch++;
     _loadEpoch++;

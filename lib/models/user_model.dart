@@ -56,6 +56,7 @@ class UserModel {
   @JsonKey(defaultValue: false)
   final bool googleLinked;
   final DateTime? guestConvertedAt;
+  final DateTime? legacyGuestSessionCutoffAt;
 
   final DateTime? lastLoginAt;
   final String? lastLoginIp;
@@ -77,6 +78,7 @@ class UserModel {
     required this.isGuest,
     this.googleLinked = false,
     this.guestConvertedAt,
+    this.legacyGuestSessionCutoffAt,
     this.lastLoginAt,
     this.lastLoginIp,
     required this.createdAt,
@@ -143,6 +145,7 @@ class UserModel {
     bool? isGuest,
     bool? googleLinked,
     DateTime? guestConvertedAt,
+    DateTime? legacyGuestSessionCutoffAt,
     DateTime? lastLoginAt,
     String? lastLoginIp,
     DateTime? createdAt,
@@ -162,6 +165,8 @@ class UserModel {
       isGuest: isGuest ?? this.isGuest,
       googleLinked: googleLinked ?? this.googleLinked,
       guestConvertedAt: guestConvertedAt ?? this.guestConvertedAt,
+      legacyGuestSessionCutoffAt:
+          legacyGuestSessionCutoffAt ?? this.legacyGuestSessionCutoffAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
       lastLoginIp: lastLoginIp ?? this.lastLoginIp,
       createdAt: createdAt ?? this.createdAt,

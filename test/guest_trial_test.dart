@@ -1,3 +1,4 @@
+import 'package:sign_voice/models/user_model.dart';
 import 'package:flutter/material.dart';
 
 import 'dart:async';
@@ -33,19 +34,32 @@ class TrialClock extends Stopwatch {
 
 class TrialService extends FakeAuthService {
   TrialService() : super(restoredUser: testUser(guest: true));
-  bool started = false, fail = false, expired = false;
+  bool fail = false, expired = false;
+  int grantCalls = 0;
   @override
-  Future<GuestTrialAccess> guestTrial({bool start = false}) async {
+  Future<UserModel> loginAsGuest() async {
+    grantCalls++;
+    return super.loginAsGuest();
+  }
+
+  @override
+  Future<GuestTrialAccess> guestTrial() async {
     if (fail) throw StateError('offline');
-    started |= start;
+
     return GuestTrialAccess.fromJson({
-      'state': expired
-          ? 'expired'
-          : started
-          ? 'active'
-          : 'available',
+      'state': expired ? 'expired' : 'active',
+      'dataState': expired ? 'retained' : 'trial_active',
       'serverNow': '2026-10-24T00:00:00Z',
-      if (started) 'expiresAt': '2026-10-24T00:10:00Z',
+      'expiresAt': '2026-10-24T00:10:00Z',
+      'dataVersion': 0,
+      'allowedActions': [
+        'status',
+        'auth_me',
+        'refresh',
+        'logout',
+        'convert',
+        'discard',
+      ],
     });
   }
 }
@@ -70,35 +84,27 @@ Widget harness(
   ),
 );
 void main() {
-  for (final createNew in [false, true]) {
-    testWidgets(
-      'restored guest chooses ${createNew ? 'new account' : 'previous account'}',
-      (tester) async {
-        final service = TrialService()..expired = true;
-        final auth = AuthProvider(authService: service);
-        await auth.initialize();
-        final previous = auth.user!.id;
-        final state = AppState();
-        await tester.pumpWidget(
-          SignVoiceApp(auth: auth, state: state, initialScreen: 'S10'),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Tiếp tục với tài khoản khách'), findsOneWidget);
-        service.expired = !createNew;
-        await tester.tap(
-          find.text(createNew ? 'Tạo khách mới · 10 phút' : 'Dùng khách cũ'),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Tiếp tục với tài khoản khách'), findsNothing);
-        expect(auth.guestResumePending, isFalse);
-        expect(auth.trialExpired, !createNew);
-        if (!createNew) expect(auth.user!.id, previous);
-        await tester.pumpWidget(const SizedBox());
-        auth.dispose();
-        state.dispose();
-      },
-    );
-  }
+  testWidgets(
+    'restored guest keeps the same allowance without a new-grant prompt',
+    (tester) async {
+      final service = TrialService()..expired = true;
+      final auth = AuthProvider(authService: service);
+      await auth.initialize();
+      final previous = auth.user!.id;
+      final state = AppState();
+      await tester.pumpWidget(
+        SignVoiceApp(auth: auth, state: state, initialScreen: 'S10'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Tạo khách mới · 10 phút'), findsNothing);
+      expect(auth.user!.id, previous);
+      expect(auth.trialExpired, isTrue);
+      expect(service.grantCalls, 0);
+      await tester.pumpWidget(const SizedBox());
+      auth.dispose();
+      state.dispose();
+    },
+  );
   testWidgets(
     'expiry blocks studying deep links and keeps the public catalog readable',
     (tester) async {
@@ -185,7 +191,7 @@ void main() {
     state.dispose();
   });
   testWidgets(
-    'starts on consent, counts down and stops microphone at expiry while preserving drafts',
+    'status never grants, counts down and stops microphone at expiry while preserving drafts',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -200,7 +206,7 @@ void main() {
         harness(auth, state, SpeechCaptureScreen(input: input)),
       );
       await tester.pumpAndSettle();
-      expect(service.started, isTrue);
+      expect(service.grantCalls, 0);
       expect(input.requests, 0);
       expect(find.text('Dùng thử · còn 10:00'), findsOneWidget);
       await tester.tap(
@@ -240,7 +246,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cần tài khoản cá nhân'), findsOneWidget);
     expect(find.text('Saved content'), findsNothing);
-    expect(service.started, isTrue);
+    expect(service.grantCalls, 0);
     await tester.pumpWidget(const SizedBox.shrink());
     auth.dispose();
     state.dispose();

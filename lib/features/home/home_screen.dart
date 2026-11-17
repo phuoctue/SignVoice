@@ -1,3 +1,5 @@
+import '../../widgets/guest_data_panel.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -94,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (state.guest) const GuestDataPanel(compact: true),
           BodyText(greeting),
           const SizedBox(height: 4),
           Heading('$name 👋', size: 24),

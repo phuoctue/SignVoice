@@ -17,6 +17,7 @@ class ApiClient {
   final TokenStore _tokenStorage;
   final bool useRefreshCookie;
   final ValueNotifier<int> sessionInvalidated = ValueNotifier(0);
+  final ValueNotifier<int> guestTrialExpired = ValueNotifier(0);
   final ValueNotifier<int> libraryChanged = ValueNotifier(0);
   String? _libraryRevision;
   Future<void> refreshLibraryRevision() async {
@@ -137,6 +138,9 @@ class ApiClient {
         message = error['message'] ?? message;
         code = error['code'];
         details = error['details'];
+        if (statusCode == 409 && body['data'] is Map) {
+          details = Map<String, dynamic>.from(body['data']);
+        }
       } else {
         message = body['message'] ?? message;
         code = body['code'];
@@ -146,18 +150,25 @@ class ApiClient {
     // Throw appropriate exception
     switch (statusCode) {
       case 401:
-        if (code == 'TOKEN_EXPIRED' ||
-            code == 'AUTH_TOKEN_EXPIRED' ||
-            code == 'AUTH_SESSION_INVALID') {
+        if (code == 'TOKEN_EXPIRED' || code == 'AUTH_TOKEN_EXPIRED') {
           throw TokenExpiredException(message: message);
         }
         throw UnauthorizedException(message: message);
       case 403:
-        throw ForbiddenException(message: message);
+        if (code == 'GUEST_TRIAL_EXPIRED') guestTrialExpired.value++;
+        throw ForbiddenException(
+          message: message,
+          code: code ?? 'FORBIDDEN',
+          details: details,
+        );
       case 404:
         throw NotFoundException(message: message);
       case 400:
-        throw ValidationException(message: message, details: details);
+        throw ValidationException(
+          message: message,
+          details: details,
+          code: code ?? 'VALIDATION_ERROR',
+        );
       case 500:
       case 502:
       case 503:
@@ -275,7 +286,9 @@ class ApiClient {
         ),
       );
     } on ApiException catch (error) {
-      if (error.statusCode == 401 || error.statusCode == 403) {
+      if (error.statusCode == 400 ||
+          error.statusCode == 401 ||
+          error.statusCode == 403) {
         await _invalidateSession(expectedEpoch: epoch);
       }
       rethrow;
@@ -307,7 +320,17 @@ class ApiClient {
             .then(http.Response.fromStream)
             .timeout(timeout ?? ApiConfig.receiveTimeout);
         if (requiresAuth) checkSession(epoch);
-        return _handleResponse(response);
+        final result = _handleResponse(response);
+        if ((endpoint == '${ApiConfig.authEndpoint}/convert-guest' ||
+                endpoint == '/guest-data/discard') &&
+            response.statusCode != 200) {
+          throw ApiException(
+            message: endpoint == '/guest-data/discard'
+                ? 'Chưa xác nhận được việc xóa dữ liệu khách.'
+                : 'Chưa xác nhận được kết quả chuyển tài khoản.',
+          );
+        }
+        return result;
       } on TokenExpiredException {
         checkSession(epoch);
         if (!requiresAuth || attempt > 0) {
@@ -432,6 +455,7 @@ class ApiClient {
     _invalidateReads();
     _client.close();
     sessionInvalidated.dispose();
+    guestTrialExpired.dispose();
     libraryChanged.dispose();
   }
 }

@@ -26,6 +26,9 @@ UserModel _$UserModelFromJson(Map<String, dynamic> json) => UserModel(
   guestConvertedAt: json['guestConvertedAt'] == null
       ? null
       : DateTime.parse(json['guestConvertedAt'] as String),
+  legacyGuestSessionCutoffAt: json['legacyGuestSessionCutoffAt'] == null
+      ? null
+      : DateTime.parse(json['legacyGuestSessionCutoffAt'] as String),
   lastLoginAt: json['lastLoginAt'] == null
       ? null
       : DateTime.parse(json['lastLoginAt'] as String),
@@ -48,6 +51,8 @@ Map<String, dynamic> _$UserModelToJson(UserModel instance) => <String, dynamic>{
   'isGuest': instance.isGuest,
   'googleLinked': instance.googleLinked,
   'guestConvertedAt': instance.guestConvertedAt?.toIso8601String(),
+  'legacyGuestSessionCutoffAt': instance.legacyGuestSessionCutoffAt
+      ?.toIso8601String(),
   'lastLoginAt': instance.lastLoginAt?.toIso8601String(),
   'lastLoginIp': instance.lastLoginIp,
   'createdAt': instance.createdAt.toIso8601String(),

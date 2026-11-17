@@ -34,6 +34,7 @@ import 'features/profile/profile_screens.dart';
 import 'features/system/system_screens.dart';
 import 'features/recognition/live_camera_screen.dart';
 import 'widgets/guest_access_gate.dart';
+import 'widgets/guest_data_panel.dart' show confirmGuestLogout;
 import 'widgets/ui.dart';
 import 'widgets/web_workspace.dart';
 import 'features/learning/learning_hub.dart';
@@ -180,88 +181,6 @@ class _SignVoiceAppState extends State<SignVoiceApp>
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
-  bool _guestChoiceVisible = false;
-
-  Future<void> _chooseGuest() async {
-    if (!mounted || !auth.guestResumePending) {
-      _guestChoiceVisible = false;
-      return;
-    }
-    final dialogContext = navigatorKey.currentContext;
-    if (dialogContext == null) {
-      _guestChoiceVisible = false;
-      return;
-    }
-    var busy = false;
-    String? error;
-    await showDialog<void>(
-      context: dialogContext,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, update) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-            scrollable: true,
-            title: const Text('Tiếp tục với tài khoản khách'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Dùng khách cũ để giữ phiên và thời hạn 10 phút trước đó, hoặc tạo khách mới để bắt đầu 10 phút mới. Thời gian khách cũ vẫn chạy khi bạn đóng ứng dụng.',
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () {
-                        auth.acceptRestoredGuest();
-                        Navigator.pop(context);
-                      },
-                child: const Text('Dùng khách cũ'),
-              ),
-              FilledButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        update(() {
-                          busy = true;
-                          error = null;
-                        });
-                        final success = await auth.loginAsGuest();
-                        if (!context.mounted) return;
-                        if (success) {
-                          Navigator.pop(context);
-                        } else {
-                          update(() {
-                            busy = false;
-                            error =
-                                auth.errorMessage ??
-                                'Không thể tạo khách mới. Vui lòng thử lại.';
-                          });
-                        }
-                      },
-                child: Text(busy ? 'Đang tạo…' : 'Tạo khách mới · 10 phút'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    _guestChoiceVisible = false;
-  }
-
   late final notifications = NotificationService(
     state,
     onOpen: (route) {
@@ -335,10 +254,6 @@ class _SignVoiceAppState extends State<SignVoiceApp>
   }
 
   void _syncUser() {
-    if (auth.guestResumePending && !_guestChoiceVisible) {
-      _guestChoiceVisible = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _chooseGuest());
-    }
     final user = auth.user;
     if (auth.isAuthenticated && user != null) {
       if (_currentUserId != user.id) {
@@ -378,7 +293,7 @@ class _SignVoiceAppState extends State<SignVoiceApp>
       _libraryTimer?.cancel();
     }
     if (_notificationsStarted && lifecycle == AppLifecycleState.resumed) {
-      auth.refreshUser();
+      auth.refreshUser().then((_) => auth.loadGuestTrial());
       if (kIsWeb && state.persisted && auth.isAuthenticated && !state.syncing) {
         unawaited(state.synchronize());
       }
@@ -668,7 +583,13 @@ class AccessGate extends StatelessWidget {
       return AuthScreen(returnRoute: screenId);
     }
     final state = AppScope.of(context);
-    if (state.persisted && !state.ready) {
+    final guestStatusOnly =
+        auth.user?.isGuest == true &&
+        (auth.trial?.dataState != 'trial_active' ||
+            auth.trialExpired ||
+            auth.trialLoading ||
+            auth.trialError != null);
+    if (state.persisted && !state.ready && !guestStatusOnly) {
       return Scaffold(
         appBar: AppBar(title: const Text('Dữ liệu tài khoản')),
         body: Center(
@@ -686,7 +607,13 @@ class AccessGate extends StatelessWidget {
                       child: const Text('Thử lại'),
                     ),
                     TextButton(
-                      onPressed: auth.logout,
+                      onPressed: () async {
+                        if (auth.user?.isGuest == true &&
+                            !await confirmGuestLogout(context)) {
+                          return;
+                        }
+                        await auth.logout();
+                      },
                       child: const Text('Đăng xuất'),
                     ),
                   ],
@@ -697,7 +624,14 @@ class AccessGate extends StatelessWidget {
     if (auth.user?.isGuest == true && !guestChecked) {
       final uri = Uri.parse(screenId);
       final publicCatalog =
-          const {'S22', 'S23', 'catalog', 'S27', 'S28'}.contains(screenId) ||
+          const {
+            'S22',
+            'S23',
+            'catalog',
+            'S27',
+            'S28',
+            'S25',
+          }.contains(screenId) ||
           screenId.startsWith('/dictionary/') ||
           (uri.path.startsWith('/learn/topic/') &&
               uri.queryParameters['study'] != '1');

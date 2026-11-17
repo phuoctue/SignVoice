@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../core/navigation.dart';
 import '../core/app_state.dart';
 import 'ui.dart';
+import 'guest_data_panel.dart';
 
 class GuestAccessGate extends StatefulWidget {
   const GuestAccessGate({
@@ -29,7 +30,7 @@ class _GuestAccessGateState extends State<GuestAccessGate>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !widget.permanentOnly) {
-        context.read<AuthProvider>().loadGuestTrial(start: true);
+        context.read<AuthProvider>().loadGuestTrial();
       }
     });
   }
@@ -37,7 +38,9 @@ class _GuestAccessGateState extends State<GuestAccessGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !widget.permanentOnly) {
-      context.read<AuthProvider>().loadGuestTrial(start: true);
+      context.read<AuthProvider>().refreshUser().then((_) {
+        if (mounted) context.read<AuthProvider>().loadGuestTrial();
+      });
     }
   }
 
@@ -52,37 +55,18 @@ class _GuestAccessGateState extends State<GuestAccessGate>
     final auth = context.watch<AuthProvider>();
     if (auth.user?.isGuest != true) return widget.child;
     if (!widget.permanentOnly &&
-        auth.trial?.state == 'active' &&
+        auth.trial?.dataState == 'trial_active' &&
         !auth.trialExpired &&
+        !auth.trialLoading &&
         auth.trialError == null) {
-      final remaining = auth.trialRemaining;
-      final seconds =
-          remaining.inSeconds + (remaining.inMilliseconds % 1000 > 0 ? 1 : 0);
       return Column(
         children: [
-          SafeArea(
-            bottom: false,
-            child: Material(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Dùng thử · còn ${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => openScreen(context, 'S06'),
-                      child: const Text('Tạo tài khoản'),
-                    ),
-                  ],
-                ),
-              ),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .4,
+            ),
+            child: const SingleChildScrollView(
+              child: GuestDataPanel(compact: true, collapsed: true),
             ),
           ),
           Expanded(child: widget.child),
@@ -117,13 +101,7 @@ class _GuestAccessGateState extends State<GuestAccessGate>
               center: true,
             ),
             const SizedBox(height: 20),
-            Text(
-              widget.permanentOnly
-                  ? 'Đăng nhập hoặc tạo tài khoản để lưu hội thoại, yêu thích và đồng bộ dữ liệu.'
-                  : expired
-                  ? 'Phiên dùng thử 10 phút đã kết thúc. Đăng nhập hoặc tạo tài khoản để tiếp tục. Bạn vẫn xem được từ điển công khai.'
-                  : 'Phiên 10 phút bắt đầu ngay khi bạn xác nhận vào dùng thử. Thời gian không đặt lại khi đổi trang hoặc tải lại.',
-            ),
+            const GuestDataPanel(),
             const SizedBox(height: 18),
             if (expired && draft.isNotEmpty) ...[
               const Text('Bản nháp của bạn'),
@@ -134,36 +112,6 @@ class _GuestAccessGateState extends State<GuestAccessGate>
                 label: const Text('Sao chép bản nháp'),
               ),
             ],
-            if (!widget.permanentOnly && !expired && auth.trialLoading)
-              const LinearProgressIndicator(),
-            if (auth.trialError != null) ...[
-              Notice(auth.trialError!),
-              TextButton(
-                onPressed: auth.trialLoading
-                    ? null
-                    : () => auth.loadGuestTrial(start: true),
-                child: const Text('Thử lại'),
-              ),
-            ],
-            const SizedBox(height: 12),
-            AppButton(
-              'Đăng nhập',
-              fill: true,
-              onPressed: () => openScreen(
-                context,
-                authLocation(returnRoute: widget.returnRoute),
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppButton(
-              'Tạo tài khoản',
-              fill: true,
-              outlined: true,
-              onPressed: () => openScreen(
-                context,
-                authLocation(register: true, returnRoute: widget.returnRoute),
-              ),
-            ),
             TextButton(
               onPressed: () => openRoot(context, 'S22'),
               child: const Text('Xem từ điển công khai'),

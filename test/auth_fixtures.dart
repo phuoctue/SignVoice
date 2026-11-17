@@ -220,12 +220,21 @@ UserModel testUser({UserRole role = UserRole.user, bool guest = false}) =>
 
 class FakeAuthService extends AuthService {
   @override
-  Future<GuestTrialAccess> guestTrial({bool start = false}) async =>
-      GuestTrialAccess.fromJson({
-        'state': start ? 'active' : 'available',
-        'serverNow': '2026-10-24T00:00:00Z',
-        if (start) 'expiresAt': '2026-10-24T00:10:00Z',
-      });
+  Future<GuestTrialAccess> guestTrial() async => GuestTrialAccess.fromJson({
+    'state': 'active',
+    'dataState': 'trial_active',
+    'dataVersion': 0,
+    'allowedActions': [
+      'status',
+      'auth_me',
+      'refresh',
+      'logout',
+      'convert',
+      'discard',
+    ],
+    'serverNow': '2026-10-24T00:00:00Z',
+    'expiresAt': '2026-10-24T00:10:00Z',
+  });
   FakeAuthService({this.restoredUser, this.role = UserRole.user})
     : super(
         apiClient: ApiClient(

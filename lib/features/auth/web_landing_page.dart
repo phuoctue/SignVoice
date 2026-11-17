@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/guest_data_panel.dart' show guestTrialConsent;
 import 'package:intl/intl.dart';
 
 import '../../widgets/public_sign_preview.dart';
@@ -192,11 +193,7 @@ class _WebLandingPageState extends State<WebLandingPage> {
         constraints: const BoxConstraints(maxWidth: 520),
         scrollable: true,
         title: const Text('Dùng thử SignVoice trong 10 phút'),
-        content: const Text(
-          'Bạn có thể trải nghiệm giao tiếp và học ký hiệu trong 10 phút kể từ khi xác nhận. '
-          'Các chức năng lưu hội thoại, yêu thích và bộ riêng cần đăng nhập. '
-          'Hết giờ, bạn vẫn xem được từ điển công khai.',
-        ),
+        content: const Text(guestTrialConsent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),

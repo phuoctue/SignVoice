@@ -54,8 +54,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Hồ sơ'), findsNothing);
       expect(find.text('Lịch học'), findsNothing);
-      expect(find.text('Cài đặt giọng nói'), findsOneWidget);
-      await tester.tap(find.text('Cài đặt giọng nói'));
+      await tester.tap(find.text('Dữ liệu khách và thời hạn'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('guest-discard')), findsOneWidget);
+      await tester.tap(find.byTooltip('Menu tài khoản'));
+      await tester.pumpAndSettle();
+      final voiceMenu = find.widgetWithText(
+        PopupMenuItem<String>,
+        'Cài đặt giọng nói',
+      );
+      expect(voiceMenu, findsOneWidget);
+      await tester.tap(voiceMenu);
       await tester.pumpAndSettle();
       expect(find.textContaining('Tốc độ đọc'), findsOneWidget);
       expect(find.text('Cần tài khoản cá nhân'), findsNothing);

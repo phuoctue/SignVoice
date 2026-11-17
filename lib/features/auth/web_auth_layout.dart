@@ -110,51 +110,48 @@ class _WebAuthLayoutState extends State<WebAuthLayout>
                       final half = card.maxWidth / 2;
                       return Stack(
                         children: [
-                          IntrinsicHeight(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                SizedBox(
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Transform.translate(
+                                offset: Offset(half * t, 0),
+                                child: SizedBox(
                                   width: half,
-                                  child: Transform.translate(
-                                    offset: Offset(half * t, 0),
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        minHeight: 800,
-                                      ),
-                                      child: Center(
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 36,
-                                            vertical: 32,
-                                          ),
-                                          child: IgnorePointer(
-                                            ignoring: moving,
-                                            child: ExcludeFocus(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minHeight: 800,
+                                    ),
+                                    child: Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 36,
+                                          vertical: 32,
+                                        ),
+                                        child: IgnorePointer(
+                                          ignoring: moving,
+                                          child: ExcludeFocus(
+                                            excluding: moving,
+                                            child: ExcludeSemantics(
                                               excluding: moving,
-                                              child: ExcludeSemantics(
-                                                excluding: moving,
-                                                child: Opacity(
-                                                  opacity:
-                                                      (((t - .5).abs() - .12) /
-                                                              .38)
-                                                          .clamp(0, 1),
-                                                  child: Theme(
-                                                    data: theme.copyWith(
-                                                      inputDecorationTheme: theme
-                                                          .inputDecorationTheme
-                                                          .copyWith(
-                                                            contentPadding:
-                                                                const EdgeInsets.symmetric(
-                                                                  horizontal:
-                                                                      16,
-                                                                  vertical: 13,
-                                                                ),
-                                                          ),
-                                                    ),
-                                                    child: AutofillGroup(
-                                                      child: _form,
-                                                    ),
+                                              child: Opacity(
+                                                opacity:
+                                                    (((t - .5).abs() - .12) /
+                                                            .38)
+                                                        .clamp(0, 1),
+                                                child: Theme(
+                                                  data: theme.copyWith(
+                                                    inputDecorationTheme: theme
+                                                        .inputDecorationTheme
+                                                        .copyWith(
+                                                          contentPadding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 16,
+                                                                vertical: 13,
+                                                              ),
+                                                        ),
+                                                  ),
+                                                  child: AutofillGroup(
+                                                    child: _form,
                                                   ),
                                                 ),
                                               ),
@@ -165,21 +162,21 @@ class _WebAuthLayoutState extends State<WebAuthLayout>
                                     ),
                                   ),
                                 ),
-                                SizedBox(
-                                  width: half,
-                                  child: ExcludeSemantics(
-                                    child: ExcludeFocus(
-                                      child: IgnorePointer(
-                                        child: Opacity(
-                                          opacity: 0,
-                                          child: _panel(t >= .5, null),
-                                        ),
+                              ),
+                              SizedBox(
+                                width: half,
+                                child: ExcludeSemantics(
+                                  child: ExcludeFocus(
+                                    child: IgnorePointer(
+                                      child: Opacity(
+                                        opacity: 0,
+                                        child: _panel(t >= .5, null),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                           Positioned.fill(
                             child: Align(

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/app_state.dart';
 import '../core/navigation.dart';
 import '../providers/auth_provider.dart';
-import 'ui.dart' show confirm;
+import 'guest_data_panel.dart';
 import 'user_avatar.dart';
 
 class WebAccountMenu extends StatelessWidget {
@@ -71,13 +71,7 @@ class WebAccountMenu extends StatelessWidget {
             openScreen(context, path);
             return;
           }
-          if (!await confirm(
-            context,
-            title: 'Đăng xuất?',
-            message: 'Bạn có muốn đăng xuất khỏi tài khoản hiện tại?',
-            confirmLabel: 'Đăng xuất',
-            destructive: true,
-          )) {
+          if (!await confirmGuestLogout(context)) {
             return;
           }
           if (!context.mounted) return;
@@ -127,7 +121,11 @@ class WebAccountMenu extends StatelessWidget {
               ),
             ),
           if (!sidebar) const PopupMenuDivider(),
-          if (!guest) item('/profile', 'Hồ sơ', Icons.person_outline),
+          item(
+            '/profile',
+            guest ? 'Dữ liệu khách và thời hạn' : 'Hồ sơ',
+            Icons.person_outline,
+          ),
           if (!sidebar) ...[
             if (!guest)
               item('/study-reminder', 'Lịch học', Icons.event_note_outlined),

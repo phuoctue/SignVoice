@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../widgets/guest_data_panel.dart';
 import '../../services/auth/auth_service.dart';
 import '../../services/auth/google_sign_in_native.dart';
 import '../../services/api/api_exception.dart';
@@ -98,53 +99,53 @@ class _SplashScreenState extends State<SplashScreen> {
       return const WebLandingPage();
     }
     return Scaffold(
-    body: Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.blue, Color(0xFF1D4ED8), Color(0xFF1E40AF)],
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.blue, Color(0xFF1D4ED8), Color(0xFF1E40AF)],
+          ),
         ),
-      ),
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Logo(size: 80, white: true),
-                const SizedBox(height: 20),
-                const Text(
-                  'SignVoice',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 34,
-                    fontWeight: FontWeight.w800,
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Logo(size: 80, white: true),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'SignVoice',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Kết nối giao tiếp, xóa nhòa khoảng cách',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFFBFDBFE), fontSize: 14),
-                ),
-                const SizedBox(height: 40),
-                const SizedBox(
-                  width: 180,
-                  child: LinearProgressIndicator(
-                    color: Colors.white,
-                    backgroundColor: Color(0xFF3B82F6),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Kết nối giao tiếp, xóa nhòa khoảng cách',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFFBFDBFE), fontSize: 14),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 40),
+                  const SizedBox(
+                    width: 180,
+                    child: LinearProgressIndicator(
+                      color: Colors.white,
+                      backgroundColor: Color(0xFF3B82F6),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 
@@ -313,6 +314,13 @@ class _AuthScreenState extends State<AuthScreen> {
   late bool registering = widget.register;
   Map<String, bool>? oauth;
   String? oauthError;
+  bool _submittingConversion = false;
+  bool get conversionMode =>
+      registering &&
+      (_submittingConversion ||
+          context.read<AuthProvider>().guestAllows('convert'));
+  String? formMessage;
+  final fieldErrors = <String, String>{};
   @override
   void initState() {
     super.initState();
@@ -425,16 +433,28 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> submit() async {
     if (busy) return;
+    final auth = context.read<AuthProvider>();
+    if (registering && _needsGuestStatus(auth)) {
+      setState(
+        () => formMessage = 'Hãy kiểm tra trạng thái khách trước khi đăng ký để tránh bỏ qua dữ liệu có thể giữ lại.',
+      );
+      return;
+    }
     if (!form.currentState!.validate()) return;
     if (registering && !accepted) {
       toast(context, 'Vui lòng đồng ý với điều khoản để tiếp tục.');
       return;
     }
-    setState(() => busy = true);
-    final auth = context.read<AuthProvider>();
     final creatingAccount = registering;
+    final converting = creatingAccount && conversionMode;
+    setState(() {
+      busy = true;
+      _submittingConversion = converting;
+      formMessage = null;
+      fieldErrors.clear();
+    });
     final success = registering
-        ? auth.user?.isGuest == true
+        ? converting
               ? await auth.convertGuest(
                   email: email.text.trim(),
                   password: password.text,
@@ -447,7 +467,42 @@ class _AuthScreenState extends State<AuthScreen> {
                 )
         : await auth.login(email: email.text.trim(), password: password.text);
     if (!mounted) return;
-    setState(() => busy = false);
+    setState(() {
+      busy = false;
+      _submittingConversion = false;
+    });
+    if (converting) {
+      password.clear();
+      repeatPassword.clear();
+      if (success || auth.conversionNeedsLogin) {
+        setState(() {
+          registering = false;
+          formMessage = success
+              ? 'Chuyển tài khoản thành công. Đăng nhập bằng email vừa tạo để tiếp tục.'
+              : 'Nếu bạn đã tạo tài khoản, hãy đăng nhập bằng email này.';
+        });
+      } else {
+        final error = auth.conversionError;
+        setState(() {
+          if (error?.code == 'AUTH_EMAIL_ALREADY_EXISTS') {
+            fieldErrors['email'] = 'Email đã được dùng.';
+          } else if (error?.code == 'VALIDATION_ERROR') {
+            final message = error!.message;
+            if (message.contains('displayName:')) {
+              fieldErrors['name'] = 'Tên cần từ 2 đến 50 ký tự.';
+            }
+            if (message.contains('email:')) {
+              fieldErrors['email'] = 'Email không hợp lệ.';
+            }
+            if (message.contains('password:')) {
+              fieldErrors['password'] = 'Mật khẩu chưa đáp ứng yêu cầu.';
+            }
+          }
+          formMessage = auth.errorMessage;
+        });
+      }
+      return;
+    }
     if (success) {
       if (creatingAccount) {
         password.clear();
@@ -465,16 +520,22 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  Future<void> enterGuest() async {
+  Future<void> enterGuest({bool separate = false}) async {
     if (busy) return;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         constraints: const BoxConstraints(maxWidth: 520),
         scrollable: true,
-        title: const Text('Dùng thử SignVoice trong 10 phút'),
-        content: const Text(
-          'Bạn có thể trải nghiệm giao tiếp và học ký hiệu trong 10 phút kể từ khi xác nhận. Thời gian vẫn chạy khi đổi trang hoặc tải lại. Các chức năng lưu hội thoại, yêu thích và bộ riêng cần đăng nhập. Hết giờ, bạn vẫn xem được từ điển công khai.',
+        title: Text(
+          separate
+              ? 'Bắt đầu một yêu cầu riêng mới?'
+              : 'Dùng thử SignVoice trong 10 phút',
+        ),
+        content: Text(
+          separate
+              ? 'Bạn đang bỏ việc thử lại yêu cầu cũ chưa rõ kết quả. Yêu cầu mới không khôi phục, chuyển hay xóa dữ liệu của khách cũ và vẫn phải chờ đủ thời gian máy chủ quy định. $guestTrialConsent'
+              : guestTrialConsent,
         ),
         actions: [
           TextButton(
@@ -489,27 +550,90 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
     if (!mounted || accepted != true) return;
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      formMessage = null;
+    });
     final auth = context.read<AuthProvider>();
-    final success = await auth.loginAsGuest();
+    final success = separate
+        ? await auth.startSeparateGuestTrial()
+        : await auth.loginAsGuest();
     if (!mounted) return;
     setState(() => busy = false);
     if (success) {
       finishLogin();
     } else {
-      toast(context, auth.errorMessage ?? 'Không thể bắt đầu dùng thử.');
+      setState(
+        () => formMessage = auth.errorMessage ?? 'Chưa xác nhận được lượt thử. Hãy kiểm tra kết nối và thử lại cùng yêu cầu.',
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final desktop = kIsWeb && MediaQuery.sizeOf(context).width >= 900;
+    final auth = context.watch<AuthProvider>();
+    final desktop =
+        kIsWeb &&
+        MediaQuery.sizeOf(context).width >= 900 &&
+        MediaQuery.textScalerOf(context).scale(1) < 1.6;
     final formContent = Form(
       key: form,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (registering && _needsGuestStatus(auth)) ...[
+            const Notice(
+              'Chưa xác minh được trạng thái dữ liệu khách. Kiểm tra lại trước khi đăng ký.',
+            ),
+            TextButton(
+              onPressed: busy || auth.trialLoading
+                  ? null
+                  : auth.reconcileGuestOperation,
+              child: const Text('Kiểm tra trạng thái khách'),
+            ),
+          ],
+          if (formMessage == null &&
+              context.watch<AuthProvider>().state ==
+                  AuthState.unauthenticated &&
+              context.watch<AuthProvider>().user == null &&
+              context.watch<AuthProvider>().errorMessage != null)
+            Semantics(
+              liveRegion: true,
+              child: Notice(context.watch<AuthProvider>().errorMessage!),
+            ),
+          if (context.watch<AuthProvider>().user == null &&
+              context.watch<AuthProvider>().guestOperationMessage != null)
+            Semantics(
+              liveRegion: true,
+              child: Notice(
+                context.watch<AuthProvider>().guestOperationMessage!,
+              ),
+            ),
+          if (!registering &&
+              context.watch<AuthProvider>().user?.isGuest == true)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text(guestLoginNotice),
+            ),
+          if (registering &&
+              !conversionMode &&
+              context.watch<AuthProvider>().user?.isGuest == true)
+            const Text(
+              'Tài khoản mới này không khôi phục hay nhận dữ liệu khách. Dữ liệu khách không tự bị xóa; bỏ dữ liệu cần xác nhận riêng.',
+            ),
+          if (formMessage != null) ...[
+            Semantics(liveRegion: true, child: Notice(formMessage!)),
+            const SizedBox(height: 16),
+          ],
+          if (registering && conversionMode) ...[
+            const Heading('Chuyển thành tài khoản', center: true),
+            const SizedBox(height: 12),
+            const Text(
+              'Giữ lại bài học, tiến độ, từ cá nhân, bộ sưu tập và yêu thích của bạn. Sau khi chuyển, hãy đăng nhập bằng email vừa tạo.',
+            ),
+            const SizedBox(height: 20),
+          ],
           if (!registering) ...[
             if (!desktop) ...[
               const Center(child: Logo(size: 58)),
@@ -536,7 +660,7 @@ class _AuthScreenState extends State<AuthScreen> {
             ],
             const SizedBox(height: 24),
           ] else ...[
-            if (desktop) ...[
+            if (desktop && !conversionMode) ...[
               const Heading('Tạo tài khoản', center: true),
               const SizedBox(height: 20),
             ],
@@ -569,9 +693,16 @@ class _AuthScreenState extends State<AuthScreen> {
               TextFormField(
                 controller: name,
                 textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(hintText: 'Nguyễn Văn A'),
+                decoration: InputDecoration(
+                  hintText: 'Nguyễn Văn A',
+                  errorText: fieldErrors['name'],
+                ),
+                onChanged: (_) => setState(() => fieldErrors.remove('name')),
                 validator: (v) => v == null || v.trim().isEmpty
                     ? 'Vui lòng nhập họ và tên.'
+                    : conversionMode &&
+                          (v.trim().length < 2 || v.trim().length > 50)
+                    ? 'Tên cần từ 2 đến 50 ký tự.'
                     : null,
               ),
             ),
@@ -584,7 +715,11 @@ class _AuthScreenState extends State<AuthScreen> {
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.email],
-              decoration: const InputDecoration(hintText: 'email@example.com'),
+              decoration: InputDecoration(
+                hintText: 'email@example.com',
+                errorText: fieldErrors['email'],
+              ),
+              onChanged: (_) => setState(() => fieldErrors.remove('email')),
               validator: validateEmail,
             ),
           ),
@@ -602,6 +737,7 @@ class _AuthScreenState extends State<AuthScreen> {
               },
               decoration: InputDecoration(
                 hintText: 'Tối thiểu 8 ký tự',
+                errorText: fieldErrors['password'],
                 suffixIcon: IconButton(
                   tooltip: hidePassword ? 'Hiện mật khẩu' : 'Ẩn mật khẩu',
                   onPressed: () => setState(() => hidePassword = !hidePassword),
@@ -612,6 +748,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
               ),
+              onChanged: (_) => setState(() => fieldErrors.remove('password')),
               validator: (value) {
                 final error = validatePassword(value);
                 if (error != null || !registering) return error;
@@ -733,7 +870,10 @@ class _AuthScreenState extends State<AuthScreen> {
                 runSpacing: 4,
                 children: [
                   TextButton.icon(
-                    onPressed: busy ? null : enterGuest,
+                    onPressed:
+                        busy || context.watch<AuthProvider>().user != null
+                        ? null
+                        : () => enterGuest(),
                     icon: const Icon(Icons.explore_outlined, size: 18),
                     label: const Text('Khám phá bản dùng thử'),
                   ),
@@ -746,8 +886,18 @@ class _AuthScreenState extends State<AuthScreen> {
               )
             else
               TextButton(
-                onPressed: busy ? null : enterGuest,
+                onPressed: busy || context.watch<AuthProvider>().user != null
+                    ? null
+                    : () => enterGuest(),
                 child: const Text('Dùng thử không cần tài khoản'),
+              ),
+            if (formMessage != null &&
+                context.watch<AuthProvider>().user == null)
+              TextButton(
+                onPressed: busy ? null : () => enterGuest(separate: true),
+                child: const Text(
+                  'Bắt đầu yêu cầu riêng mới (không khôi phục dữ liệu cũ)',
+                ),
               ),
           ],
         ],
@@ -759,16 +909,33 @@ class _AuthScreenState extends State<AuthScreen> {
         form: formContent,
         busy: busy,
         onSwitch: () {
-          if (!busy) setState(() => registering = !registering);
+          if (!busy) {
+            setState(() {
+              registering = !registering;
+              fieldErrors.clear();
+              formMessage = null;
+            });
+          }
         },
       );
     }
     return AppPage(
-      title: registering ? 'Tạo tài khoản' : 'Đăng nhập',
+      title: registering
+          ? conversionMode
+                ? 'Chuyển thành tài khoản'
+                : 'Tạo tài khoản'
+          : 'Đăng nhập',
       showBack: registering || widget.returnRoute != null,
       child: formContent,
     );
   }
+
+  bool _needsGuestStatus(AuthProvider auth) =>
+      auth.user?.isGuest == true &&
+      (auth.trial == null ||
+          auth.trialLoading ||
+          auth.trialError != null ||
+          auth.guestOperationUnknown);
 
   Widget _field(String label, Widget input) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,

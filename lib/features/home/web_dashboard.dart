@@ -1,3 +1,5 @@
+import '../../widgets/guest_data_panel.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -130,6 +132,7 @@ class _WebDashboardState extends State<WebDashboard>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (guest) const GuestDataPanel(compact: true),
           Wrap(
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
