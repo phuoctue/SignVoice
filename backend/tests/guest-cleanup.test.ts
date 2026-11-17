@@ -68,6 +68,86 @@ async function expiredGuest() {
 }
 const run = () => runGuestCleanup({enabled: true});
 
+it.each(['disabled', 'paused', 'invalid-registry', 'finished'])('emits a correlated, timestamped summary on the %s path', async kind => {
+  if (kind === 'paused') await GuestCleanupControl.updateOne({_id: 'guest-cleanup'}, {$set: {paused: true}});
+  if (kind === 'invalid-registry') vi.stubEnv('GUEST_SYNTHETIC_REGISTRY_FILE', 'missing-relative-registry');
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const before = Date.now();
+  const result = await runGuestCleanup({enabled: kind !== 'disabled'});
+  expect(result).toMatchObject({runId: expect.stringMatching(/^[0-9a-f-]{36}$/), startedAt: expect.any(String), endedAt: expect.any(String)});
+  expect(Date.parse(result.startedAt)).toBeGreaterThanOrEqual(before);
+  expect(Date.parse(result.endedAt)).toBeGreaterThanOrEqual(Date.parse(result.startedAt));
+  expect(Date.parse(result.endedAt)).toBeLessThanOrEqual(Date.now());
+  expect(info.mock.calls.filter(call => call[0] === 'Guest cleanup summary')).toEqual([['Guest cleanup summary', result]]);
+  expect((await runGuestCleanup({enabled: false})).runId).not.toBe(result.runId);
+});
+
+it('logs candidate error identity and code with its run id, excluding error bodies', async () => {
+  const a = await expiredGuest();
+  vi.spyOn(GuestLifecycleOutbox, 'create').mockRejectedValueOnce(new mongoose.mongo.MongoServerError({message: 'private token body', code: 123}));
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const result = await run();
+  expect(result).toMatchObject({state: 'finished', failed: 1, deleted: 0});
+  expect(warning.mock.calls).toContainEqual([expect.stringContaining('candidate failed'),
+    {runId: result.runId, userId: String(a.id), errorName: 'MongoServerError', errorCode: 123}]);
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('private token body');
+});
+
+it.each(['driver', 'server'])('stops at a candidate transaction deadline without counting failures or advancing its cursor: %s', async kind => {
+  const a = await expiredGuest();
+  const previous = new Types.ObjectId('000000000000000000000001');
+  await GuestCleanupControl.updateOne({_id: 'guest-cleanup'}, {$set: {cursor: previous}});
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const failure = kind === 'driver' ? new mongoose.mongo.MongoOperationTimeoutError('Server roundtrip time is greater than the time remaining')
+    : new mongoose.mongo.MongoServerError({message: 'private deadline error body', code: 50});
+  const hold = holdUserRead(true, failure);
+  const pending = runGuestCleanup({enabled: true});
+  try {
+    await hold.reached.promise;
+    // The driver refuses a command when its roundtrip cannot fit the run deadline.
+    hold.resume.release();
+    const result = await pending;
+    expect(result).toMatchObject({state: 'stopped', deleted: 0, failed: 0, pendingCountExact: false});
+    expect(warning.mock.calls).toContainEqual([expect.stringContaining('candidate stopped'),
+      {runId: result.runId, userId: String(a.id), errorName: failure.name, errorCode: kind === 'driver' ? null : 50}]);
+    expect(warning.mock.calls.filter(call => call[0] === 'Guest cleanup ALERT: run stopped')).toEqual([
+      ['Guest cleanup ALERT: run stopped', {runId: result.runId, considered: 1, deleted: 0}],
+    ]);
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('Server roundtrip time');
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('private deadline error body');
+    expect((await GuestCleanupControl.findById('guest-cleanup').lean())?.cursor).toEqual(previous);
+    expect(await User.exists({_id: a.id})).not.toBeNull();
+    expect(await GuestLifecycleOutbox.countDocuments({kind: 'EXPIRED_CLEANED'})).toBe(0);
+  } finally {hold.resume.release(); await pending; hold.restore();}
+});
+
+it.each(['driver', 'server'])('stops on a cursor write deadline without counting a candidate failure: %s', async kind => {
+  const a = await createGuestAccount({}), previous = new Types.ObjectId('000000000000000000000001');
+  await GuestCleanupControl.updateOne({_id: 'guest-cleanup'}, {$set: {cursor: previous}});
+  const collection = GuestCleanupControl.collection, update = collection.updateOne;
+  const failure = kind === 'driver' ? new mongoose.mongo.MongoOperationTimeoutError('private cursor deadline body')
+    : new mongoose.mongo.MongoServerError({message: 'private cursor deadline body', code: 50});
+  let cursorTimeout: number | undefined;
+  vi.spyOn(collection, 'updateOne').mockImplementation((function(this: typeof collection, ...args: any[]) {
+    if (args[1]?.$set?.cursor) {
+      cursorTimeout = args[2]?.timeoutMS;
+      return Promise.reject(failure);
+    }
+    return Reflect.apply(update, this, args);
+  }) as any);
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const result = await run();
+  expect(result).toMatchObject({state: 'stopped', considered: 1, skipped: 1, deleted: 0, failed: 0, pendingCountExact: false});
+  expect(cursorTimeout).toBeGreaterThan(0);
+  expect(cursorTimeout).toBeLessThanOrEqual(30000);
+  expect((await GuestCleanupControl.findById('guest-cleanup').lean())?.cursor).toEqual(previous);
+  expect(await User.exists({_id: a.user.id})).not.toBeNull();
+  expect(warning.mock.calls.filter(call => call[0] === 'Guest cleanup ALERT: run stopped')).toEqual([
+    ['Guest cleanup ALERT: run stopped', {runId: result.runId, considered: 1, deleted: 0}],
+  ]);
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('private cursor deadline body');
+});
+
 it('deletes expired owned data, audit rows and User atomically with one sanitized receipt, retaining cooldown and revocation fences', async () => {
   const a = await expiredGuest();
   const trial = await GuestTrial.create({deviceHash: 'a'.repeat(64), lastGrantRequestHash: 'b'.repeat(64), legacyFallbackDisabledAt: new Date()});
@@ -285,10 +365,15 @@ it('bounds a run to 25 indexed candidates and reports overdue pending count and 
 
 it('never starts another candidate after the 30s monotonic budget', async () => {
   await expiredGuest(); await expiredGuest();
-  let calls = 0;
-  const result = await runGuestCleanup({enabled: true, monotonicNow: () => calls++ < 4 ? 0 : 30000});
-  expect(result.deleted).toBeLessThan(2);
-  expect(await User.countDocuments()).toBeGreaterThan(0);
+  let time = 0;
+  const hold = holdUserRead(false), pending = runGuestCleanup({enabled: true, monotonicNow: () => time});
+  try {
+    await hold.reached.promise;
+    time = 30000;
+    hold.resume.release();
+    expect(await pending).toMatchObject({state: 'stopped', considered: 0, deleted: 0, failed: 0});
+    expect(await User.countDocuments()).toBe(2);
+  } finally {hold.resume.release(); await pending; hold.restore();}
 });
 
 it('retries failed durable media jobs, alerts on persistent failure and keeps the job', async () => {
@@ -339,7 +424,7 @@ function latch() {
   const promise = new Promise<void>(resolve => {release = resolve;});
   return {promise, release};
 }
-function holdUserRead(transaction: boolean) {
+function holdUserRead(transaction: boolean, failure?: Error) {
   const reached = latch(), resume = latch();
   const method = transaction ? 'findById' : 'find', read = User[method];
   let held = false;
@@ -349,6 +434,7 @@ function holdUserRead(transaction: boolean) {
       const rows = await Reflect.apply(exec, this, params);
       if (!held && (transaction ? query.getOptions().session?.inTransaction() : query.getOptions().limit === 25)) {
         held = true; reached.release(); await resume.promise;
+        if (failure) throw failure;
       }
       return rows;
     };
