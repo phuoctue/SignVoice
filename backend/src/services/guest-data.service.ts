@@ -42,11 +42,25 @@ export async function discardGuestInTransaction(authority: GuestAuthority, expec
   assertSessionEpoch(caller, user);
   const {chain} = await assertSessionChain(caller, session);
   const status = await guestTrialStatus(userId, session);
-  if (replacement && status.dataState === 'legacy_unknown') throw new AppError('Discard this legacy guest separately first.', 409, 'GUEST_LEGACY_REPLACEMENT_DENIED');
+  if (replacement && !status.startedAt) throw new AppError('Discard this legacy guest separately first.', 409, 'GUEST_LEGACY_REPLACEMENT_DENIED');
   if (!status.allowedActions?.includes('discard')) throw stale();
   const locked = await User.updateOne({_id: userId, isGuest: true, guestConvertedAt: {$exists: false},
     status: AccountStatus.ACTIVE, ...guestDataVersionFilter(expectedDataVersion), ...userEpochFilter(epoch)}, {$inc: {dataVersion: 1}}, {session});
   if (!locked.matchedCount) throw stale();
+  await deleteGuestOwnedData(user, expectedDataVersion, epoch, session);
+  await appendGuestEvent('DISCARDED', {guestUserId: String(userId), guestGrantedAt: status.startedAt?.toISOString() ?? null,
+    dataVersion: expectedDataVersion, committedAt: authClock.now().toISOString()}, session);
+  return async () => {
+    const transition = await loadChainTransition();
+    if (chain) assertChainDeadline(chain, transition);
+    else if (transition) throw invalid();
+    if (!caller.isValid()) throw invalid();
+  };
+}
+/** Both authenticated discard and routine expiry hold the same User/version lock before this primitive. */
+export async function deleteGuestOwnedData(user: Pick<import('../models/User.model').IUser, '_id' | 'guestTrialId'>,
+  expectedDataVersion: number, epoch: number, session: ClientSession) {
+  const userId = user._id;
   if (user.guestTrialId) {
     // A disappearing binding must never make another legacy guest's anchor look proven.
     await GuestTrial.collection.updateOne({_id: user.guestTrialId, lastGrantRequestHash: {$exists: false},
@@ -61,14 +75,6 @@ export async function discardGuestInTransaction(authority: GuestAuthority, expec
   const deleted = await User.deleteOne({_id: userId, isGuest: true, guestConvertedAt: {$exists: false},
     dataVersion: expectedDataVersion + 1, ...userEpochFilter(epoch)}, {session});
   if (!deleted.deletedCount) throw stale();
-  await appendGuestEvent('DISCARDED', {guestUserId: String(userId), guestGrantedAt: status.startedAt?.toISOString() ?? null,
-    dataVersion: expectedDataVersion, committedAt: authClock.now().toISOString()}, session);
-  return async () => {
-    const transition = await loadChainTransition();
-    if (chain) assertChainDeadline(chain, transition);
-    else if (transition) throw invalid();
-    if (!caller.isValid()) throw invalid();
-  };
 }
 export async function discardGuest(userId: Types.ObjectId, sessionId: Types.ObjectId, expectedDataVersion: number) {
   const authority = await pinGuestAuthority(userId, sessionId);

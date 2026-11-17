@@ -2,7 +2,6 @@ import {createHash, randomBytes} from 'node:crypto';
 import {ClientSession, Types} from 'mongoose';
 import jwt from 'jsonwebtoken';
 import {GuestTrial} from '../models/GuestTrial.model';
-import {User} from '../models/User.model';
 import {AuthSession} from '../models/AuthSession.model';
 import {AppError} from '../common/errors/AppError';
 import {env} from '../config/env';
@@ -10,9 +9,8 @@ import {assertSessionEpoch, loadSessionUser} from './session-fence.service';
 import {assertSessionChain} from './session-chain.service';
 import {authClock} from './auth-clock';
 
-export const GUEST_TRIAL_SECONDS = 10 * 60;
-export const GUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const GUEST_RETENTION_MS = 7 * GUEST_COOLDOWN_MS;
+import {guestTrialStatus, GUEST_TRIAL_SECONDS, GUEST_COOLDOWN_MS} from './guest-retention.service';
+export {guestTrialStatus, GUEST_TRIAL_SECONDS, GUEST_COOLDOWN_MS} from './guest-retention.service';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export class GuestGrantConflict extends AppError {
   readonly data: {serverNow: Date; nextTrialAvailableAt: Date | null};
@@ -24,6 +22,7 @@ export class GuestGrantConflict extends AppError {
 }
 export interface GuestGrantInput {deviceKey: string; requestKey: string; expectedLastGrantAt: string | null}
 export async function grantTrial(input: GuestGrantInput, transaction: ClientSession) {
+  if (env.GUEST_GRANTS_PAUSED) throw new AppError('Guest grants are temporarily paused for recovery.', 503, 'GUEST_GRANTS_PAUSED');
   const deviceHash = hash(input.deviceKey), now = authClock.now();
   const trial = await GuestTrial.findOne({deviceHash}).select('+lastGrantRequestHash').session(transaction);
   if (trial?.lastGrantRequestHash === hash(input.requestKey)) throw new GuestGrantConflict('GUEST_GRANT_ALREADY_COMMITTED', trial.startedAt);
@@ -45,36 +44,6 @@ export async function concurrentGrantConflict(input: GuestGrantInput): Promise<n
   if (!trial) throw new AppError('Không tải được phiên dùng thử.', 503, 'TRIAL_UNAVAILABLE');
   throw new GuestGrantConflict(trial.lastGrantRequestHash === hash(input.requestKey)
     ? 'GUEST_GRANT_ALREADY_COMMITTED' : 'GUEST_GRANT_STALE', trial.startedAt);
-}
-export async function guestTrialStatus(userId: Types.ObjectId, transaction?: ClientSession) {
-  const user = await User.findById(userId).select('isGuest status dataVersion createdAt +guestTrialId +guestGrantedAt').session(transaction ?? null);
-  if (!user || !user.isActive()) throw new AppError('Phiên không còn hợp lệ.', 401, 'AUTH_USER_NOT_FOUND');
-  if (!user.isGuest) return {state: 'unlimited', serverNow: authClock.now(), durationSeconds: GUEST_TRIAL_SECONDS, remainingSeconds: null, expiresAt: undefined, startedAt: undefined};
-  const trial = user.guestTrialId ? await GuestTrial.findById(user.guestTrialId).select('+lastGrantRequestHash').session(transaction ?? null) : null;
-  // A v1 grant invalidates mutable legacy dates; it must never unlock an older bound guest.
-  let legacyGrant: Date | undefined;
-  if (!user.guestGrantedAt && trial?.lastGrantRequestHash === undefined && !trial?.legacyFallbackDisabledAt && trial?.startedAt && +trial.startedAt >= +user.createdAt &&
-      await User.countDocuments({guestTrialId: trial._id}).session(transaction ?? null) === 1) {
-    // A nontransactional status read may straddle discard; re-check the durable evidence after counting.
-    const proven = await GuestTrial.findOne({_id: trial._id, startedAt: trial.startedAt,
-      lastGrantRequestHash: {$exists: false}, legacyFallbackDisabledAt: {$exists: false}}).session(transaction ?? null);
-    if (proven) legacyGrant = trial.startedAt;
-  }
-  const now = authClock.now();
-  const startedAt = user.guestGrantedAt ?? legacyGrant;
-  const expiresAt = startedAt ? new Date(+startedAt + GUEST_TRIAL_SECONDS * 1000) : undefined;
-  const dataRetainedUntil = startedAt ? new Date(+startedAt + GUEST_RETENTION_MS) : null;
-  const nextTrialAvailableAt = trial?.startedAt ? new Date(+trial.startedAt + GUEST_COOLDOWN_MS) : null;
-  const remainingSeconds = expiresAt ? Math.max(0, Math.ceil((+expiresAt - +now) / 1000)) : 0;
-  const dataState = !startedAt ? 'legacy_unknown' : dataRetainedUntil && +now >= +dataRetainedUntil ? 'expired'
-    : remainingSeconds > 0 ? 'trial_active' : 'retained';
-  const allowedActions = ['status', 'auth_me', 'refresh', 'logout'];
-  if (dataState !== 'expired') allowedActions.push('convert');
-  allowedActions.push('discard');
-  if (dataState !== 'legacy_unknown' && nextTrialAvailableAt && +nextTrialAvailableAt <= +now) allowedActions.push('new_trial');
-  return {state: remainingSeconds > 0 ? 'active' : 'expired', serverNow: now, startedAt, expiresAt,
-    durationSeconds: GUEST_TRIAL_SECONDS, remainingSeconds,
-    nextTrialAvailableAt, dataRetainedUntil, dataState, dataVersion: user.dataVersion, allowedActions};
 }
 export async function assertGuestDataRetained(userId: Types.ObjectId, transaction?: ClientSession) {
   const status = await guestTrialStatus(userId, transaction);

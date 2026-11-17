@@ -4,6 +4,9 @@ import {z} from 'zod';
 const id = z.string().regex(/^[a-f0-9]{24}$/), hash = z.string().regex(/^[a-f0-9]{64}$/);
 const base = {eventId: z.string().uuid(), streamEpoch: z.string().uuid(), sequence: z.number().int().positive().safe(), committedAt: z.string().datetime()};
 export const lifecycleEventSchema = z.discriminatedUnion('kind', [
+  z.object({...base, kind: z.literal('EXPIRED_CLEANED'), payload: z.object({guestUserId: id, deadline: z.string().datetime(),
+    deletedAt: z.string().datetime(), reason: z.enum(['ordinary_expired', 'legacy_unknown']),
+    dataVersion: z.number().int().nonnegative().safe()}).strict()}).strict(),
   z.object({...base, kind: z.literal('DISCARDED'), payload: z.object({guestUserId: id, guestGrantedAt: z.string().datetime().nullable(),
     dataVersion: z.number().int().nonnegative().safe(), committedAt: z.string().datetime()}).strict()}).strict(),
   z.object({...base, kind: z.literal('CONVERTED'), payload: z.object({sameUserId: id, guestGrantedAt: z.string().datetime().nullable(),
@@ -14,6 +17,7 @@ export const lifecycleEventSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type LifecyclePayload =
+  | {guestUserId: string; deadline: string; deletedAt: string; reason: 'ordinary_expired' | 'legacy_unknown'; dataVersion: number}
   | {guestUserId: string; guestGrantedAt: string | null; dataVersion: number; committedAt: string}
   | {sameUserId: string; guestGrantedAt: string | null; newEpoch: number; convertedAt: string}
   | {deviceHash: string; lastGrantedAt: string; guestUserId: string; requestHash: string}
@@ -22,7 +26,7 @@ export interface LifecycleEvent {
   eventId: string;
   streamEpoch: string;
   sequence: number;
-  kind: 'DISCARDED' | 'CONVERTED' | 'GRANTED' | 'BARRIER';
+  kind: 'DISCARDED' | 'CONVERTED' | 'GRANTED' | 'BARRIER' | 'EXPIRED_CLEANED';
   committedAt: string;
   payload: LifecyclePayload;
 }
@@ -30,7 +34,7 @@ const outbox = new Schema<LifecycleEvent>({
   eventId: {type: String, required: true, immutable: true, unique: true},
   streamEpoch: {type: String, required: true, immutable: true},
   sequence: {type: Number, required: true, immutable: true},
-  kind: {type: String, enum: ['DISCARDED', 'CONVERTED', 'GRANTED', 'BARRIER'], required: true, immutable: true},
+  kind: {type: String, enum: ['DISCARDED', 'CONVERTED', 'GRANTED', 'BARRIER', 'EXPIRED_CLEANED'], required: true, immutable: true},
   committedAt: {type: String, required: true, immutable: true},
   payload: {type: Schema.Types.Mixed, required: true, immutable: true},
 }, {collection: 'guest_lifecycle_outbox', versionKey: false, strict: 'throw'});

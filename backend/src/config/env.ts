@@ -93,6 +93,9 @@ export const env = {
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
   GUEST_LEDGER_DIRECTORY: process.env.GUEST_LEDGER_DIRECTORY || '',
   GUEST_LEDGER_HMAC_KEY: process.env.GUEST_LEDGER_HMAC_KEY || '',
+  GUEST_CLEANUP_ENABLED: process.env.GUEST_CLEANUP_ENABLED === 'true',
+  // Invalid values keep the recovery gate closed; only absent or literal false opens it.
+  GUEST_GRANTS_PAUSED: process.env.GUEST_GRANTS_PAUSED !== undefined && process.env.GUEST_GRANTS_PAUSED !== 'false',
 
   // Development
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@signvoice.local',

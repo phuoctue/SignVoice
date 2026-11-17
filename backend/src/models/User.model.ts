@@ -220,6 +220,7 @@ UserSchema.index({ 'facebookProvider.providerId': 1 }, { name: 'oauth_facebook_s
 UserSchema.index({ accountType: 1, status: 1 });
 UserSchema.index({ isGuest: 1, createdAt: 1 }); // For guest cleanup jobs
 UserSchema.index({isGuest: 1, guestGrantedAt: 1, _id: 1});
+UserSchema.index({isGuest: 1, _id: 1});
 UserSchema.index({ role: 1 });
 UserSchema.index({ lastLoginAt: -1 }); // For admin dashboard
 

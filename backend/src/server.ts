@@ -14,6 +14,7 @@ import {startNotificationDelivery} from './services/notification.service';
 import {ensureLearningIndexes} from './services/learning-indexes.service';
 import {loadChainTransition} from './services/session-chain.service';
 import {startGuestLedgerExporter} from './services/guest-ledger.service';
+import {startGuestCleanup} from './services/guest-cleanup.service';
 
 /**
  * Start the server
@@ -48,6 +49,7 @@ async function startServer(): Promise<void> {
     app.locals.attachAiUpgrade?.(server);
     const stopNotifications = startNotificationDelivery();
     const guestLedger = await startGuestLedgerExporter();
+    const guestCleanup = startGuestCleanup();
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
@@ -58,6 +60,7 @@ async function startServer(): Promise<void> {
         console.log('✅ HTTP server closed');
         
         try {
+          await guestCleanup.stop();
           await guestLedger.stop();
           await disconnectDatabase();
           console.log('✅ Database disconnected');
