@@ -2,6 +2,7 @@ import {open, stat, unlink, rename, FileHandle} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash, createHmac, randomUUID, timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
+import {hostname} from 'node:os';
 import {z} from 'zod';
 import {LifecycleEvent, lifecycleEventSchema} from '../models/GuestLifecycle.model';
 
@@ -25,7 +26,7 @@ const checkpointSchema = z.object({streamEpoch: z.string().uuid(), sequence: z.n
 }).strict();
 type StoredCheckpoint = z.infer<typeof checkpointSchema>;
 export class GuestLedgerLockError extends Error {
-  constructor() {super('Guest ledger lock is held; an operator must fence the old writer before removing a stale lock');}
+  constructor() {super('Guest ledger lock is held; an operator must fence the old writer before renaming a stale lock');}
 }
 const empty = (streamEpoch: string): StoredCheckpoint => ({streamEpoch, sequence: 0, hash: zeroHash, offset: 0, lastRecordOffset: 0, recent: []});
 const integrity = () => new Error('Ledger integrity: invalid checkpoint, record, chain or HMAC');
@@ -93,9 +94,68 @@ async function writeCheckpoint(filename: string, key: string, checkpoint: Stored
     await unlink(temporary).catch(error => {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;});
   }
 }
-async function acquireLock(directory: string) {
-  try {return await open(path.join(directory, '.guest-ledger.lock'), 'wx', 0o600);}
-  catch (error) {if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new GuestLedgerLockError(); throw error;}
+const lockOwnerSchema = z.object({pid: z.number().int().positive().max(2147483647), hostname: z.string().min(1).max(255),
+  processStart: z.string().datetime().optional(), token: z.string().uuid(), acquiredAt: z.string().datetime()}).strict();
+const processStart = new Date(Date.now() - process.uptime() * 1000).toISOString();
+interface LedgerLock {file: FileHandle; token: string}
+function refuseLock(reason: 'alive' | 'foreign-host' | 'unparsable' | 'contended'): never {
+  console.warn('Guest ledger lock refused: ' + reason);
+  throw new GuestLedgerLockError();
+}
+async function readLockOwner(filename: string) {
+  try {
+    const file = await open(filename, 'r');
+    try {
+      const buffer = Buffer.alloc(1025);
+      let size = 0;
+      while (size < buffer.length) {
+        const {bytesRead} = await file.read(buffer, size, buffer.length - size, size);
+        if (!bytesRead) break;
+        size += bytesRead;
+      }
+      if (size > 1024) return null;
+      return lockOwnerSchema.parse(JSON.parse(buffer.subarray(0, size).toString('utf8')));
+    } finally {await file.close();}
+  } catch {return null;}
+}
+async function createLock(filename: string): Promise<LedgerLock> {
+  const file = await open(filename, 'wx', 0o600), token = randomUUID();
+  try {
+    await file.writeFile(JSON.stringify({pid: process.pid, hostname: hostname(), processStart, token, acquiredAt: new Date().toISOString()}), 'utf8');
+    await file.sync();
+    return {file, token};
+  } catch (error) {await file.close(); throw error;}
+}
+async function acquireLock(directory: string): Promise<LedgerLock> {
+  const filename = path.join(directory, '.guest-ledger.lock');
+  try {return await createLock(filename);}
+  catch (error) {if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;}
+  const owner = await readLockOwner(filename);
+  if (!owner) return refuseLock('unparsable');
+  if (owner.hostname !== hostname()) return refuseLock('foreign-host');
+  let dead = false;
+  try {process.kill(owner.pid, 0);}
+  catch (error) {dead = (error as NodeJS.ErrnoException).code === 'ESRCH';}
+  if (!dead) return refuseLock('alive');
+  // All contenders for this owner reserve the same audit path, so a delayed loser cannot rename a new writer's lock.
+  const stale = filename + '.stale-' + new Date(owner.acquiredAt).toISOString().replace(/[:.]/g, '-') + '-' + owner.token;
+  try {
+    const reservation = await open(stale, 'wx', 0o600);
+    await reservation.close();
+    await rename(filename, stale);
+    await syncDirectory(directory);
+    return await createLock(filename);
+  } catch (error) {
+    if (['EEXIST', 'ENOENT'].includes((error as NodeJS.ErrnoException).code ?? '')) return refuseLock('contended');
+    throw error;
+  }
+}
+async function releaseLock(directory: string, lock: LedgerLock) {
+  await lock.file.close();
+  const filename = path.join(directory, '.guest-ledger.lock');
+  if ((await readLockOwner(filename))?.token === lock.token) {
+    await unlink(filename).catch(error => {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;});
+  }
 }
 function validateConfig(directory: string, key: string, stream: string) {
   z.string().uuid().parse(stream);
@@ -105,7 +165,7 @@ function validateConfig(directory: string, key: string, stream: string) {
 /** Normal reopen verifies only the signed checkpoint anchor and at most one uncertain batch. */
 export class JsonlLedgerSink implements GuestLedgerSink {
   private file?: FileHandle;
-  private lock?: FileHandle;
+  private lock?: LedgerLock;
   private tail: StoredCheckpoint;
   constructor(private readonly directory: string, private readonly hmacKey: string, readonly streamEpoch: string) {
     validateConfig(directory, hmacKey, streamEpoch);
@@ -176,8 +236,8 @@ export class JsonlLedgerSink implements GuestLedgerSink {
     try {await this.file?.close();} finally {
       this.file = undefined;
       if (this.lock) {
-        await this.lock.close(); this.lock = undefined;
-        await unlink(path.join(this.directory, '.guest-ledger.lock'));
+        const lock = this.lock; this.lock = undefined;
+        await releaseLock(this.directory, lock);
       }
     }
   }
@@ -200,5 +260,5 @@ export async function verifyGuestLedger(directory: string, key: string, streamEp
     try {await file.sync();} finally {await file.close();}
     await writeCheckpoint(path.join(directory, streamEpoch + '.checkpoint.json'), key, checkpoint);
     return {sequence: checkpoint.sequence, hash: checkpoint.hash, coveredAt: checkpoint.coveredAt};
-  } finally {await lock.close(); await unlink(path.join(directory, '.guest-ledger.lock'));}
+  } finally {await releaseLock(directory, lock);}
 }

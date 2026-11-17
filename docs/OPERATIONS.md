@@ -260,6 +260,10 @@ function Invoke-GuestOp([string]$Entry, [string[]]$CliArgs) {
 
 Users without a valid credential cannot receive the legacy retention notice; do not claim universal notification. Live logical deletion and media retries do not erase backup copies. Events beyond the last verified watermark remain an honest recovery-loss limit; missing verification, unresolved holds, an unproved writer stop, or a failed session fence keeps the service closed.
 
+## Guest ledger lock recovery
+
+The ledger automatically archives a parseable lock only when its hostname matches this machine and the OS reports its PID absent (`ESRCH`); live or reused PIDs, foreign hosts and unreadable/legacy locks fail closed. For an empty, unparsable or legacy `.guest-ledger.lock`, first verify that **no backend Node process is running from the checkout**, including Task Scheduler/autostart, then rename it to `.guest-ledger.lock.stale-<UTC>-<random>` in the same directory; never delete it. Preserve existing `.stale-*` evidence. A crash during takeover may leave an audit-path reservation and the original lock: after the same process check, archive the original under a fresh name before restarting. SIGINT/SIGTERM already stop the exporter and release its owned lock through the server shutdown path; a hard kill relies on dead-owner recovery.
+
 ## Incidents and rollback
 
 1. Remove `signvoice.id.vn` from the tunnel's public hostname routes for instant
