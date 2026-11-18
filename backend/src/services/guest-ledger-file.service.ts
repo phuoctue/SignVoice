@@ -1,4 +1,4 @@
-import {open, stat, unlink, rename, FileHandle} from 'node:fs/promises';
+import {open, stat, lstat, unlink, rename, FileHandle} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash, createHmac, randomUUID, timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -95,8 +95,8 @@ async function writeCheckpoint(filename: string, key: string, checkpoint: Stored
   }
 }
 const lockOwnerSchema = z.object({pid: z.number().int().positive().max(2147483647), hostname: z.string().min(1).max(255),
+  // Older owner records may still include processStart.
   processStart: z.string().datetime().optional(), token: z.string().uuid(), acquiredAt: z.string().datetime()}).strict();
-const processStart = new Date(Date.now() - process.uptime() * 1000).toISOString();
 interface LedgerLock {file: FileHandle; token: string}
 function refuseLock(reason: 'alive' | 'foreign-host' | 'unparsable' | 'contended'): never {
   console.warn('Guest ledger lock refused: ' + reason);
@@ -119,12 +119,21 @@ async function readLockOwner(filename: string) {
   } catch {return null;}
 }
 async function createLock(filename: string): Promise<LedgerLock> {
-  const file = await open(filename, 'wx', 0o600), token = randomUUID();
+  const token = randomUUID(), file = await open(filename, 'wx', 0o600);
   try {
-    await file.writeFile(JSON.stringify({pid: process.pid, hostname: hostname(), processStart, token, acquiredAt: new Date().toISOString()}), 'utf8');
+    await file.writeFile(JSON.stringify({pid: process.pid, hostname: hostname(), token, acquiredAt: new Date().toISOString()}), 'utf8');
     await file.sync();
     return {file, token};
-  } catch (error) {await file.close(); throw error;}
+  } catch (error) {
+    try {
+      // A failed write may leave no readable token, so compare the file identities.
+      const created = await file.stat({bigint: true}).finally(() => file.close());
+      const current = await lstat(filename, {bigint: true});
+      if (created.ino !== 0n && created.dev === current.dev && created.ino === current.ino &&
+          created.birthtimeNs === current.birthtimeNs) await unlink(filename);
+    } catch { /* Preserve the initialization error if cleanup fails. */ }
+    throw error;
+  }
 }
 async function acquireLock(directory: string): Promise<LedgerLock> {
   const filename = path.join(directory, '.guest-ledger.lock');

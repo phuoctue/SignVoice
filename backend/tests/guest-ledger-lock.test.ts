@@ -40,14 +40,53 @@ it('records an owner and releases its own lock on close', async () => {
   await value.checkpoint();
   const record = JSON.parse(await fs.readFile(lockFile(dir), 'utf8'));
   expect(record).toMatchObject({pid: process.pid, hostname: hostname()});
+  expect(record).not.toHaveProperty('processStart');
   expect(record.token).toMatch(/^[a-f0-9-]{36}$/);
   expect(Number.isNaN(Date.parse(record.acquiredAt))).toBe(false);
   await value.close();
   await expect(fs.stat(lockFile(dir))).rejects.toMatchObject({code: 'ENOENT'});
 });
 
+it.each(['writeFile', 'sync'] as const)('cleans up its lock after an owner %s failure', async method => {
+  const dir = await directory(), value = sink(dir);
+  const actual = await vi.importActual<typeof fs>('node:fs/promises');
+  const failure = Object.assign(new Error('injected lock initialization failure'), {code: 'ENOSPC'});
+  vi.mocked(fs.open).mockImplementation(async (...args) => {
+    const file = await actual.open(...args);
+    if (args[0] === lockFile(dir) && args[1] === 'wx') {
+      vi.spyOn(file, method).mockRejectedValueOnce(failure);
+    }
+    return file;
+  });
+  await expect(value.checkpoint()).rejects.toBe(failure);
+  await expect(fs.lstat(lockFile(dir))).rejects.toMatchObject({code: 'ENOENT'});
+  vi.mocked(fs.open).mockImplementation(actual.open);
+  await expect(value.checkpoint()).resolves.toMatchObject({sequence: 0});
+});
+
+it('preserves a replacement lock after an owner write failure', async () => {
+  const dir = await directory();
+  const actual = await vi.importActual<typeof fs>('node:fs/promises');
+  const replacement = JSON.stringify(owner({pid: process.pid}));
+  const failure = new Error('injected lock write failure');
+  vi.mocked(fs.open).mockImplementation(async (...args) => {
+    const file = await actual.open(...args);
+    if (args[0] === lockFile(dir) && args[1] === 'wx') {
+      vi.spyOn(file, 'writeFile').mockImplementationOnce(async () => {
+        await fs.rename(lockFile(dir), lockFile(dir) + '.moved');
+        await fs.writeFile(lockFile(dir), replacement, {flag: 'wx'});
+        throw failure;
+      });
+    }
+    return file;
+  });
+  await expect(sink(dir).checkpoint()).rejects.toBe(failure);
+  expect(await fs.readFile(lockFile(dir), 'utf8')).toBe(replacement);
+});
+
 it('takes over a dead local owner, keeps its exact record for audit and resumes writes', async () => {
-  const dir = await directory(), stream = randomUUID(), previous = JSON.stringify(owner());
+  const dir = await directory(), stream = randomUUID();
+  const previous = JSON.stringify(owner({processStart: '2026-11-16T00:00:00.000Z'}));
   await fs.writeFile(lockFile(dir), previous);
   const value = sink(dir, stream);
   await value.append([{streamEpoch: stream, sequence: 1, eventId: randomUUID(), kind: 'BARRIER',
