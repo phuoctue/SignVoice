@@ -72,9 +72,11 @@ class GuestDataPanel extends StatefulWidget {
     super.key,
     this.compact = false,
     this.collapsed = false,
+    this.returnRoute,
   });
   final bool compact;
   final bool collapsed;
+  final String? returnRoute;
   @override
   State<GuestDataPanel> createState() => _GuestDataPanelState();
 }
@@ -277,7 +279,10 @@ class _GuestDataPanelState extends State<GuestDataPanel> {
               action(
                 'guest-login',
                 'Đăng nhập tài khoản có sẵn',
-                () => openScreen(context, 'S05'),
+                () => openScreen(
+                  context,
+                  authLocation(returnRoute: widget.returnRoute),
+                ),
               ),
               const Padding(
                 padding: EdgeInsets.only(top: 16),

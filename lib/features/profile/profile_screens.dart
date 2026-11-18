@@ -80,7 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ? 'Nhân viên'
                     : 'Người dùng'),
           ),
-          if (state.guest) const GuestDataPanel(),
+          if (state.guest) const GuestDataPanel(returnRoute: 'S25'),
         ],
       ),
     );
@@ -168,7 +168,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (state.guest)
-            const GuestDataPanel()
+            const GuestDataPanel(returnRoute: 'S25')
           else
             Column(
               children: [

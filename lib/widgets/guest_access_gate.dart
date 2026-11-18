@@ -101,7 +101,7 @@ class _GuestAccessGateState extends State<GuestAccessGate>
               center: true,
             ),
             const SizedBox(height: 20),
-            const GuestDataPanel(),
+            GuestDataPanel(returnRoute: widget.returnRoute),
             const SizedBox(height: 18),
             if (expired && draft.isNotEmpty) ...[
               const Text('Bản nháp của bạn'),

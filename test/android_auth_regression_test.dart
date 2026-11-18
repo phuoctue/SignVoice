@@ -12,6 +12,7 @@ import 'package:sign_voice/features/profile/profile_screens.dart';
 import 'package:sign_voice/models/user_model.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/services/api/api_exception.dart';
+import 'package:sign_voice/widgets/guest_data_panel.dart';
 
 import 'auth_fixtures.dart';
 import 'toast_fixtures.dart';
@@ -19,8 +20,14 @@ import 'toast_fixtures.dart';
 class RetryAuth extends FakeAuthService {
   Completer<void>? pending;
   bool reject = true;
+  UserModel? _guest;
   @override
   Future<UserModel?> restoreSession() async => null;
+  @override
+  Future<UserModel> loginAsGuest() async => _guest = await super.loginAsGuest();
+  @override
+  Future<UserModel> getCurrentUser() async =>
+      _guest ?? await super.getCurrentUser();
   @override
   Future<UserModel> login({
     required String email,
@@ -28,6 +35,7 @@ class RetryAuth extends FakeAuthService {
   }) async {
     await pending?.future;
     if (reject) throw ApiException(message: 'Mật khẩu không đúng.');
+    _guest = null;
     return testUser();
   }
 }
@@ -93,8 +101,11 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text('Đăng nhập'));
-        await tester.tap(find.text('Đăng nhập'));
+        final login = find.byKey(const ValueKey('guest-login'));
+        expect(find.text(guestLoginNotice), findsOneWidget);
+        await tester.ensureVisible(login);
+        await tester.pumpAndSettle();
+        await tester.tap(login);
         await tester.pumpAndSettle();
         expect(
           tester.widget<AuthScreen>(find.byType(AuthScreen)).returnRoute,
@@ -102,9 +113,15 @@ void main() {
         );
         await tester.tap(find.byTooltip('Quay lại'));
         await tester.pumpAndSettle();
-        expect(find.text('Cần tài khoản cá nhân'), findsOneWidget);
+        if (target == 'S25') {
+          expect(find.byType(ProfileScreen), findsOneWidget);
+        } else {
+          expect(find.text('Cần tài khoản cá nhân'), findsOneWidget);
+        }
         expect(auth.user!.isGuest, isTrue);
-        await tester.tap(find.text('Đăng nhập'));
+        await tester.ensureVisible(login);
+        await tester.pumpAndSettle();
+        await tester.tap(login);
         await tester.pumpAndSettle();
         final fields = find.byType(TextFormField);
         await tester.enterText(fields.at(0), 'user@example.com');
@@ -117,6 +134,8 @@ void main() {
           tester.widget<AuthScreen>(find.byType(AuthScreen)).returnRoute,
           target,
         );
+        expect(auth.user!.isGuest, isTrue);
+        await dismissTestToasts(tester);
         service.reject = false;
         await tester.enterText(fields.at(1), 'CorrectPassword2026');
         await tester.ensureVisible(find.byKey(const ValueKey('auth-submit')));
