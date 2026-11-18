@@ -9,6 +9,7 @@ import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 import 'package:sign_voice/widgets/ui.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 class PasswordAuth extends FakeAuthService {
   PasswordAuth(UserRole role) : super(restoredUser: testUser(role: role));
@@ -172,6 +173,11 @@ void main() {
       expect(service.target, '0123456789abcdef01234568');
       expect(auth.isAuthenticated, isTrue);
       expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.text('Đã đặt lại mật khẩu. Người dùng cần đăng nhập lại.'),
+        findsOneWidget,
+      );
+      await dismissTestToasts(tester);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

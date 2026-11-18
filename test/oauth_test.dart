@@ -12,6 +12,7 @@ import 'package:sign_voice/services/api/api_client.dart';
 import 'package:sign_voice/services/auth/auth_service.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 void main() {
   for (final register in [false, true]) {
@@ -62,6 +63,7 @@ void main() {
           findsOneWidget,
         );
         expect(auth.isAuthenticated, isFalse);
+        await dismissTestToasts(tester);
         await tester.pumpWidget(const SizedBox.shrink());
         auth.dispose();
         api.dispose();

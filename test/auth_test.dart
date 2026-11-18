@@ -15,6 +15,7 @@ import 'package:sign_voice/services/api/api_exception.dart';
 import 'package:sign_voice/services/auth/auth_service.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 http.Response success(dynamic data) =>
     http.Response(jsonEncode({'success': true, 'data': data}), 200);
@@ -399,6 +400,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(HomeScreen), findsNothing);
     expect(find.widgetWithText(FilledButton, 'Đăng nhập'), findsOneWidget);
+    expect(find.text('Không thể xác thực. Vui lòng thử lại.'), findsOneWidget);
+    await dismissTestToasts(tester);
     await tester.pumpWidget(const SizedBox.shrink());
     auth.dispose();
   });

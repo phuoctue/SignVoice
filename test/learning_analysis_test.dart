@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sign_voice/app.dart';
 import 'package:sign_voice/core/app_state.dart';
+import 'package:sign_voice/features/learning/collection_screens.dart';
 import 'package:sign_voice/services/api/api_client.dart';
 import 'package:sign_voice/services/api/api_exception.dart';
 import 'package:sign_voice/services/learning/learning_service.dart';
@@ -107,13 +108,19 @@ void main() {
     tester,
   ) async {
     final service = await mountAnalysis(tester);
+    expect(service.analyses, 1);
+    final collections = find.text('Bộ sưu tập');
     await tester.scrollUntilVisible(
-      find.text('Bộ sưu tập'),
+      collections,
       -300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Bộ sưu tập'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(collections.hitTestable(), findsOneWidget);
+    await tester.tap(collections.hitTestable());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(SignCollectionsScreen), findsOneWidget);
     service.response.complete(analysisResult('lm-studio'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Đang học').first);
@@ -183,7 +190,9 @@ void main() {
         -300,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(action);
+      await tester.pump();
+      expect(action.hitTestable(), findsOneWidget);
+      await tester.tap(action.hitTestable());
       await tester.pump();
       expect(service.analyses, 1);
       service.response.complete(analysisResult(source));

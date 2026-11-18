@@ -11,6 +11,7 @@ import 'package:sign_voice/services/api/api_client.dart';
 import 'package:sign_voice/services/auth/auth_service.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 void main() {
   for (final cookie in [false, true]) {
@@ -110,6 +111,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(auth.isAuthenticated, false);
       expect(find.text('Protected home'), findsNothing);
+      expect(
+        find.text('Tạo tài khoản thành công. Hãy đăng nhập để tiếp tục.'),
+        findsOneWidget,
+      );
       expect(find.byType(TextFormField), findsNWidgets(2));
       expect(
         tester
@@ -131,6 +136,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(auth.isAuthenticated, true);
       expect(find.text('Protected home'), findsOneWidget);
+      await dismissTestToasts(tester);
       await tester.pumpWidget(const SizedBox());
       auth.dispose();
     },

@@ -15,6 +15,7 @@ import 'package:sign_voice/services/api/api_exception.dart';
 import 'package:sign_voice/services/learning/learning_service.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 class PendingLoginService extends FakeAuthService {
   final response = Completer<UserModel>();
@@ -185,6 +186,7 @@ void main() {
         'Test1234',
       );
       expect(tester.widget<FilledButton>(login).onPressed, isNotNull);
+      await dismissTestToasts(tester);
     },
   );
 

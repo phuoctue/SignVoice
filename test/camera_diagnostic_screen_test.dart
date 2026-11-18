@@ -11,6 +11,7 @@ import 'package:sign_voice/services/sign_ai/camera_types.dart';
 
 import 'media_permissions_test.dart' show FakeCamera;
 import '../test_browser/tcn180_camera_main.dart' as camera_harness;
+import 'toast_fixtures.dart';
 
 class _Channel implements WebSocketChannel {
   final incoming = StreamController<dynamic>.broadcast();
@@ -188,6 +189,7 @@ void main() {
                 .single
             as Map;
     expect(sentObservation['observation'], measured);
+    await dismissTestToasts(tester);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     for (final camera in cameras) {
@@ -315,6 +317,7 @@ void main() {
     );
     expect(messages.any((m) => m['worker_diagnostic'] != null), isTrue);
     expect(jsonEncode(exported).contains('"token"'), isFalse);
+    await dismissTestToasts(tester);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });

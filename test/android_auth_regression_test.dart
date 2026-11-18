@@ -14,6 +14,7 @@ import 'package:sign_voice/providers/auth_provider.dart';
 import 'package:sign_voice/services/api/api_exception.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 class RetryAuth extends FakeAuthService {
   Completer<void>? pending;
@@ -60,6 +61,7 @@ void main() {
             .toList();
         expect(edits[0].controller!.text, 'user@example.com');
         expect(edits[1].controller!.text, 'WrongPassword2026');
+        await dismissTestToasts(tester);
         service.reject = false;
         service.pending = null;
         await tester.enterText(fields.at(1), 'CorrectPassword2026');

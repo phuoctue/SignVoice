@@ -96,20 +96,33 @@ void main() {
     'camera screen waits for user action and contains no fake result',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(const MaterialApp(home: LiveCameraScreen()));
+      var cameraRequests = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveCameraScreen(
+            cameraFactory: ({required front}) {
+              cameraRequests++;
+              throw StateError('Camera requested without consent');
+            },
+          ),
+        ),
+      );
       await tester.pump();
       expect(find.text('Cho phép camera'), findsOneWidget);
       expect(find.text('Cho phép sử dụng camera'), findsOneWidget);
       expect(find.text('Để sau'), findsOneWidget);
       expect(find.byTooltip('Đổi camera'), findsNothing);
-      expect(find.text('Nhận diện ký hiệu'), findsOneWidget);
+      expect(find.text('Ký hiệu thành giọng nói'), findsOneWidget);
       expect(find.textContaining('Đang xét:'), findsNothing);
       await tester.tap(find.byTooltip('Cài đặt nhận diện'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Nâng cao & chẩn đoán'));
       await tester.pumpAndSettle();
       expect(find.text('Đối chiếu ảnh bằng LM Studio'), findsNothing);
       expect(find.text('Hiện phân tích OpenCV'), findsOneWidget);
       expect(find.textContaining('Demo thành công'), findsNothing);
       expect(find.textContaining('Đã nhận:'), findsNothing);
+      expect(cameraRequests, 0);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
     },

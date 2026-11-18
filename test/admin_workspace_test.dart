@@ -15,6 +15,7 @@ import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 import 'package:sign_voice/services/api/api_client.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 
 AdminWorkspaceService serviceFor(
   Future<http.Response> Function(http.Request) handler,
@@ -433,6 +434,7 @@ void main() {
       expect(deletes, 1);
       expect(find.text('Role đang được gán cho tài khoản'), findsOneWidget);
       expect(find.text('Biên tập viên'), findsOneWidget);
+      await dismissTestToasts(tester);
     },
   );
   for (final resource in ['users', 'dictionary', 'categories', 'sessions']) {

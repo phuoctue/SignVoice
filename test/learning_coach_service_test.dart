@@ -14,8 +14,13 @@ import 'auth_fixtures.dart';
 
 class PendingCoachService extends DemoLearningService {
   final response = Completer<LearningRecord>();
+  int calls = 0;
+
   @override
-  Future<LearningRecord> coach() => response.future;
+  Future<LearningRecord> coach() {
+    calls++;
+    return response.future;
+  }
 }
 
 void main() {
@@ -40,13 +45,17 @@ void main() {
         expect(find.text('Khám phá'), findsOneWidget);
         expect(find.text('Đang học'), findsWidgets);
         expect(find.text('Bộ sưu tập'), findsOneWidget);
+        final coach = find.text('Gợi ý ôn tập');
         await tester.scrollUntilVisible(
-          find.text('Gợi ý ôn tập'),
+          coach,
           300,
           scrollable: find.byType(Scrollable).first,
         );
-        await tester.tap(find.text('Gợi ý ôn tập'));
         await tester.pump();
+        expect(coach.hitTestable(), findsOneWidget);
+        await tester.tap(coach.hitTestable());
+        await tester.pump();
+        expect(service.calls, 1);
         service.response.complete({
           'source': source,
           'advice': 'Ôn lại nhóm từ cần luyện tập.',

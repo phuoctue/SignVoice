@@ -14,6 +14,7 @@ import 'package:sign_voice/services/notifications/notification_service.dart';
 import 'package:sign_voice/services/user/avatar_picker.dart';
 
 import 'auth_fixtures.dart';
+import 'toast_fixtures.dart';
 import 'user_data_integration_test.dart' show UserDataFixture, ok;
 
 const png =
@@ -191,6 +192,7 @@ void main() {
       expect(fixture.savedProfile?['avatarUrl'], '');
       expect(state.avatarUrl, '');
       expect(tester.takeException(), isNull);
+      await dismissTestToasts(tester);
     },
   );
   testWidgets('notification error retries, marks read and opens review', (
@@ -228,6 +230,7 @@ void main() {
       expect(state.studyReminder.enabled, true);
       expect(state.studyReminder.weekdays, isNot(contains(1)));
       expect(fixture.settings['studyReminder']['weekdays'], hasLength(6));
+      await dismissTestToasts(tester);
       await tester.ensureVisible(find.text('Nhắc học theo lịch'));
       await tester.tap(find.text('Nhắc học theo lịch'));
       await tester.ensureVisible(find.text('Lưu cài đặt'));
@@ -236,6 +239,7 @@ void main() {
       expect(state.studyReminder.enabled, false);
       expect(state.notificationsEnabled, true);
       expect(tester.takeException(), isNull);
+      await dismissTestToasts(tester);
     },
   );
 }
