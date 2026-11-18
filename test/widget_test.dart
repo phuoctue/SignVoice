@@ -8,6 +8,7 @@ import 'package:sign_voice/core/navigation.dart';
 import 'package:sign_voice/features/home/home_screen.dart';
 import 'package:sign_voice/features/learning/learning_widgets.dart';
 import 'package:sign_voice/providers/auth_provider.dart';
+import 'package:sign_voice/screens/admin/admin_ui.dart';
 import 'package:sign_voice/services/admin/admin_workspace_service.dart';
 
 import 'auth_fixtures.dart';
@@ -19,11 +20,16 @@ class ChangingDictionaryCategories extends DemoDictionaryService {
   int? lastPage;
   String? lastSearch;
   bool multiPage = false;
+  int categoryLoads = 0;
   @override
-  Future<List<AdminRecord>> activeCategories() async => [
-    ...await super.activeCategories(),
-    {'_id': 'empty', 'name': 'Từ vựng khác', 'wordCount': 0},
-  ].where((category) => !archived || category['_id'] != 'Ăn uống').toList();
+  Future<List<AdminRecord>> activeCategories() async {
+    categoryLoads++;
+    return [
+      ...await super.activeCategories(),
+      {'_id': 'empty', 'name': 'Từ vựng khác', 'wordCount': 0},
+    ].where((category) => !archived || category['_id'] != 'Ăn uống').toList();
+  }
+
   @override
   Future<AdminPageData> published({
     int page = 1,
@@ -60,6 +66,21 @@ Widget dictionaryHarness(
   ),
 );
 
+Future<void> openDictionaryPicker(WidgetTester tester, String label) async {
+  final field = find.byWidgetPredicate(
+    (widget) => widget is AdminSelectField && widget.label == label,
+  );
+  await tester.ensureVisible(field);
+  await tester.tap(field);
+  await tester.pumpAndSettle();
+  expect(find.byKey(const ValueKey('admin-choice-menu')), findsOneWidget);
+}
+
+Finder dictionaryPickerOption(String label) => find.descendant(
+  of: find.byKey(const ValueKey('admin-choice-menu')),
+  matching: find.text(label),
+);
+
 void main() {
   testWidgets(
     'dictionary sort resets page and persists through category and search filters',
@@ -73,33 +94,31 @@ void main() {
           service = ChangingDictionaryCategories()..multiPage = true;
       await tester.pumpWidget(dictionaryHarness(auth, state, service));
       await tester.pumpAndSettle();
-      expect(service.lastSort, 'word_asc');
-      expect(find.text('Từ vựng khác (0)'), findsNothing);
+      expect(service.lastSort, '');
+      expect(find.text('Mới xuất bản'), findsOneWidget);
       await tester.ensureVisible(find.byTooltip('Trang sau'));
       await tester.tap(find.byTooltip('Trang sau'));
       await tester.pumpAndSettle();
       expect(service.lastPage, 2);
-      final sortField = find.byType(DropdownButtonFormField<String>).last;
-      await tester.ensureVisible(sortField);
-      await tester.tap(sortField);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Giảm dần (Z–A)').last);
+      await openDictionaryPicker(tester, 'Sắp xếp');
+      await tester.tap(dictionaryPickerOption('Tên: Z–A'));
       await tester.pumpAndSettle();
       expect(service.lastPage, 1);
       expect(service.lastSort, 'word_desc');
-      await tester.ensureVisible(
-        find.byType(DropdownButtonFormField<String>).first,
+      await openDictionaryPicker(tester, 'Chủ đề');
+      expect(dictionaryPickerOption('Từ vựng khác'), findsNothing);
+      await tester.tap(dictionaryPickerOption('Ăn uống'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('dictionary-search')),
+        'Uống',
       );
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Ăn uống').last);
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'Uống');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(service.lastCategory, 'Ăn uống');
       expect(service.lastSort, 'word_desc');
       expect(service.lastSearch, 'Uống');
+      expect(service.categoryLoads, 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       auth.dispose();
@@ -110,19 +129,34 @@ void main() {
     'dictionary resets a selected topic removed by an administrator',
     (tester) async {
       final auth = await authenticatedProvider();
-      final state = AppState(), service = ChangingDictionaryCategories();
+      final state = AppState(),
+          service = ChangingDictionaryCategories()..multiPage = true;
       await tester.pumpWidget(dictionaryHarness(auth, state, service));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await openDictionaryPicker(tester, 'Sắp xếp');
+      await tester.tap(dictionaryPickerOption('Tên: Z–A'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Ăn uống').last);
+      await openDictionaryPicker(tester, 'Chủ đề');
+      await tester.tap(dictionaryPickerOption('Ăn uống'));
       await tester.pumpAndSettle();
       expect(service.lastCategory, 'Ăn uống');
+      await tester.ensureVisible(find.byTooltip('Trang sau'));
+      await tester.tap(find.byTooltip('Trang sau'));
+      await tester.pumpAndSettle();
+      expect(service.lastPage, 2);
+
       service.archived = true;
-      await tester.tap(find.byTooltip('Làm mới'));
+      final refresh = find.widgetWithText(TextButton, 'Làm mới');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(service.lastCategory, isNull);
+      expect(service.lastPage, 1);
+      expect(service.lastSort, 'word_desc');
+      expect(service.categoryLoads, 2);
+      expect(find.text('Tất cả chủ đề'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Ăn uống'), findsNothing);
       expect(
         find.descendant(
           of: find.byType(GridView),
@@ -148,16 +182,18 @@ void main() {
         dictionaryHarness(auth, state, DemoDictionaryService()),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Ăn uống').last);
+      await openDictionaryPicker(tester, 'Chủ đề');
+      await tester.tap(dictionaryPickerOption('Ăn uống'));
       await tester.pumpAndSettle();
       expect(find.text('Xin chào'), findsNothing);
       expect(
         find.descendant(of: find.byType(GridView), matching: find.text('Uống')),
         findsOneWidget,
       );
-      await tester.enterText(find.byType(TextField).first, 'Uống');
+      await tester.enterText(
+        find.byKey(const ValueKey('dictionary-search')),
+        'Uống',
+      );
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.text('Ăn'), findsNothing);

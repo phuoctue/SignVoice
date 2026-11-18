@@ -576,7 +576,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool refreshCategories = false}) async {
     _debounce?.cancel();
     final request = ++_request, state = AppScope.of(context);
     final epoch = state.accountEpoch;
@@ -586,6 +586,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
         (!state.persisted || state.accountId == null || state.isCurrent(epoch));
     final service = context.read<AdminWorkspaceService>();
     setState(() {
+      if (refreshCategories && !widget.favoritesOnly) {
+        _categoriesLoaded = false;
+      }
       loading = true;
       error = null;
     });
@@ -597,6 +600,11 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
         if (!current()) return;
         topics = categories;
         _categoriesLoaded = true;
+        if (categoryId != null &&
+            !categories.any((topic) => '${topic['_id']}' == categoryId)) {
+          categoryId = null;
+          page = 1;
+        }
       }
       final result = widget.favoritesOnly
           ? await service.favoriteEntries(state.favorites)
@@ -762,7 +770,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                   ],
                 ),
                 TextButton.icon(
-                  onPressed: loading ? null : _load,
+                  onPressed: loading
+                      ? null
+                      : () => _load(refreshCategories: true),
                   icon: const Icon(Icons.refresh, size: 18),
                   label: const Text('Làm mới'),
                 ),
